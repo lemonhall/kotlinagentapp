@@ -6,10 +6,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.config.LlmConfig
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 import com.lsl.kotlin_agent_app.databinding.FragmentSettingsBinding
+import com.lsl.kotlin_agent_app.web.WebViewDataCleaner
+import kotlinx.coroutines.launch
 
 class SettingsFragment : Fragment() {
     private var _binding: FragmentSettingsBinding? = null
@@ -34,6 +37,16 @@ class SettingsFragment : Fragment() {
         binding.inputTavilyUrl.setText(current.tavilyUrl)
         binding.inputTavilyApiKey.setText(current.tavilyApiKey)
         binding.switchWebPreview.isChecked = prefs.getBoolean(AppPrefsKeys.WEB_PREVIEW_ENABLED, false)
+
+        binding.buttonClearWebData.setOnClickListener {
+            binding.buttonClearWebData.isEnabled = false
+            viewLifecycleOwner.lifecycleScope.launch {
+                runCatching { WebViewDataCleaner.clearAll(requireContext().applicationContext) }
+                    .onSuccess { Toast.makeText(requireContext(), "WebView data cleared", Toast.LENGTH_SHORT).show() }
+                    .onFailure { Toast.makeText(requireContext(), "Clear failed: ${it.message}", Toast.LENGTH_SHORT).show() }
+                binding.buttonClearWebData.isEnabled = true
+            }
+        }
 
         binding.buttonSave.setOnClickListener {
             repo.set(

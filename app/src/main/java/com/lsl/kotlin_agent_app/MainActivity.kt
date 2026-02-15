@@ -39,7 +39,8 @@ class MainActivity : AppCompatActivity() {
 
         WebViewControllerProvider.instance.bind(
             webView = binding.webView,
-            urlTextView = binding.textWebUrl,
+            urlEditText = binding.inputWebUrl,
+            goButton = binding.buttonWebGo,
             backButton = binding.buttonWebBack,
             forwardButton = binding.buttonWebForward,
             reloadButton = binding.buttonWebReload,

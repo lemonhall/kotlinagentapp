@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
@@ -44,28 +45,12 @@ class ChatFragment : Fragment() {
         return ComposeView(requireContext()).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
-                val prefs = requireContext().getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
-                val webPreviewEnabledState = androidx.compose.runtime.remember {
-                    mutableStateOf(prefs.getBoolean(AppPrefsKeys.WEB_PREVIEW_ENABLED, false))
-                }
-                DisposableEffect(prefs) {
-                    val listener =
-                        android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-                            if (key == AppPrefsKeys.WEB_PREVIEW_ENABLED) {
-                                webPreviewEnabledState.value =
-                                    prefs.getBoolean(AppPrefsKeys.WEB_PREVIEW_ENABLED, false)
-                            }
-                        }
-                    prefs.registerOnSharedPreferenceChangeListener(listener)
-                    onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
-                }
-
                 val coordinator = androidx.compose.runtime.remember {
                     WebPreviewCoordinator(WebViewControllerProvider.instance)
                 }
-                val webPreviewEnabled = webPreviewEnabledState.value
-                androidx.compose.runtime.LaunchedEffect(webPreviewEnabled) {
-                    if (webPreviewEnabled) coordinator.start() else coordinator.stop()
+                var webPreviewVisible by androidx.compose.runtime.remember { mutableStateOf(false) }
+                androidx.compose.runtime.LaunchedEffect(webPreviewVisible) {
+                    if (webPreviewVisible) coordinator.start() else coordinator.stop()
                 }
                 DisposableEffect(Unit) {
                     onDispose { coordinator.stop() }
@@ -79,8 +64,10 @@ class ChatFragment : Fragment() {
                         onSend = viewModel::sendUserMessage,
                         onClear = viewModel::clearConversation,
                         onStop = viewModel::stopSending,
-                        webPreviewEnabled = webPreviewEnabled,
+                        webPreviewVisible = webPreviewVisible,
                         webPreviewFrame = frame,
+                        onToggleWebPreview = { webPreviewVisible = !webPreviewVisible },
+                        onCloseWebPreview = { webPreviewVisible = false },
                         onOpenWeb = {
                             val bottomNav = activity?.findViewById<BottomNavigationView>(com.lsl.kotlin_agent_app.R.id.nav_view)
                             if (bottomNav != null) {

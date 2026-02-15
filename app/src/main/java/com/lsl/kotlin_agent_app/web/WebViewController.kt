@@ -2,11 +2,14 @@ package com.lsl.kotlin_agent_app.web
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.net.Uri
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ImageButton
+import android.widget.EditText
 import android.widget.TextView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -42,14 +45,19 @@ class WebViewController {
 
     fun bind(
         webView: WebView,
-        urlTextView: TextView,
+        urlEditText: EditText,
+        goButton: ImageButton,
         backButton: ImageButton,
         forwardButton: ImageButton,
         reloadButton: ImageButton,
     ) {
         if (boundWebView === webView) return
         boundWebView = webView
-        ui = UiBindings(urlTextView, backButton, forwardButton, reloadButton)
+        ui = UiBindings(urlEditText, goButton, backButton, forwardButton, reloadButton)
+
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
@@ -94,6 +102,19 @@ class WebViewController {
 
         _state.value = currentSnapshot()
         applyUiState(_state.value)
+
+        fun go() {
+            val input = ui?.urlEditText?.text?.toString().orEmpty().trim()
+            if (input.isBlank()) return
+            webView.loadUrl(normalizeUrl(input))
+            updateState(loading = true)
+        }
+
+        goButton.setOnClickListener { go() }
+        urlEditText.setOnEditorActionListener { _, _, _ ->
+            go()
+            true
+        }
 
         backButton.setOnClickListener {
             val v = boundWebView ?: return@setOnClickListener
@@ -207,10 +228,27 @@ class WebViewController {
             val bh = targetHeight.coerceAtLeast(1)
             val bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
-            canvas.scale(bw.toFloat() / w.toFloat(), bh.toFloat() / h.toFloat())
+            canvas.drawColor(Color.WHITE)
+            val sx = bw.toFloat() / w.toFloat()
+            val sy = bh.toFloat() / h.toFloat()
+            val s = minOf(sx, sy)
+            val dx = (bw - (w * s)) / 2f
+            val dy = (bh - (h * s)) / 2f
+            canvas.translate(dx, dy)
+            canvas.scale(s, s)
             view.draw(canvas)
             bitmap
         }
+
+    suspend fun clearRuntimeData() {
+        withContext(Dispatchers.Main.immediate) {
+            val view = boundWebView ?: return@withContext
+            view.clearHistory()
+            view.clearFormData()
+            view.clearMatches()
+            view.clearCache(true)
+        }
+    }
 
     private fun requireWebView(): WebView {
         return boundWebView ?: error("WebView not bound. Open the Web tab once to initialize.")
@@ -262,11 +300,15 @@ class WebViewController {
         b.backButton.isEnabled = state.canGoBack
         b.forwardButton.isEnabled = state.canGoForward
         val currentUrl = state.url?.takeIf { it.isNotBlank() } ?: "about:blank"
-        b.urlTextView.text = currentUrl
+        if (!b.urlEditText.hasFocus()) {
+            b.urlEditText.setText(currentUrl)
+            b.urlEditText.setSelection(b.urlEditText.text?.length ?: 0)
+        }
     }
 
     private data class UiBindings(
-        val urlTextView: TextView,
+        val urlEditText: EditText,
+        val goButton: ImageButton,
         val backButton: ImageButton,
         val forwardButton: ImageButton,
         val reloadButton: ImageButton,

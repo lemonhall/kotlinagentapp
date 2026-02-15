@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
 import com.lsl.kotlin_agent_app.R
 import com.lsl.kotlin_agent_app.web.WebPreviewFrame
 
@@ -67,8 +69,10 @@ fun ChatScreen(
     onSend: (String) -> Unit,
     onClear: () -> Unit,
     onStop: () -> Unit,
-    webPreviewEnabled: Boolean = false,
+    webPreviewVisible: Boolean = false,
     webPreviewFrame: WebPreviewFrame = WebPreviewFrame(bitmap = null, url = null),
+    onToggleWebPreview: () -> Unit = {},
+    onCloseWebPreview: () -> Unit = {},
     onOpenWeb: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -130,6 +134,8 @@ fun ChatScreen(
         ToolTracePanel(
             traces = uiState.toolTraces,
             onClear = onClear,
+            webPreviewVisible = webPreviewVisible,
+            onToggleWebPreview = onToggleWebPreview,
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -159,10 +165,11 @@ fun ChatScreen(
                 }
             }
 
-            if (webPreviewEnabled) {
+            if (webPreviewVisible) {
                 WebPreviewPiP(
                     frame = webPreviewFrame,
                     onOpenWeb = onOpenWeb,
+                    onClose = onCloseWebPreview,
                     modifier =
                         Modifier
                             .padding(8.dp)
@@ -239,6 +246,7 @@ fun ChatScreen(
 private fun WebPreviewPiP(
     frame: WebPreviewFrame,
     onOpenWeb: () -> Unit,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -258,6 +266,7 @@ private fun WebPreviewPiP(
                     modifier = Modifier.fillMaxSize(),
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = "Web preview",
+                    contentScale = ContentScale.Crop,
                 )
             } else {
                 Box(
@@ -270,6 +279,27 @@ private fun WebPreviewPiP(
                         text = "Web 预览",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Card(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(26.dp),
+                shape = RoundedCornerShape(13.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                IconButton(
+                    modifier = Modifier.fillMaxSize(),
+                    onClick = onClose,
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_close_24),
+                        contentDescription = "Close preview",
+                        tint = MaterialTheme.colorScheme.onError,
                     )
                 }
             }
@@ -302,6 +332,8 @@ private fun WebPreviewPiP(
 private fun ToolTracePanel(
     traces: List<ToolTraceEvent>,
     onClear: () -> Unit,
+    webPreviewVisible: Boolean,
+    onToggleWebPreview: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -326,6 +358,7 @@ private fun ToolTracePanel(
                     if (traces.isNotEmpty()) {
                         TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Less" else "More") }
                     }
+                    TextButton(onClick = onToggleWebPreview) { Text(if (webPreviewVisible) "PreviewWeb:On" else "PreviewWeb:Off") }
                     TextButton(onClick = onClear) { Text("Clear") }
                 }
             }
