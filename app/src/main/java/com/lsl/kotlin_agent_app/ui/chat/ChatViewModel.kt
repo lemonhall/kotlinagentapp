@@ -9,7 +9,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
-import me.lemonhall.openagentic.sdk.runtime.ProviderStreamEvent
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
+import me.lemonhall.openagentic.sdk.events.AssistantDelta
+import me.lemonhall.openagentic.sdk.events.AssistantMessage
+import me.lemonhall.openagentic.sdk.events.Event
+import me.lemonhall.openagentic.sdk.events.HookEvent
+import me.lemonhall.openagentic.sdk.events.Result
+import me.lemonhall.openagentic.sdk.events.RuntimeError
+import me.lemonhall.openagentic.sdk.events.ToolResult
+import me.lemonhall.openagentic.sdk.events.ToolUse
 
 class ChatViewModel(
     private val agent: ChatAgent,
@@ -27,53 +38,24 @@ class ChatViewModel(
 
         val userMessage = ChatMessage(role = ChatRole.User, content = text)
         val assistantMessage = ChatMessage(role = ChatRole.Assistant, content = "")
-        val requestConversation = _uiState.value.messages + userMessage
-
         _uiState.value =
             _uiState.value.copy(
                 isSending = true,
                 errorMessage = null,
                 messages = _uiState.value.messages + userMessage + assistantMessage,
-                toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "openai-responses.stream", summary = "start"),
+                toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "agent.run", summary = "start"),
             )
 
         activeSendJob =
             viewModelScope.launch {
                 try {
-                    agent.streamReply(requestConversation).collect { ev ->
-                        when (ev) {
-                            is ProviderStreamEvent.TextDelta -> {
-                                appendAssistantDelta(assistantMessageId = assistantMessage.id, delta = ev.delta)
-                            }
-
-                            is ProviderStreamEvent.Completed -> {
-                                val finalText = ev.output.assistantText
-                                if (!finalText.isNullOrBlank()) {
-                                    setAssistantContent(assistantMessageId = assistantMessage.id, content = finalText)
-                                }
-                                _uiState.value =
-                                    _uiState.value.copy(
-                                        isSending = false,
-                                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "openai-responses.stream", summary = "completed"),
-                                    )
-                            }
-
-                            is ProviderStreamEvent.Failed -> {
-                                _uiState.value =
-                                    _uiState.value.copy(
-                                        isSending = false,
-                                        errorMessage = ev.message,
-                                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "openai-responses.stream", summary = "failed"),
-                                    )
-                            }
-                        }
-                    }
+                    agent.streamReply(prompt = text).collect { ev -> handleEvent(ev, assistantMessageId = assistantMessage.id) }
                 } catch (t: Throwable) {
                     _uiState.value =
                         _uiState.value.copy(
                             isSending = false,
                             errorMessage = t.message ?: t.toString(),
-                            toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "openai-responses.stream", summary = "exception"),
+                            toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "agent.run", summary = "exception"),
                         )
                 }
             }
@@ -89,6 +71,92 @@ class ChatViewModel(
         activeSendJob = null
         agent.clearSession()
         _uiState.value = ChatUiState()
+    }
+
+    private fun handleEvent(
+        ev: Event,
+        assistantMessageId: String,
+    ) {
+        when (ev) {
+            is AssistantDelta -> {
+                val delta = ev.textDelta
+                if (delta.isNotEmpty()) appendAssistantDelta(assistantMessageId = assistantMessageId, delta = delta)
+            }
+
+            is AssistantMessage -> {
+                val full = ev.text
+                if (full.isNotBlank()) setAssistantContent(assistantMessageId = assistantMessageId, content = full)
+            }
+
+            is ToolUse -> {
+                val inputSummary = summarizeJson(ev.input)
+                val summary =
+                    if (inputSummary.isBlank()) "call_id=${ev.toolUseId}" else "call_id=${ev.toolUseId} $inputSummary"
+                _uiState.value =
+                    _uiState.value.copy(
+                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = ev.name.ifBlank { "Tool" }, summary = summary),
+                    )
+            }
+
+            is ToolResult -> {
+                val summary =
+                    if (ev.isError) {
+                        listOfNotNull(ev.errorType, ev.errorMessage).joinToString(": ").ifBlank { "error" }
+                    } else {
+                        "ok"
+                    }
+                _uiState.value =
+                    _uiState.value.copy(
+                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "↳ ${ev.toolUseId}", summary = summary),
+                    )
+            }
+
+            is HookEvent -> {
+                val sum = listOfNotNull(ev.name.takeIf { it.isNotBlank() }, ev.action).joinToString(" ").ifBlank { "hook" }
+                _uiState.value =
+                    _uiState.value.copy(
+                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "Hook:${ev.hookPoint}", summary = sum),
+                    )
+            }
+
+            is RuntimeError -> {
+                _uiState.value =
+                    _uiState.value.copy(
+                        errorMessage = ev.errorMessage ?: ev.errorType,
+                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "runtime.error", summary = ev.errorType),
+                    )
+            }
+
+            is Result -> {
+                val summary = ev.stopReason ?: "end"
+                val finalText = ev.finalText
+                if (finalText.isNotBlank()) setAssistantContent(assistantMessageId = assistantMessageId, content = finalText)
+                _uiState.value =
+                    _uiState.value.copy(
+                        isSending = false,
+                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "agent.run", summary = summary),
+                    )
+            }
+
+            else -> Unit
+        }
+    }
+
+    private fun summarizeJson(obj: JsonObject?): String {
+        if (obj == null) return ""
+        if (obj.isEmpty()) return ""
+        return obj.entries.joinToString(", ", prefix = "{", postfix = "}") { (k, v) ->
+            val vv =
+                when (v) {
+                    is JsonPrimitive -> v.contentOrShort()
+                    else -> v.toString().take(120)
+                }
+            "$k=$vv"
+        }.take(220)
+    }
+
+    private fun JsonPrimitive.contentOrShort(): String {
+        return if (this.isString) this.content.take(120) else this.content.take(120)
     }
 
     private fun appendAssistantDelta(

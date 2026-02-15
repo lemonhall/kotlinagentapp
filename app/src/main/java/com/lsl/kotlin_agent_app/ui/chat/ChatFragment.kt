@@ -13,14 +13,14 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
-import com.lsl.kotlin_agent_app.agent.OpenAiResponsesChatAgent
+import com.lsl.kotlin_agent_app.agent.OpenAgenticSdkChatAgent
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 
 class ChatFragment : Fragment() {
     private val viewModel: ChatViewModel by viewModels {
         val prefs = requireContext().getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
         val repo = SharedPreferencesLlmConfigRepository(prefs)
-        val agent = OpenAiResponsesChatAgent(repo)
+        val agent = OpenAgenticSdkChatAgent(requireContext(), prefs, repo)
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {

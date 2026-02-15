@@ -6,8 +6,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
-import me.lemonhall.openagentic.sdk.providers.ModelOutput
-import me.lemonhall.openagentic.sdk.runtime.ProviderStreamEvent
+import me.lemonhall.openagentic.sdk.events.AssistantDelta
+import me.lemonhall.openagentic.sdk.events.AssistantMessage
+import me.lemonhall.openagentic.sdk.events.Event
+import me.lemonhall.openagentic.sdk.events.Result
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -24,18 +26,12 @@ class ChatViewModelTest {
     fun sendUserMessage_streamingAppendsDeltaAndFinalText() = runTest {
         val agent =
             object : ChatAgent {
-                override fun streamReply(conversation: List<ChatMessage>): Flow<ProviderStreamEvent> =
+                override fun streamReply(prompt: String): Flow<Event> =
                     flow {
-                        emit(ProviderStreamEvent.TextDelta("A"))
-                        emit(ProviderStreamEvent.TextDelta("B"))
-                        emit(
-                            ProviderStreamEvent.Completed(
-                                ModelOutput(
-                                    assistantText = "AB",
-                                    toolCalls = emptyList(),
-                                ),
-                            ),
-                        )
+                        emit(AssistantDelta(textDelta = "A"))
+                        emit(AssistantDelta(textDelta = "B"))
+                        emit(AssistantMessage(text = "AB"))
+                        emit(Result(finalText = "AB", sessionId = "s"))
                     }
 
                 override fun clearSession() = Unit
@@ -58,7 +54,7 @@ class ChatViewModelTest {
     fun sendUserMessage_whenAgentThrows_setsErrorMessage() = runTest {
         val agent =
             object : ChatAgent {
-                override fun streamReply(conversation: List<ChatMessage>): Flow<ProviderStreamEvent> {
+                override fun streamReply(prompt: String): Flow<Event> {
                     throw IllegalArgumentException("api_key 未配置")
                 }
 
@@ -77,7 +73,7 @@ class ChatViewModelTest {
     fun sendUserMessage_ignoresBlankInput() = runTest {
         val agent =
             object : ChatAgent {
-                override fun streamReply(conversation: List<ChatMessage>): Flow<ProviderStreamEvent> = flow { }
+                override fun streamReply(prompt: String): Flow<Event> = flow { }
 
                 override fun clearSession() = Unit
             }
@@ -94,10 +90,11 @@ class ChatViewModelTest {
         var cleared = false
         val agent =
             object : ChatAgent {
-                override fun streamReply(conversation: List<ChatMessage>): Flow<ProviderStreamEvent> =
+                override fun streamReply(prompt: String): Flow<Event> =
                     flow {
-                        emit(ProviderStreamEvent.TextDelta("X"))
-                        emit(ProviderStreamEvent.Completed(ModelOutput(assistantText = "X", toolCalls = emptyList())))
+                        emit(AssistantDelta(textDelta = "X"))
+                        emit(AssistantMessage(text = "X"))
+                        emit(Result(finalText = "X", sessionId = "s"))
                     }
 
                 override fun clearSession() {
