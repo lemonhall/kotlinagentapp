@@ -25,6 +25,7 @@
 - 密钥与敏感数据不得提交到 git；日志需打码/截断。
 - 文件操作默认仅限 App 私有目录；删除必须二次确认。
 - 采用混合 UI：**Chat 页使用 Compose**；其余页面先沿用 Fragment + XML（可逐步迁移）。
+- 模型供应商仅支持流式：Chat 的主调用路径必须支持 **OpenAI Responses API 风格的 SSE 流式输出**（见 ECN-0001）。
 
 ## Requirements（Req IDs）
 
@@ -34,6 +35,11 @@
   - Acceptance：
     - 发送后列表新增一条 user 消息；
     - 收到回复后列表新增一条 assistant 消息（MVP 可先用 echo/mock）。
+- REQ-0001-004：Chat 必须支持流式输出（OpenAI Responses API 风格 SSE），并以流式为默认路径（ECN-0001）。
+  - Acceptance：
+    - 发送后 assistant 气泡先出现占位；
+    - SSE delta 到达时，assistant 气泡内容持续增量更新；
+    - `response.completed` 到达后，assistant 气泡内容与最终文本一致（不要求额外再发一条消息）。
 - REQ-0001-002：Chat 页显示“工具调用轨迹”的占位区（MVP 为静态/模拟事件，后续接 SDK）。
   - Acceptance：当产生 tool 事件时，UI 能展示事件名称与简要结果（可折叠）。
 - REQ-0001-003：对话状态具备基本错误处理与重试入口（MVP：失败提示 + 重新发送）。
@@ -77,4 +83,3 @@
 1. `openagentic-sdk-kotlin` 集成方式：Maven 坐标 / composite build / git submodule？
 2. 模型接口形态：OpenAI Chat Completions 还是 Responses？默认模型名是什么？
 3. Tool/Skill 目录的规范（manifest 格式、安装来源：本地 zip / git / registry）？
-

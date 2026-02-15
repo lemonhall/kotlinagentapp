@@ -18,15 +18,55 @@ android {
     }
 
     buildTypes {
+        val dotenv: Map<String, String> =
+            run {
+                val envFile = rootProject.file(".env")
+                if (!envFile.exists()) return@run emptyMap()
+
+                val out = linkedMapOf<String, String>()
+                envFile.readLines(Charsets.UTF_8).forEach { rawLine ->
+                    val line = rawLine.trim()
+                    if (line.isBlank() || line.startsWith("#")) return@forEach
+                    val idx = line.indexOf('=')
+                    if (idx <= 0) return@forEach
+                    val key = line.substring(0, idx).trim()
+                    var value = line.substring(idx + 1).trim()
+                    if (value.startsWith("\"") && value.endsWith("\"") && value.length >= 2) {
+                        value = value.substring(1, value.length - 1)
+                    }
+                    out[key] = value
+                }
+                out
+            }
+
+        fun escapedForBuildConfig(value: String): String {
+            return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+        }
+
         release {
             isMinifyEnabled = false
+            buildConfigField("String", "DEFAULT_OPENAI_BASE_URL", "\"\"")
+            buildConfigField("String", "DEFAULT_OPENAI_API_KEY", "\"\"")
+            buildConfigField("String", "DEFAULT_MODEL", "\"\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+        debug {
+            val baseUrl = dotenv["OPENAI_BASE_URL"].orEmpty()
+            val apiKey = dotenv["OPENAI_API_KEY"].orEmpty()
+            val model = dotenv["MODEL"].orEmpty()
+            buildConfigField("String", "DEFAULT_OPENAI_BASE_URL", "\"${escapedForBuildConfig(baseUrl)}\"")
+            buildConfigField("String", "DEFAULT_OPENAI_API_KEY", "\"${escapedForBuildConfig(apiKey)}\"")
+            buildConfigField("String", "DEFAULT_MODEL", "\"${escapedForBuildConfig(model)}\"")
+        }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
@@ -36,6 +76,7 @@ android {
     buildFeatures {
         viewBinding = true
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
@@ -47,6 +88,10 @@ android {
 
 dependencies {
 
+    implementation("me.lemonhall.openagentic:openagentic-sdk-kotlin:0.1.0-SNAPSHOT")
+
+    coreLibraryDesugaring(libs.android.desugar.jdk.libs)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
@@ -56,6 +101,7 @@ dependencies {
     implementation(libs.androidx.navigation.fragment.ktx)
     implementation(libs.androidx.navigation.ui.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)

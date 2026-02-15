@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +16,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +30,7 @@ import androidx.compose.ui.unit.dp
 fun ChatScreen(
     uiState: ChatUiState,
     onSend: (String) -> Unit,
+    onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var inputText by remember { mutableStateOf("") }
@@ -34,11 +38,28 @@ fun ChatScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .navigationBarsPadding()
+            .imePadding()
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (uiState.errorMessage != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Text(
+                    modifier = Modifier.padding(12.dp),
+                    text = uiState.errorMessage,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+
         ToolTracePanel(
             traces = uiState.toolTraces,
+            onClear = onClear,
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -69,7 +90,9 @@ fun ChatScreen(
                 enabled = !uiState.isSending,
                 onClick = {
                     val toSend = inputText
-                    inputText = ""
+                    if (toSend.isNotBlank()) {
+                        inputText = ""
+                    }
                     onSend(toSend)
                 },
             ) {
@@ -82,6 +105,7 @@ fun ChatScreen(
 @Composable
 private fun ToolTracePanel(
     traces: List<ToolTraceEvent>,
+    onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -89,10 +113,17 @@ private fun ToolTracePanel(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "Tool Trace (${traces.size})",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "Tool Trace (${traces.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                TextButton(onClick = onClear) { Text("Clear") }
+            }
             if (traces.isEmpty()) {
                 Text(
                     text = "No tool calls yet.",
@@ -116,15 +147,18 @@ private fun MessageBubble(
     modifier: Modifier = Modifier,
 ) {
     val isUser = message.role == ChatRole.User
-    val bg = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
-    val fg = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+    val bg = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
     val align = if (isUser) Alignment.End else Alignment.Start
 
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = align,
     ) {
-        Card(colors = CardDefaults.cardColors(containerColor = bg)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(0.88f),
+            colors = CardDefaults.cardColors(containerColor = bg),
+        ) {
             Text(
                 modifier = Modifier.padding(12.dp),
                 text = message.content,
@@ -134,4 +168,3 @@ private fun MessageBubble(
         }
     }
 }
-

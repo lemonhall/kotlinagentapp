@@ -54,6 +54,7 @@ UI (Chat/Files/Settings)
 
 - **禁止提交 secrets**：任何 `api_key`、第三方 tool key、证书、私钥、keystore 都不得提交到 git。
   - 替代：仅本地存放（DataStore/EncryptedSharedPreferences/环境变量），并确保日志打码。
+- **本地 `.env` 仅用于 Debug**：仓库根目录 `.env` 已 gitignore；Debug 构建会读取其中的 `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`MODEL` 作为默认配置注入到本机 App 存储，严禁把真实密钥提交或分发 Debug APK。
 - **不要修改/提交本机路径配置**：`local.properties` 属于本机 Android SDK 路径配置。
 - **谨慎删除**：涉及 `Remove-Item -Recurse -Force`、批量删除、清空目录前先确认；优先用更小范围删除。
 - **避免改动生成产物**：不要手改 `build/`、`.gradle/` 等生成目录内容；需要清理用 Gradle/IDE 的 clean。

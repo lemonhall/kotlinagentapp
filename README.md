@@ -31,6 +31,18 @@ Android 端的聊天型 Agent 应用（起步工程），目标是接入 `openag
 
 > 运行到真机/模拟器通常通过 Android Studio；如需命令行安装：`.\gradlew.bat :app:installDebug`（需要已连接设备/已启动模拟器）。
 
+## 本地 .env（仅 Debug：免手填配置）
+
+仓库根目录支持放置本地 `.env`（已在 `.gitignore` 中忽略），Debug 构建会把其中的默认值注入到 App 的本地配置（仅用于本机测试）。
+
+示例（不要提交真实密钥）：
+
+```env
+OPENAI_API_KEY="..."
+OPENAI_BASE_URL="https://example.com/v1"
+MODEL="gpt-5.2"
+```
+
 ## 目录结构（当前）
 
 - `app/`：Android 应用模块（当前为模板代码）
