@@ -1,6 +1,7 @@
 package com.lsl.kotlin_agent_app.agent
 
 import android.content.Context
+import com.lsl.kotlin_agent_app.BuildConfig
 import java.io.File
 
 data class AgentsDirEntry(
@@ -26,13 +27,15 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents/sessions")
 
         // Best-effort: missing asset must not break the rest.
-        installBundledSkillIfMissing("hello-world", "builtin_skills/hello-world/SKILL.md")
-        installBundledSkillIfMissing("skill-creator", "builtin_skills/skill-creator/SKILL.md")
-        installBundledSkillIfMissing("brainstorming", "builtin_skills/brainstorming/SKILL.md")
-        installBundledSkillIfMissing("find-skills", "builtin_skills/find-skills/SKILL.md")
-        installBundledSkillIfMissing("deep-research", "builtin_skills/deep-research/SKILL.md")
+        // In Debug builds, keep bundled skills synced to avoid stale/partial copies across app reinstalls.
+        val overwrite = BuildConfig.DEBUG
+        installBundledSkillDir(name = "hello-world", assetDir = "builtin_skills/hello-world", overwrite = overwrite)
+        installBundledSkillDir(name = "skill-creator", assetDir = "builtin_skills/skill-creator", overwrite = overwrite)
+        installBundledSkillDir(name = "brainstorming", assetDir = "builtin_skills/brainstorming", overwrite = overwrite)
+        installBundledSkillDir(name = "find-skills", assetDir = "builtin_skills/find-skills", overwrite = overwrite)
+        installBundledSkillDir(name = "deep-research", assetDir = "builtin_skills/deep-research", overwrite = overwrite)
 
-        installBundledFileIfMissing(".agents/sessions/README.md", "builtin_sessions/README.md")
+        installBundledFile(targetPath = ".agents/sessions/README.md", assetPath = "builtin_sessions/README.md", overwrite = overwrite)
     }
 
     fun listDir(path: String): List<AgentsDirEntry> {
@@ -99,16 +102,23 @@ class AgentsWorkspace(
         if (!f.exists()) f.mkdirs()
     }
 
-    private fun installBundledSkillIfMissing(name: String, assetPath: String) {
+    private fun installBundledSkillDir(
+        name: String,
+        assetDir: String,
+        overwrite: Boolean,
+    ) {
         val skillDir = ".agents/skills/$name"
-        val skillFile = "$skillDir/SKILL.md"
         mkdirsIfMissing(skillDir)
-        installBundledFileIfMissing(skillFile, assetPath)
+        installBundledDir(targetDir = skillDir, assetDir = assetDir, overwrite = overwrite)
     }
 
-    private fun installBundledFileIfMissing(targetPath: String, assetPath: String) {
+    private fun installBundledFile(
+        targetPath: String,
+        assetPath: String,
+        overwrite: Boolean,
+    ) {
         val target = resolveAgentsPath(targetPath)
-        if (target.exists() && target.isFile) return
+        if (!overwrite && target.exists() && target.isFile) return
         try {
             val parent = target.parentFile
             if (parent != null && !parent.exists()) parent.mkdirs()
@@ -117,6 +127,50 @@ class AgentsWorkspace(
             }
         } catch (_: Throwable) {
             // best-effort
+        }
+    }
+
+    private fun installBundledDir(
+        targetDir: String,
+        assetDir: String,
+        overwrite: Boolean,
+    ) {
+        try {
+            copyAssetDirRecursive(assetDir = assetDir.trim('/'), targetDir = targetDir.trimEnd('/'), overwrite = overwrite)
+        } catch (_: Throwable) {
+            // best-effort
+        }
+    }
+
+    private fun copyAssetDirRecursive(
+        assetDir: String,
+        targetDir: String,
+        overwrite: Boolean,
+    ) {
+        val items = appContext.assets.list(assetDir).orEmpty()
+        for (name in items) {
+            if (name.isBlank()) continue
+            val childAsset = "$assetDir/$name"
+            val childTarget = "$targetDir/$name"
+            val children = appContext.assets.list(childAsset).orEmpty()
+            if (children.isNotEmpty()) {
+                mkdirsIfMissing(childTarget)
+                copyAssetDirRecursive(assetDir = childAsset, targetDir = childTarget, overwrite = overwrite)
+            } else {
+                val isFile =
+                    try {
+                        appContext.assets.open(childAsset).use { }
+                        true
+                    } catch (_: Throwable) {
+                        false
+                    }
+                if (isFile) {
+                    installBundledFile(targetPath = childTarget, assetPath = childAsset, overwrite = overwrite)
+                } else {
+                    // Some asset packs contain empty directories; preserve them best-effort.
+                    mkdirsIfMissing(childTarget)
+                }
+            }
         }
     }
 
@@ -137,4 +191,3 @@ class AgentsWorkspace(
         return target
     }
 }
-

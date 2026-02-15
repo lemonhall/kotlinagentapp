@@ -285,12 +285,23 @@ private fun MessageBubble(
             border = BorderStroke(1.dp, borderColor),
             shape = shape,
         ) {
-            Text(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                text = message.content,
-                color = fg,
-                style = MaterialTheme.typography.bodyLarge,
-            )
+            val pad = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+            if (!isUser && message.role == ChatRole.Assistant) {
+                val fontSize = MaterialTheme.typography.bodyLarge.fontSize.value.takeIf { it > 0f } ?: 16f
+                MarkdownText(
+                    modifier = pad,
+                    markdown = message.content,
+                    color = fg,
+                    textSizeSp = fontSize,
+                )
+            } else {
+                Text(
+                    modifier = pad,
+                    text = message.content,
+                    color = fg,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
         }
     }
 }

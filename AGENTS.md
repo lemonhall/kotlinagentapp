@@ -9,6 +9,7 @@
 - 前置：安装 Android SDK Platform 35（当前 `compileSdk=35`）
 - Install deps / Sync: `.\gradlew.bat --version`（确认 wrapper 可用；依赖会在首次构建自动下载）
 - Build (debug): `.\gradlew.bat :app:assembleDebug`
+- Install to device (debug): `.\gradlew.bat :app:installDebug`（需要 `adb devices` 可看到真机/模拟器）
 - Lint: `.\gradlew.bat :app:lintDebug`
 - Test (unit): `.\gradlew.bat :app:testDebugUnitTest`
 - Test (instrumented): `.\gradlew.bat :app:connectedDebugAndroidTest`（需要已启动模拟器或连接真机）
@@ -58,6 +59,7 @@ UI (Chat/Files/Settings)
 - **不要修改/提交本机路径配置**：`local.properties` 属于本机 Android SDK 路径配置。
 - **谨慎删除**：涉及 `Remove-Item -Recurse -Force`、批量删除、清空目录前先确认；优先用更小范围删除。
 - **避免改动生成产物**：不要手改 `build/`、`.gradle/` 等生成目录内容；需要清理用 Gradle/IDE 的 clean。
+- **功能改动后默认装机验证**：每一次“成功的功能修改”（行为/界面/交互变化，且本地相关测试通过）后，默认执行 `.\gradlew.bat :app:installDebug` 安装到已连接真机/模拟器进行冒烟验证；不要等用户提醒。
 
 ### Proxy（中国大陆网络环境）
 

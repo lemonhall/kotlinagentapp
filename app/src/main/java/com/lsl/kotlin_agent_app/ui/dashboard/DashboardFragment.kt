@@ -4,6 +4,9 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.util.TypedValue
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -11,6 +14,8 @@ import androidx.appcompat.app.AlertDialog
 import com.lsl.kotlin_agent_app.agent.AgentsDirEntryType
 import com.lsl.kotlin_agent_app.databinding.FragmentDashboardBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.color.MaterialColors
+import com.lsl.kotlin_agent_app.ui.markdown.MarkwonProvider
 
 class DashboardFragment : Fragment() {
 
@@ -22,6 +27,8 @@ class DashboardFragment : Fragment() {
 
     private var editorDialog: AlertDialog? = null
     private var editorDialogPath: String? = null
+    private var editorDialogKind: EditorDialogKind? = null
+    private var suppressCloseOnDismissOnce: Boolean = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -77,11 +84,37 @@ class DashboardFragment : Fragment() {
 
             val openPath = st.openFilePath
             val openText = st.openFileText
-            if (!openPath.isNullOrBlank() && openText != null && (editorDialog?.isShowing != true || editorDialogPath != openPath)) {
-                showEditor(openPath, openText) { action ->
-                    when (action) {
-                        is EditorAction.Save -> filesViewModel.saveEditor(action.text)
-                        EditorAction.Close -> filesViewModel.closeEditor()
+            if (!openPath.isNullOrBlank() && openText != null) {
+                val desiredKind = if (isMarkdownPath(openPath)) EditorDialogKind.MarkdownPreview else EditorDialogKind.PlainEditor
+                val shouldShow =
+                    (editorDialog?.isShowing != true) ||
+                        (editorDialogPath != openPath) ||
+                        (editorDialogKind != desiredKind)
+
+                if (shouldShow) {
+                    if (desiredKind == EditorDialogKind.MarkdownPreview) {
+                        showMarkdownPreview(openPath, openText) { action ->
+                            when (action) {
+                                EditorAction.Edit -> showEditor(openPath, openText) { editor ->
+                                    when (editor) {
+                                        is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
+                                        EditorAction.Close -> filesViewModel.closeEditor()
+                                        else -> Unit
+                                    }
+                                }
+
+                                EditorAction.Close -> filesViewModel.closeEditor()
+                                else -> Unit
+                            }
+                        }
+                    } else {
+                        showEditor(openPath, openText) { action ->
+                            when (action) {
+                                is EditorAction.Save -> filesViewModel.saveEditor(action.text)
+                                EditorAction.Close -> filesViewModel.closeEditor()
+                                else -> Unit
+                            }
+                        }
                     }
                 }
             }
@@ -108,6 +141,7 @@ class DashboardFragment : Fragment() {
 
     private sealed class EditorAction {
         data class Save(val text: String) : EditorAction()
+        data object Edit : EditorAction()
         data object Close : EditorAction()
     }
 
@@ -118,7 +152,10 @@ class DashboardFragment : Fragment() {
             setHorizontallyScrolling(false)
             minLines = 12
         }
-        editorDialog?.dismiss()
+        if (editorDialog?.isShowing == true) {
+            suppressCloseOnDismissOnce = true
+            editorDialog?.dismiss()
+        }
         val dialog =
             MaterialAlertDialogBuilder(requireContext())
             .setTitle(path)
@@ -126,14 +163,64 @@ class DashboardFragment : Fragment() {
             .setNegativeButton("关闭") { _, _ -> onAction(EditorAction.Close) }
             .setPositiveButton("保存") { _, _ -> onAction(EditorAction.Save(input.text?.toString().orEmpty())) }
             .create()
-        dialog.setOnDismissListener {
-            editorDialog = null
-            editorDialogPath = null
-            onAction(EditorAction.Close)
-        }
+        dialog.setOnDismissListener { handleDialogDismiss(onAction, closeAction = EditorAction.Close) }
         editorDialog = dialog
         editorDialogPath = path
+        editorDialogKind = EditorDialogKind.PlainEditor
         dialog.show()
+    }
+
+    private enum class EditorDialogKind {
+        PlainEditor,
+        MarkdownPreview,
+    }
+
+    private fun showMarkdownPreview(path: String, text: String, onAction: (EditorAction) -> Unit) {
+        val tv =
+            TextView(requireContext()).apply {
+                setTextIsSelectable(true)
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15.5f)
+                setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, android.graphics.Color.BLACK))
+            }
+        MarkwonProvider.get(requireContext()).setMarkdown(tv, text)
+        val scroll = ScrollView(requireContext()).apply { addView(tv) }
+
+        if (editorDialog?.isShowing == true) {
+            suppressCloseOnDismissOnce = true
+            editorDialog?.dismiss()
+        }
+        val dialog =
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(path)
+                .setView(scroll)
+                .setNegativeButton("关闭") { _, _ -> onAction(EditorAction.Close) }
+                .setPositiveButton("编辑") { _, _ -> onAction(EditorAction.Edit) }
+                .create()
+        dialog.setOnDismissListener { handleDialogDismiss(onAction, closeAction = EditorAction.Close) }
+        editorDialog = dialog
+        editorDialogPath = path
+        editorDialogKind = EditorDialogKind.MarkdownPreview
+        dialog.show()
+    }
+
+    private fun handleDialogDismiss(onAction: (EditorAction) -> Unit, closeAction: EditorAction) {
+        val suppressed = suppressCloseOnDismissOnce
+        suppressCloseOnDismissOnce = false
+        editorDialog = null
+        editorDialogPath = null
+        editorDialogKind = null
+        if (!suppressed) onAction(closeAction)
+    }
+
+    private fun isMarkdownPath(path: String): Boolean {
+        val p = path.lowercase()
+        return p.endsWith(".md") || p.endsWith(".markdown")
+    }
+
+    private fun dp(value: Int): Int {
+        val d = resources.displayMetrics.density
+        return (value * d).toInt()
     }
 
     private fun displayCwd(cwd: String): String {
