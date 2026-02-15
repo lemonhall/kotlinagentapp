@@ -3,4 +3,5 @@
     <string name="title_home">Chat</string>
     <string name="title_dashboard">Files</string>
     <string name="title_notifications">Settings</string>
+    <string name="title_web">Web</string>
 </resources>

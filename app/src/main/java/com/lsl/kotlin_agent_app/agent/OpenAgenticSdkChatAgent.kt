@@ -30,6 +30,7 @@ import me.lemonhall.openagentic.sdk.tools.ToolRegistry
 import me.lemonhall.openagentic.sdk.tools.WebFetchTool
 import me.lemonhall.openagentic.sdk.tools.WebSearchTool
 import me.lemonhall.openagentic.sdk.tools.WriteTool
+import com.lsl.kotlin_agent_app.agent.tools.WebViewTool
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -78,6 +79,7 @@ class OpenAgenticSdkChatAgent(
                         endpoint = buildTavilySearchEndpoint(config.tavilyUrl),
                         apiKeyProvider = { config.tavilyApiKey.trim().ifEmpty { null } },
                     ),
+                    WebViewTool(),
                 ),
             )
 
@@ -128,7 +130,19 @@ class OpenAgenticSdkChatAgent(
                 cwd = rootPath,
                 projectDir = rootPath,
                 tools = tools,
-                allowedTools = setOf("Read", "Write", "Edit", "List", "Glob", "Grep", "Skill", "WebFetch", "WebSearch"),
+                allowedTools =
+                    setOf(
+                        "Read",
+                        "Write",
+                        "Edit",
+                        "List",
+                        "Glob",
+                        "Grep",
+                        "Skill",
+                        "WebFetch",
+                        "WebSearch",
+                        "WebView",
+                    ),
                 hookEngine = hookEngine,
                 sessionStore = sessionStore,
                 resumeSessionId = sessionId,
@@ -173,6 +187,7 @@ class OpenAgenticSdkChatAgent(
             
             当需要操作文件或加载技能时，优先使用工具：Read / Write / Edit / List / Glob / Grep / Skill。
             当需要查询或抓取网页信息时，使用：WebSearch / WebFetch（也可理解为 web_search / web_fetch）。
+            当需要在 App 内驱动内置 WebView 浏览网页时，使用：WebView（goto/run_script/get_dom/get_state/back/forward/reload）。
         """.trimIndent()
     }
 

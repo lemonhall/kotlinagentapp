@@ -22,4 +22,10 @@
         android:name="com.lsl.kotlin_agent_app.ui.settings.SettingsFragment"
         android:label="@string/title_notifications"
         tools:layout="@layout/fragment_settings" />
+
+    <fragment
+        android:id="@+id/navigation_web"
+        android:name="com.lsl.kotlin_agent_app.ui.web.WebFragment"
+        android:label="@string/title_web"
+        tools:layout="@layout/fragment_web" />
 </navigation>

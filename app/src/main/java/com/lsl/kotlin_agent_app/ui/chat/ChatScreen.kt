@@ -3,6 +3,7 @@ package com.lsl.kotlin_agent_app.ui.chat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,9 +14,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -48,11 +52,13 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.lsl.kotlin_agent_app.R
+import com.lsl.kotlin_agent_app.web.WebPreviewFrame
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -61,6 +67,9 @@ fun ChatScreen(
     onSend: (String) -> Unit,
     onClear: () -> Unit,
     onStop: () -> Unit,
+    webPreviewEnabled: Boolean = false,
+    webPreviewFrame: WebPreviewFrame = WebPreviewFrame(bitmap = null, url = null),
+    onOpenWeb: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var inputText by remember { mutableStateOf("") }
@@ -124,23 +133,41 @@ fun ChatScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = {
-                            focusManager.clearFocus(force = true)
-                            keyboardController?.hide()
-                        },
-                    )
-                },
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Box(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
         ) {
-            items(uiState.messages) { message ->
-                MessageBubble(message = message)
+            LazyColumn(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    focusManager.clearFocus(force = true)
+                                    keyboardController?.hide()
+                                },
+                            )
+                        },
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(uiState.messages) { message ->
+                    MessageBubble(message = message)
+                }
+            }
+
+            if (webPreviewEnabled) {
+                WebPreviewPiP(
+                    frame = webPreviewFrame,
+                    onOpenWeb = onOpenWeb,
+                    modifier =
+                        Modifier
+                            .padding(8.dp)
+                            .align(Alignment.TopEnd),
+                )
             }
         }
 
@@ -203,6 +230,69 @@ fun ChatScreen(
                         tint = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebPreviewPiP(
+    frame: WebPreviewFrame,
+    onOpenWeb: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier =
+            modifier
+                .width(220.dp)
+                .height(132.dp)
+                .clickable(onClick = onOpenWeb),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            val bmp = frame.bitmap
+            if (bmp != null) {
+                Image(
+                    modifier = Modifier.fillMaxSize(),
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = "Web preview",
+                )
+            } else {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(12.dp),
+                ) {
+                    Text(
+                        text = "Web 预览",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            val url = frame.url?.takeIf { it.isNotBlank() } ?: "about:blank"
+            Card(
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(),
+                shape = RoundedCornerShape(0.dp),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                    ),
+            ) {
+                Text(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    text = url,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
     }

@@ -69,14 +69,29 @@
 
 ### WebView（未来能力预留）
 
-- REQ-0001-050：为 WebView 自动化预留模块/接口与导航入口（MVP 不实现实际自动化）。
+- REQ-0001-050：提供 Web 页签（BottomNavigation 第 4 项）展示一个持久化 WebView（在不同页签切换时不销毁、不断流）。
+  - Acceptance：
+    - BottomNavigation 出现 `Web` 页签；
+    - Web 页签可展示 WebView 并支持基础手动操作（返回/前进/刷新）；
+    - 从 Web 切到 Chat 再切回 Web：页面不重置（URL/History 仍在）。
+- REQ-0001-051：Agent 可通过单一工具 `WebView` 驱动该 WebView（语义收敛，一个工具多 action）。
+  - Scope：仅允许在 App 内 WebView 中导航/执行脚本/读取 DOM；不做账号登录态托管、不做跨应用跳转。
+  - Acceptance：
+    - `WebView` 工具至少支持：`goto`、`run_script`、`get_dom`、`get_state`、`back`、`forward`、`reload`；
+    - 工具调用在后台线程发起，但 UI 操作在主线程安全执行（不触发 `NetworkOnMainThreadException` 等崩溃）；
+    - 失败时返回结构化错误（包含 action、message）。
+- REQ-0001-052：Chat 页支持“画中画”方式观察 WebView（仅预览，不可交互），可在 Settings 中开关。
+  - Acceptance：
+    - Settings 提供开关：默认关闭；
+    - 开启后，Chat 页右上角显示圆角矩形预览（定时刷新 WebView 截图 + 展示当前 URL）；
+    - 点击预览可一键切换到 Web 页签。
 
 ## Milestones（建议）
 
 - v1（done）：Chat 页（Compose）+ 基本设置持久化 + 工具轨迹占位（mock）+ 可运行的本地验证
 - v2（done）：接入 SDK + OpenAI Responses API 风格 SSE 流式真对话（主路径仅流式）
 - v3（next）：Files 页（内部存储）+ 初版 Skills 列表/本地目录（启用/禁用）
-- v4：tool calls 真实链路 + 对话式 skill 安装 + WebView 容器/自动化（最小闭环）
+- v4：Web 页签 + WebView 工具驱动 + Chat 画中画预览（最小闭环）
 
 ## Open Questions（待确认）
 
