@@ -251,12 +251,7 @@ class WebViewController {
             val canvas = Canvas(bitmap)
             canvas.drawColor(Color.WHITE)
             val sx = bw.toFloat() / w.toFloat()
-            val sy = bh.toFloat() / h.toFloat()
-            val s = minOf(sx, sy)
-            val dx = (bw - (w * s)) / 2f
-            val dy = (bh - (h * s)) / 2f
-            canvas.translate(dx, dy)
-            canvas.scale(s, s)
+            canvas.scale(sx, sx)
             view.draw(canvas)
             bitmap
         }

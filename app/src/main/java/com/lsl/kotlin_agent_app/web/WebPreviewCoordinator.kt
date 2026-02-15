@@ -29,8 +29,8 @@ class WebPreviewCoordinator(
 
     fun start(
         intervalMs: Long = 1500,
-        targetWidth: Int = 480,
-        targetHeight: Int = 270,
+        targetWidth: Int = 720,
+        targetHeight: Int = 480,
     ) {
         if (job?.isActive == true) return
         job =
@@ -55,4 +55,3 @@ class WebPreviewCoordinator(
         job = null
     }
 }
-
