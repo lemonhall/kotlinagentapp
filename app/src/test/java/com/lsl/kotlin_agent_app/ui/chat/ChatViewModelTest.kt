@@ -2,9 +2,12 @@ package com.lsl.kotlin_agent_app.ui.chat
 
 import com.lsl.kotlin_agent_app.MainDispatcherRule
 import com.lsl.kotlin_agent_app.agent.ChatAgent
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import me.lemonhall.openagentic.sdk.events.AssistantDelta
 import me.lemonhall.openagentic.sdk.events.AssistantMessage
@@ -37,7 +40,7 @@ class ChatViewModelTest {
                 override fun clearSession() = Unit
             }
 
-        val vm = ChatViewModel(agent)
+        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("hi")
 
         assertEquals(2, vm.uiState.value.messages.size)
@@ -61,7 +64,7 @@ class ChatViewModelTest {
                 override fun clearSession() = Unit
             }
 
-        val vm = ChatViewModel(agent)
+        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("hi")
 
         assertFalse(vm.uiState.value.isSending)
@@ -78,7 +81,7 @@ class ChatViewModelTest {
                 override fun clearSession() = Unit
             }
 
-        val vm = ChatViewModel(agent)
+        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("   ")
 
         assertEquals(0, vm.uiState.value.messages.size)
@@ -102,7 +105,7 @@ class ChatViewModelTest {
                 }
             }
 
-        val vm = ChatViewModel(agent)
+        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("hi")
         assertEquals(2, vm.uiState.value.messages.size)
 
@@ -112,5 +115,31 @@ class ChatViewModelTest {
         assertEquals(0, vm.uiState.value.messages.size)
         assertEquals(0, vm.uiState.value.toolTraces.size)
         assertFalse(vm.uiState.value.isSending)
+    }
+
+    @Test
+    fun stopSending_cancelsActiveRequestAndUnblocksUi() = runTest {
+        val agent =
+            object : ChatAgent {
+                override fun streamReply(prompt: String): Flow<Event> =
+                    flow {
+                        emit(AssistantDelta(textDelta = "A"))
+                        delay(60_000)
+                        emit(Result(finalText = "AB", sessionId = "s"))
+                    }
+
+                override fun clearSession() = Unit
+            }
+
+        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
+        vm.sendUserMessage("hi")
+        runCurrent()
+        assertTrue(vm.uiState.value.isSending)
+
+        vm.stopSending()
+        runCurrent()
+
+        assertFalse(vm.uiState.value.isSending)
+        assertTrue(vm.uiState.value.toolTraces.any { it.summary.contains("canceled") })
     }
 }

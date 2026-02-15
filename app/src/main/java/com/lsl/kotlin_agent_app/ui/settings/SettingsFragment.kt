@@ -29,6 +29,8 @@ class SettingsFragment : Fragment() {
         binding.inputBaseUrl.setText(current.baseUrl)
         binding.inputApiKey.setText(current.apiKey)
         binding.inputModel.setText(current.model)
+        binding.inputTavilyUrl.setText(current.tavilyUrl)
+        binding.inputTavilyApiKey.setText(current.tavilyApiKey)
 
         binding.buttonSave.setOnClickListener {
             repo.set(
@@ -36,6 +38,8 @@ class SettingsFragment : Fragment() {
                     baseUrl = binding.inputBaseUrl.text?.toString().orEmpty(),
                     apiKey = binding.inputApiKey.text?.toString().orEmpty(),
                     model = binding.inputModel.text?.toString().orEmpty(),
+                    tavilyUrl = binding.inputTavilyUrl.text?.toString().orEmpty(),
+                    tavilyApiKey = binding.inputTavilyApiKey.text?.toString().orEmpty(),
                 ),
             )
             Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
@@ -49,4 +53,3 @@ class SettingsFragment : Fragment() {
         _binding = null
     }
 }
-

@@ -43,6 +43,7 @@ class ChatFragment : Fragment() {
                         uiState = uiState,
                         onSend = viewModel::sendUserMessage,
                         onClear = viewModel::clearConversation,
+                        onStop = viewModel::stopSending,
                     )
                 }
             }

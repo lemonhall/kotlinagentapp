@@ -51,6 +51,8 @@ android {
             buildConfigField("String", "DEFAULT_OPENAI_BASE_URL", "\"\"")
             buildConfigField("String", "DEFAULT_OPENAI_API_KEY", "\"\"")
             buildConfigField("String", "DEFAULT_MODEL", "\"\"")
+            buildConfigField("String", "DEFAULT_TAVILY_URL", "\"\"")
+            buildConfigField("String", "DEFAULT_TAVILY_API_KEY", "\"\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -60,9 +62,13 @@ android {
             val baseUrl = dotenv["OPENAI_BASE_URL"].orEmpty()
             val apiKey = dotenv["OPENAI_API_KEY"].orEmpty()
             val model = dotenv["MODEL"].orEmpty()
+            val tavilyUrl = dotenv["TAVILY_URL"].orEmpty()
+            val tavilyApiKey = dotenv["TAVILY_API_KEY"].orEmpty()
             buildConfigField("String", "DEFAULT_OPENAI_BASE_URL", "\"${escapedForBuildConfig(baseUrl)}\"")
             buildConfigField("String", "DEFAULT_OPENAI_API_KEY", "\"${escapedForBuildConfig(apiKey)}\"")
             buildConfigField("String", "DEFAULT_MODEL", "\"${escapedForBuildConfig(model)}\"")
+            buildConfigField("String", "DEFAULT_TAVILY_URL", "\"${escapedForBuildConfig(tavilyUrl)}\"")
+            buildConfigField("String", "DEFAULT_TAVILY_API_KEY", "\"${escapedForBuildConfig(tavilyApiKey)}\"")
         }
     }
     compileOptions {

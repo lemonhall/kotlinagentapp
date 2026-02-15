@@ -19,6 +19,8 @@ data class ToolTraceEvent(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val summary: String,
+    val details: String? = null,
+    val isError: Boolean = false,
     val timestampMs: Long = System.currentTimeMillis(),
 )
 
@@ -28,4 +30,3 @@ data class ChatUiState(
     val isSending: Boolean = false,
     val errorMessage: String? = null,
 )
-

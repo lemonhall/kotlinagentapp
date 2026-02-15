@@ -12,26 +12,23 @@ class SharedPreferencesLlmConfigRepository(
                 baseUrl = prefs.getString(KEY_BASE_URL, "") ?: "",
                 apiKey = prefs.getString(KEY_API_KEY, "") ?: "",
                 model = prefs.getString(KEY_MODEL, "") ?: "",
+                tavilyUrl = prefs.getString(KEY_TAVILY_URL, "") ?: "",
+                tavilyApiKey = prefs.getString(KEY_TAVILY_API_KEY, "") ?: "",
             )
 
-        val shouldSeedDefaults =
-            BuildConfig.DEBUG &&
-                stored.baseUrl.isBlank() &&
-                stored.apiKey.isBlank() &&
-                stored.model.isBlank() &&
-                BuildConfig.DEFAULT_OPENAI_BASE_URL.isNotBlank() &&
-                BuildConfig.DEFAULT_OPENAI_API_KEY.isNotBlank() &&
-                BuildConfig.DEFAULT_MODEL.isNotBlank()
-
-        if (shouldSeedDefaults) {
+        if (BuildConfig.DEBUG) {
             val seeded =
-                LlmConfig(
-                    baseUrl = BuildConfig.DEFAULT_OPENAI_BASE_URL,
-                    apiKey = BuildConfig.DEFAULT_OPENAI_API_KEY,
-                    model = BuildConfig.DEFAULT_MODEL,
+                stored.copy(
+                    baseUrl = stored.baseUrl.ifBlank { BuildConfig.DEFAULT_OPENAI_BASE_URL },
+                    apiKey = stored.apiKey.ifBlank { BuildConfig.DEFAULT_OPENAI_API_KEY },
+                    model = stored.model.ifBlank { BuildConfig.DEFAULT_MODEL },
+                    tavilyUrl = stored.tavilyUrl.ifBlank { BuildConfig.DEFAULT_TAVILY_URL },
+                    tavilyApiKey = stored.tavilyApiKey.ifBlank { BuildConfig.DEFAULT_TAVILY_API_KEY },
                 )
-            set(seeded)
-            return seeded
+            if (seeded != stored) {
+                set(seeded)
+                return seeded
+            }
         }
 
         return stored
@@ -42,6 +39,8 @@ class SharedPreferencesLlmConfigRepository(
             .putString(KEY_BASE_URL, config.baseUrl)
             .putString(KEY_API_KEY, config.apiKey)
             .putString(KEY_MODEL, config.model)
+            .putString(KEY_TAVILY_URL, config.tavilyUrl)
+            .putString(KEY_TAVILY_API_KEY, config.tavilyApiKey)
             .apply()
     }
 
@@ -57,6 +56,8 @@ class SharedPreferencesLlmConfigRepository(
         private const val KEY_BASE_URL = "llm.base_url"
         private const val KEY_API_KEY = "llm.api_key"
         private const val KEY_MODEL = "llm.model"
+        private const val KEY_TAVILY_URL = "tools.tavily_url"
+        private const val KEY_TAVILY_API_KEY = "tools.tavily_api_key"
 
         const val KEY_PREVIOUS_RESPONSE_ID = "llm.previous_response_id"
     }

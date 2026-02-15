@@ -4,11 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lsl.kotlin_agent_app.agent.ChatAgent
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -24,11 +27,13 @@ import me.lemonhall.openagentic.sdk.events.ToolUse
 
 class ChatViewModel(
     private val agent: ChatAgent,
+    private val agentDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private var activeSendJob: Job? = null
+    private val toolNameByUseId = linkedMapOf<String, String>()
 
     fun sendUserMessage(rawText: String) {
         val text = rawText.trim()
@@ -49,13 +54,22 @@ class ChatViewModel(
         activeSendJob =
             viewModelScope.launch {
                 try {
-                    agent.streamReply(prompt = text).collect { ev -> handleEvent(ev, assistantMessageId = assistantMessage.id) }
+                    agent.streamReply(prompt = text)
+                        .flowOn(agentDispatcher)
+                        .collect { ev -> handleEvent(ev, assistantMessageId = assistantMessage.id) }
                 } catch (t: Throwable) {
                     _uiState.value =
                         _uiState.value.copy(
                             isSending = false,
                             errorMessage = t.message ?: t.toString(),
-                            toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "agent.run", summary = "exception"),
+                            toolTraces =
+                                _uiState.value.toolTraces +
+                                    ToolTraceEvent(
+                                        name = "agent.run",
+                                        summary = "exception",
+                                        details = t.stackTraceToString().ifBlank { t.message ?: t.toString() },
+                                        isError = true,
+                                    ),
                         )
                 }
             }
@@ -70,7 +84,19 @@ class ChatViewModel(
         activeSendJob?.cancel()
         activeSendJob = null
         agent.clearSession()
+        toolNameByUseId.clear()
         _uiState.value = ChatUiState()
+    }
+
+    fun stopSending() {
+        if (activeSendJob?.isActive != true) return
+        activeSendJob?.cancel()
+        activeSendJob = null
+        _uiState.value =
+            _uiState.value.copy(
+                isSending = false,
+                toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "agent.run", summary = "canceled"),
+            )
     }
 
     private fun handleEvent(
@@ -89,16 +115,24 @@ class ChatViewModel(
             }
 
             is ToolUse -> {
+                toolNameByUseId[ev.toolUseId] = ev.name.ifBlank { "Tool" }
                 val inputSummary = summarizeJson(ev.input)
                 val summary =
                     if (inputSummary.isBlank()) "call_id=${ev.toolUseId}" else "call_id=${ev.toolUseId} $inputSummary"
                 _uiState.value =
                     _uiState.value.copy(
-                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = ev.name.ifBlank { "Tool" }, summary = summary),
+                        toolTraces =
+                            _uiState.value.toolTraces +
+                                ToolTraceEvent(
+                                    name = ev.name.ifBlank { "Tool" },
+                                    summary = summary,
+                                    details = prettyJson(ev.input),
+                                ),
                     )
             }
 
             is ToolResult -> {
+                val toolName = toolNameByUseId[ev.toolUseId]
                 val summary =
                     if (ev.isError) {
                         listOfNotNull(ev.errorType, ev.errorMessage).joinToString(": ").ifBlank { "error" }
@@ -107,7 +141,14 @@ class ChatViewModel(
                     }
                 _uiState.value =
                     _uiState.value.copy(
-                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "↳ ${ev.toolUseId}", summary = summary),
+                        toolTraces =
+                            _uiState.value.toolTraces +
+                                ToolTraceEvent(
+                                    name = "↳ ${toolName ?: "Tool"} (${ev.toolUseId})",
+                                    summary = summary,
+                                    details = buildToolResultDetails(ev),
+                                    isError = ev.isError,
+                                ),
                     )
             }
 
@@ -115,7 +156,20 @@ class ChatViewModel(
                 val sum = listOfNotNull(ev.name.takeIf { it.isNotBlank() }, ev.action).joinToString(" ").ifBlank { "hook" }
                 _uiState.value =
                     _uiState.value.copy(
-                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "Hook:${ev.hookPoint}", summary = sum),
+                        toolTraces =
+                            _uiState.value.toolTraces +
+                                ToolTraceEvent(
+                                    name = "Hook:${ev.hookPoint}",
+                                    summary = sum,
+                                    details =
+                                        listOfNotNull(
+                                            ev.name.takeIf { it.isNotBlank() },
+                                            ev.action,
+                                            ev.errorType?.let { "error_type=$it" },
+                                            ev.errorMessage?.let { "error_message=$it" },
+                                        ).joinToString("\n").ifBlank { null },
+                                    isError = ev.errorType != null || ev.errorMessage != null,
+                                ),
                     )
             }
 
@@ -123,7 +177,14 @@ class ChatViewModel(
                 _uiState.value =
                     _uiState.value.copy(
                         errorMessage = ev.errorMessage ?: ev.errorType,
-                        toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "runtime.error", summary = ev.errorType),
+                        toolTraces =
+                            _uiState.value.toolTraces +
+                                ToolTraceEvent(
+                                    name = "runtime.error",
+                                    summary = ev.errorType,
+                                    details = listOfNotNull(ev.errorType, ev.errorMessage).joinToString("\n").ifBlank { null },
+                                    isError = true,
+                                ),
                     )
             }
 
@@ -157,6 +218,31 @@ class ChatViewModel(
 
     private fun JsonPrimitive.contentOrShort(): String {
         return if (this.isString) this.content.take(120) else this.content.take(120)
+    }
+
+    private fun buildToolResultDetails(ev: ToolResult): String? {
+        val parts = mutableListOf<String>()
+        if (ev.isError) {
+            if (!ev.errorType.isNullOrBlank()) parts.add("error_type=${ev.errorType}")
+            if (!ev.errorMessage.isNullOrBlank()) parts.add("error_message=${ev.errorMessage}")
+        } else {
+            parts.add("ok")
+        }
+        val out = prettyJson(ev.output)
+        if (!out.isNullOrBlank()) {
+            parts.add("output:")
+            parts.add(out)
+        }
+        return parts.joinToString("\n").trim().ifBlank { null }?.take(6000)
+    }
+
+    private fun prettyJson(el: JsonElement?): String? {
+        if (el == null) return null
+        return try {
+            el.toString()
+        } catch (_: Throwable) {
+            null
+        }?.trim()?.ifBlank { null }?.take(6000)
     }
 
     private fun appendAssistantDelta(

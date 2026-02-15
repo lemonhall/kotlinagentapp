@@ -27,11 +27,14 @@ import me.lemonhall.openagentic.sdk.tools.ListTool
 import me.lemonhall.openagentic.sdk.tools.ReadTool
 import me.lemonhall.openagentic.sdk.tools.SkillTool
 import me.lemonhall.openagentic.sdk.tools.ToolRegistry
+import me.lemonhall.openagentic.sdk.tools.WebFetchTool
+import me.lemonhall.openagentic.sdk.tools.WebSearchTool
 import me.lemonhall.openagentic.sdk.tools.WriteTool
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 import java.io.File
+import java.util.Locale
 
 class OpenAgenticSdkChatAgent(
     context: Context,
@@ -70,6 +73,11 @@ class OpenAgenticSdkChatAgent(
                     GlobTool(),
                     GrepTool(),
                     SkillTool(),
+                    WebFetchTool(),
+                    WebSearchTool(
+                        endpoint = buildTavilySearchEndpoint(config.tavilyUrl),
+                        apiKeyProvider = { config.tavilyApiKey.trim().ifEmpty { null } },
+                    ),
                 ),
             )
 
@@ -120,7 +128,7 @@ class OpenAgenticSdkChatAgent(
                 cwd = rootPath,
                 projectDir = rootPath,
                 tools = tools,
-                allowedTools = setOf("Read", "Write", "Edit", "List", "Glob", "Grep", "Skill"),
+                allowedTools = setOf("Read", "Write", "Edit", "List", "Glob", "Grep", "Skill", "WebFetch", "WebSearch"),
                 hookEngine = hookEngine,
                 sessionStore = sessionStore,
                 resumeSessionId = sessionId,
@@ -164,11 +172,20 @@ class OpenAgenticSdkChatAgent(
             - sessions：`sessions/<session_id>/events.jsonl`（SDK 自动落盘）
             
             当需要操作文件或加载技能时，优先使用工具：Read / Write / Edit / List / Glob / Grep / Skill。
+            当需要查询或抓取网页信息时，使用：WebSearch / WebFetch（也可理解为 web_search / web_fetch）。
         """.trimIndent()
+    }
+
+    private fun buildTavilySearchEndpoint(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return "https://api.tavily.com/search"
+        val normalized = trimmed.trimEnd('/')
+        val lower = normalized.lowercase(Locale.ROOT)
+        if (lower.endsWith("/search")) return normalized
+        return "$normalized/search"
     }
 
     private companion object {
         private const val KEY_SESSION_ID = "chat.session_id"
     }
 }
-
