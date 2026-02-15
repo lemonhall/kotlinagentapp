@@ -1,6 +1,7 @@
 package com.lsl.kotlin_agent_app.ui.chat
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -35,17 +38,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.lsl.kotlin_agent_app.R
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun ChatScreen(
     uiState: ChatUiState,
@@ -57,6 +66,8 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     var lastMessageCount by remember { mutableStateOf(0) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val isAtBottom by remember(uiState.messages.size) {
         derivedStateOf {
@@ -116,7 +127,15 @@ fun ChatScreen(
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = {
+                            focusManager.clearFocus(force = true)
+                            keyboardController?.hide()
+                        },
+                    )
+                },
             state = listState,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -136,6 +155,18 @@ fun ChatScreen(
                 onValueChange = { inputText = it },
                 singleLine = true,
                 label = { Text("Message") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions =
+                    KeyboardActions(
+                        onSend = {
+                            val toSend = inputText
+                            if (toSend.isBlank()) return@KeyboardActions
+                            inputText = ""
+                            onSend(toSend)
+                            focusManager.clearFocus(force = true)
+                            keyboardController?.hide()
+                        },
+                    ),
             )
             if (uiState.isSending) {
                 Button(
@@ -157,8 +188,10 @@ fun ChatScreen(
                         val toSend = inputText
                         if (toSend.isNotBlank()) {
                             inputText = ""
+                            onSend(toSend)
+                            focusManager.clearFocus(force = true)
+                            keyboardController?.hide()
                         }
-                        onSend(toSend)
                     },
                     modifier = Modifier.size(48.dp),
                     contentPadding = PaddingValues(0.dp),
