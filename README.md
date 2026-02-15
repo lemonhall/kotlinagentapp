@@ -5,7 +5,7 @@ Android 端的聊天型 Agent 应用（起步工程），目标是接入 `openag
 ## 现状
 
 - 当前代码来自 Android Studio 的 Bottom Navigation（Fragment + ViewBinding + Navigation）模板。
-- 需求与规划见：`docs/PRD.md`。
+- 需求与规划见：`docs/prd/PRD-0001-kotlin-agent-app.md`。
 
 ## 功能路线图（摘要）
 
