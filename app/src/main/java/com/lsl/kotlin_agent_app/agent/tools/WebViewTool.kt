@@ -4,12 +4,14 @@ import com.lsl.kotlin_agent_app.web.WebViewControllerProvider
 import com.lsl.kotlin_agent_app.web.WebViewState
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import me.lemonhall.openagentic.sdk.tools.Tool
 import me.lemonhall.openagentic.sdk.tools.ToolContext
 import me.lemonhall.openagentic.sdk.tools.ToolInput
 import me.lemonhall.openagentic.sdk.tools.ToolOutput
+import me.lemonhall.openagentic.sdk.tools.OpenAiSchemaTool
 
 interface WebViewControllerApi {
     suspend fun goto(url: String): WebViewState
@@ -53,12 +55,14 @@ private class DefaultWebViewControllerApi : WebViewControllerApi {
 
 class WebViewTool(
     private val api: WebViewControllerApi = DefaultWebViewControllerApi(),
-) : Tool {
+) : Tool, OpenAiSchemaTool {
     override val name: String = "WebView"
 
     override val description: String =
         """
-        Control the in-app persistent WebView (single instance). One tool, multiple actions.
+        控制 App 内的持久 WebView（单实例）。一个工具，多 action。适用于：打开网页、执行脚本、抓取 DOM、查询状态。
+
+        使用原则：当用户要求“打开某网页/去某站/访问某链接”时，直接调用 goto；回复尽量简短（1-3 句），不要啰嗦解释。
 
         Input JSON:
         - action: string (required). One of: goto, get_state, get_dom, run_script, back, forward, reload
@@ -73,6 +77,87 @@ class WebViewTool(
         - data: object|null
         - error: { message: string }|null
         """.trimIndent()
+
+    override fun openAiSchema(
+        ctx: ToolContext,
+        registry: me.lemonhall.openagentic.sdk.tools.ToolRegistry?,
+    ): JsonObject {
+        val params =
+            buildJsonObject {
+                put("type", JsonPrimitive("object"))
+                put(
+                    "properties",
+                    buildJsonObject {
+                        put(
+                            "action",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("string"))
+                                put(
+                                    "enum",
+                                    JsonArray(
+                                        listOf(
+                                            JsonPrimitive("goto"),
+                                            JsonPrimitive("get_state"),
+                                            JsonPrimitive("get_dom"),
+                                            JsonPrimitive("run_script"),
+                                            JsonPrimitive("back"),
+                                            JsonPrimitive("forward"),
+                                            JsonPrimitive("reload"),
+                                        ),
+                                    ),
+                                )
+                                put(
+                                    "description",
+                                    JsonPrimitive("The WebView operation to perform."),
+                                )
+                            },
+                        )
+                        put(
+                            "url",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("string"))
+                                put("description", JsonPrimitive("Target URL for action=goto."))
+                            },
+                        )
+                        put(
+                            "script",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("string"))
+                                put("description", JsonPrimitive("JavaScript to execute for action=run_script."))
+                            },
+                        )
+                        put(
+                            "selector",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("string"))
+                                put("description", JsonPrimitive("Optional CSS selector for action=get_dom."))
+                            },
+                        )
+                        put(
+                            "mode",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("string"))
+                                put("enum", JsonArray(listOf(JsonPrimitive("outerHTML"), JsonPrimitive("text"))))
+                                put("description", JsonPrimitive("For action=get_dom: return outerHTML or text. Default outerHTML."))
+                            },
+                        )
+                    },
+                )
+                put("required", JsonArray(listOf(JsonPrimitive("action"))))
+            }
+
+        return buildJsonObject {
+            put("type", JsonPrimitive("function"))
+            put(
+                "function",
+                buildJsonObject {
+                    put("name", JsonPrimitive(name))
+                    put("description", JsonPrimitive(description))
+                    put("parameters", params)
+                },
+            )
+        }
+    }
 
     override suspend fun run(
         input: ToolInput,

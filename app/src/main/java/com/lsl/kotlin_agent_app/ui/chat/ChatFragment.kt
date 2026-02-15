@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.lsl.kotlin_agent_app.agent.OpenAgenticSdkChatAgent
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
@@ -80,7 +81,14 @@ class ChatFragment : Fragment() {
                         onStop = viewModel::stopSending,
                         webPreviewEnabled = webPreviewEnabled,
                         webPreviewFrame = frame,
-                        onOpenWeb = { findNavController().navigate(com.lsl.kotlin_agent_app.R.id.navigation_web) },
+                        onOpenWeb = {
+                            val bottomNav = activity?.findViewById<BottomNavigationView>(com.lsl.kotlin_agent_app.R.id.nav_view)
+                            if (bottomNav != null) {
+                                bottomNav.selectedItemId = com.lsl.kotlin_agent_app.R.id.navigation_web
+                            } else {
+                                findNavController().navigate(com.lsl.kotlin_agent_app.R.id.navigation_web)
+                            }
+                        },
                     )
                 }
             }
