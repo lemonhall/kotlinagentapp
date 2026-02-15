@@ -9,6 +9,7 @@
 
 ### M1：SDK 以 composite build 引入
 
+- Status：done（2026-02-15）
 - PRD Trace：REQ-0001-040
 - DoD（硬口径）：
   - `.\gradlew.bat :app:assembleDebug` exit code=0
@@ -18,6 +19,7 @@
 
 ### M2：Chat 真对话最短闭环（流式 SSE / OpenAI Responses 风格）
 
+- Status：done（2026-02-15）
 - PRD Trace：REQ-0001-001 / REQ-0001-010 / REQ-0001-040
 - DoD（硬口径）：
   - 在未配置 `base_url/api_key/model` 时，Chat 发送会得到明确错误提示（不崩溃）
@@ -35,10 +37,10 @@
 
 | Req ID | v2 Plan | Tests / Commands | Evidence |
 |---|---|---|---|
-| REQ-0001-040 | v2-sdk-composite-build | `:app:assembleDebug` | pending |
-| REQ-0001-010 | v2-chat-real-request | `:app:testDebugUnitTest` | pending |
-| REQ-0001-001 | v2-chat-real-request | `:app:testDebugUnitTest` | pending |
-| REQ-0001-004 | v2-chat-real-request | `:app:testDebugUnitTest` | pending |
+| REQ-0001-040 | v2-sdk-composite-build | `:app:assembleDebug` | local |
+| REQ-0001-010 | v2-chat-real-request | `:app:testDebugUnitTest` | local |
+| REQ-0001-001 | v2-chat-real-request | `:app:testDebugUnitTest` | local |
+| REQ-0001-004 | v2-chat-real-request | `:app:testDebugUnitTest` | local |
 
 ## ECN Index
 
@@ -46,7 +48,8 @@
 
 ## Differences（愿景 vs 现实）
 
-- 流式输出与 tool calls 真实链路暂不进入 v2（后续 v3 迭代）。
+- 仍未接入 tool calls 真实链路（目前 Tool Trace 为 UI 占位/模拟事件；后续迭代接 SDK）。
+- 连续对话当前采用“每次请求携带完整历史”的兼容策略；后续可引入真正 session store/压缩策略以控制上下文体积。
 
 ## Evidence（本地）
 

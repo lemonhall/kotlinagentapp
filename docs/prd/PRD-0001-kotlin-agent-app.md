@@ -73,13 +73,13 @@
 
 ## Milestones（建议）
 
-- v1（MVP-1）：Chat 页（Compose）+ 基本设置持久化 + 工具轨迹占位（mock）+ 可运行的本地验证
-- v2：Files 页（内部存储）+ 初版 Skills 列表/本地目录
-- v3：接入 SDK（真实对话 + tool 调用）+ 对话式 skill 安装
-- v4：WebView 容器 + 自动化（最小闭环）
+- v1（done）：Chat 页（Compose）+ 基本设置持久化 + 工具轨迹占位（mock）+ 可运行的本地验证
+- v2（done）：接入 SDK + OpenAI Responses API 风格 SSE 流式真对话（主路径仅流式）
+- v3（next）：Files 页（内部存储）+ 初版 Skills 列表/本地目录（启用/禁用）
+- v4：tool calls 真实链路 + 对话式 skill 安装 + WebView 容器/自动化（最小闭环）
 
 ## Open Questions（待确认）
 
-1. `openagentic-sdk-kotlin` 集成方式：Maven 坐标 / composite build / git submodule？
-2. 模型接口形态：OpenAI Chat Completions 还是 Responses？默认模型名是什么？
-3. Tool/Skill 目录的规范（manifest 格式、安装来源：本地 zip / git / registry）？
+1. `openagentic-sdk-kotlin` 集成方式：已采用 git submodule + composite build（includeBuild）。
+2. 模型接口形态：已确定为 OpenAI Responses（SSE 流式）；默认 model 由设置页/`.env`（Debug）提供。
+3. Tool/Skill 目录的规范（manifest 格式、安装来源：本地 zip / git / registry）仍待确认（建议先做本地目录 manifest 的 MVP）。

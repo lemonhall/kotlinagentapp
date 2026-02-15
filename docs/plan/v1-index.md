@@ -23,7 +23,7 @@
 
 ### M2：Settings Tab（XML）配置持久化（占位）
 
-- Status：todo
+- Status：done（2026-02-15）
 - Scope：
   - Settings 页可编辑并持久化：`base_url` / `api_key` / `model`
   - 安全：不打印完整密钥
@@ -32,7 +32,7 @@
 - Plans：
   - `docs/plan/v1-settings-config.md`
 
-> 注：本轮只承诺 M1；M2 写入计划但可在 M1 完成后再进入。
+> 注：原本只承诺 M1；但在同一轮内也完成了 M2（设置持久化）。
 
 ## Plan Index
 
@@ -45,7 +45,7 @@
 |---|---|---|---|
 | REQ-0001-001 | v1-chat-compose | `:app:testDebugUnitTest` | local |
 | REQ-0001-002 | v1-chat-compose | `:app:testDebugUnitTest` | local |
-| REQ-0001-010 | v1-settings-config | `:app:testDebugUnitTest` | pending |
+| REQ-0001-010 | v1-settings-config | `:app:testDebugUnitTest` | local |
 
 ## ECN Index
 
