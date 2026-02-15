@@ -88,6 +88,8 @@
                 android:maxLines="1"
                 android:hint="URL"
                 android:singleLine="true"
+                android:inputType="textUri"
+                android:imeOptions="actionGo"
                 android:textSize="12sp"
                 android:layout_weight="1" />
 

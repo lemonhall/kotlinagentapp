@@ -1,9 +1,14 @@
 package com.lsl.kotlin_agent_app.web
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.net.Uri
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -108,12 +113,28 @@ class WebViewController {
             if (input.isBlank()) return
             webView.loadUrl(normalizeUrl(input))
             updateState(loading = true)
+            hideIme(urlEditText)
+            urlEditText.clearFocus()
         }
 
         goButton.setOnClickListener { go() }
-        urlEditText.setOnEditorActionListener { _, _, _ ->
-            go()
-            true
+        urlEditText.setOnEditorActionListener { _, actionId, event ->
+            val isGo = actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE
+            val isEnter = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
+            if (isGo || isEnter) {
+                go()
+                true
+            } else {
+                false
+            }
+        }
+
+        webView.setOnTouchListener { _, ev ->
+            if (ev.action == MotionEvent.ACTION_DOWN) {
+                hideIme(urlEditText)
+                urlEditText.clearFocus()
+            }
+            false
         }
 
         backButton.setOnClickListener {
@@ -293,6 +314,11 @@ class WebViewController {
         if (scheme == null) return "https://$t"
         if (scheme == "http" || scheme == "https" || scheme == "about") return t
         return t
+    }
+
+    private fun hideIme(view: android.view.View) {
+        val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        imm.hideSoftInputFromWindow(view.windowToken, 0)
     }
 
     private fun applyUiState(state: WebViewState) {
