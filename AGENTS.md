@@ -72,6 +72,42 @@ UI (Chat/Files/Settings)
 - Instrumentation tests：`.\gradlew.bat :app:connectedDebugAndroidTest`
 - 基本原则：改了行为就补/改测试；合并前确保相关测试与 lint 通过。
 
+## ADB Debug（导出 sessions/events.jsonl）
+
+> 目标：把 App 内部工作区 `.agents/sessions/<session_id>/events.jsonl` 从真机导出到本机（用于定位例如 `context_length_exceeded` 这类问题）。
+
+### 0) 前置
+
+- 必须是 **Debug 可调试**安装包（否则 `run-as` 会失败）。
+- 先确认设备在线：`adb devices -l`（看到 `device` 才行；如果 `offline`，通常重新插拔或重启 adb：`adb kill-server ; adb start-server`）。
+
+### 1) 定位包名与 sessions 目录
+
+- 包名（本项目默认）：`com.lsl.kotlin_agent_app`
+- 列出 sessions：
+  - `adb shell run-as com.lsl.kotlin_agent_app ls -a files/.agents/sessions`
+
+内部真实路径（仅作参考，通常不直接 `adb pull`）：`/data/user/0/com.lsl.kotlin_agent_app/files/.agents/sessions`
+
+### 2) 快速看哪个 session 的 events.jsonl 最大
+
+- `adb shell run-as com.lsl.kotlin_agent_app toybox du -a files/.agents/sessions | toybox grep events.jsonl | toybox sort -nr`
+
+### 3) 导出指定 session 的 events.jsonl / meta.json（推荐）
+
+PowerShell 下最稳妥的是用 `adb exec-out` + Windows 重定向到文件：
+
+- 导出：
+  - `cmd /c "adb exec-out run-as com.lsl.kotlin_agent_app cat files/.agents/sessions/<session_id>/events.jsonl > adb_dumps\\session-<session_id>-events.jsonl"`
+  - `cmd /c "adb exec-out run-as com.lsl.kotlin_agent_app cat files/.agents/sessions/<session_id>/meta.json > adb_dumps\\session-<session_id>-meta.json"`
+
+（可选）先建目录：`mkdir adb_dumps`。
+
+### 4) 备注 / 常见坑
+
+- `adb pull` 拉 `/data/user/0/...` 通常会因为权限失败；Debug 包用 `run-as` 是正道。
+- 尽量用 `adb shell run-as <pkg> ls ...` 这种“直接命令”；在 `sh -c '...'` 里做复杂 `cd`/glob 时，某些设备/ROM 下工作目录行为会比较迷惑，容易跑到 `/`。
+
 ## Scope & Precedence
 
 - 根目录 `AGENTS.md`：默认对全仓库生效。
