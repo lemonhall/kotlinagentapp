@@ -314,17 +314,22 @@ private class WebSnapshotTool(runtime: WebToolRuntime) :
                 else -> scopeRaw
             }
 
-        val jsMaxNodes = if (interactiveOnly) 900 else 2500
-        val renderMaxDepth = if (interactiveOnly) 18 else 28
-        val renderMaxNodes = if (interactiveOnly) 320 else 650
+        // Budget tuning notes:
+        // - JS side controls DOM traversal + ref assignment (maxNodes).
+        // - Kotlin side controls snapshot_text visibility to the model (maxDepth/maxNodes/maxCharsTotal).
+        // Keep output bounded to avoid context overflows, but large enough for "套娃" DOM sites.
+        val jsMaxNodes = if (interactiveOnly) 1200 else 3200
+        val renderMaxDepth = if (interactiveOnly) 20 else 25
+        val renderMaxNodes = if (interactiveOnly) 360 else 520
+        val renderMaxCharsTotal = 12_000
 
         val raw =
             runtime.eval(
                 AgentBrowser.snapshotJs(
                     SnapshotJsOptions(
                         maxNodes = jsMaxNodes,
-                        maxTextPerNode = 160,
-                        maxAttrValueLen = 120,
+                        maxTextPerNode = 140,
+                        maxAttrValueLen = 96,
                         interactiveOnly = interactiveOnly,
                         cursorInteractive = cursorInteractive,
                         scope = scope,
@@ -339,7 +344,12 @@ private class WebSnapshotTool(runtime: WebToolRuntime) :
         val rendered =
             AgentBrowser.renderSnapshot(
                 raw,
-                RenderOptions(maxCharsTotal = 8000, maxNodes = renderMaxNodes, maxDepth = renderMaxDepth, compact = true),
+                RenderOptions(
+                    maxCharsTotal = renderMaxCharsTotal,
+                    maxNodes = renderMaxNodes,
+                    maxDepth = renderMaxDepth,
+                    compact = true,
+                ),
             )
 
         return ToolOutput.Json(
