@@ -15,3 +15,4 @@
 local.properties
 .env
 .env.*
+adb_dumps/
