@@ -7,6 +7,10 @@ import android.view.ViewGroup
 import android.util.TypedValue
 import android.widget.ScrollView
 import android.widget.TextView
+import android.content.Intent
+import androidx.core.content.FileProvider
+import android.webkit.MimeTypeMap
+import android.content.ClipData
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -16,6 +20,8 @@ import com.lsl.kotlin_agent_app.databinding.FragmentDashboardBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
 import com.lsl.kotlin_agent_app.ui.markdown.MarkwonProvider
+import java.io.File
+import java.net.URLConnection
 
 class DashboardFragment : Fragment() {
 
@@ -53,12 +59,32 @@ class DashboardFragment : Fragment() {
                 },
                 onLongClick = { entry ->
                     val isDir = entry.type == AgentsDirEntryType.Dir
+                    val cwd = filesViewModel.state.value?.cwd ?: ".agents"
+                    val relativePath = joinAgentsPath(cwd, entry.name)
+
+                    val actions =
+                        if (isDir) {
+                            arrayOf("删除")
+                        } else {
+                            arrayOf("分享", "删除")
+                        }
+
                     MaterialAlertDialogBuilder(requireContext())
-                        .setTitle("删除确认")
-                        .setMessage("确定删除 ${entry.name} 吗？")
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("删除") { _, _ ->
-                            filesViewModel.deleteEntry(entry, recursive = isDir)
+                        .setTitle(entry.name)
+                        .setItems(actions) { _, which ->
+                            val action = actions.getOrNull(which) ?: return@setItems
+                            when (action) {
+                                "分享" -> shareAgentsFile(relativePath)
+                                "删除" ->
+                                    MaterialAlertDialogBuilder(requireContext())
+                                        .setTitle("删除确认")
+                                        .setMessage("确定删除 ${entry.name} 吗？")
+                                        .setNegativeButton("取消", null)
+                                        .setPositiveButton("删除") { _, _ ->
+                                            filesViewModel.deleteEntry(entry, recursive = isDir)
+                                        }
+                                        .show()
+                            }
                         }
                         .show()
                 },
@@ -221,6 +247,51 @@ class DashboardFragment : Fragment() {
     private fun dp(value: Int): Int {
         val d = resources.displayMetrics.density
         return (value * d).toInt()
+    }
+
+    private fun joinAgentsPath(dir: String, name: String): String {
+        val d = dir.replace('\\', '/').trim().trimEnd('/')
+        val n = name.replace('\\', '/').trim().trimStart('/')
+        if (n.isEmpty()) return d
+        return if (d.isEmpty() || d == ".agents") ".agents/$n" else "$d/$n"
+    }
+
+    private fun shareAgentsFile(relativePath: String) {
+        val rel = relativePath.replace('\\', '/').trim()
+        if (!rel.startsWith(".agents/")) return
+
+        val file = File(requireContext().filesDir, rel)
+        if (!file.exists() || !file.isFile) return
+
+        val uri =
+            FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file,
+            )
+
+        val ext = file.extension.lowercase().takeIf { it.isNotBlank() }
+        val mimeFromMap =
+            ext?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+        val mime =
+            mimeFromMap
+                ?: URLConnection.guessContentTypeFromName(file.name)
+                ?: when (ext) {
+                    "md", "markdown" -> "text/markdown"
+                    "jsonl", "json" -> "application/json"
+                    "txt", "log" -> "text/plain"
+                    else -> "application/octet-stream"
+                }
+
+        val intent =
+            Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
+            }
+
+        startActivity(Intent.createChooser(intent, "分享文件"))
     }
 
     private fun displayCwd(cwd: String): String {

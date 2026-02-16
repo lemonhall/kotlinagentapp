@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -61,6 +62,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
 import com.lsl.kotlin_agent_app.R
 import com.lsl.kotlin_agent_app.web.WebPreviewFrame
+import android.widget.Toast
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -419,6 +421,8 @@ private fun MessageBubble(
     modifier: Modifier = Modifier,
 ) {
     val isUser = message.role == ChatRole.User
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val bg = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
     val fg = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
     val align = if (isUser) Alignment.End else Alignment.Start
@@ -436,7 +440,20 @@ private fun MessageBubble(
         horizontalAlignment = align,
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth(0.88f),
+            modifier =
+                Modifier
+                    .fillMaxWidth(0.88f)
+                    .pointerInput(message.content) {
+                        detectTapGestures(
+                            onLongPress = {
+                                val text = message.content.trim()
+                                if (text.isNotEmpty()) {
+                                    clipboard.setText(AnnotatedString(text))
+                                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                        )
+                    },
             colors = CardDefaults.cardColors(containerColor = bg),
             border = BorderStroke(1.dp, borderColor),
             shape = shape,
