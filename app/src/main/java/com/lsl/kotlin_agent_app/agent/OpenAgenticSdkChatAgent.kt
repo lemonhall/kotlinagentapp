@@ -151,8 +151,9 @@ class OpenAgenticSdkChatAgent(
                 resumeSessionId = sessionId,
                 compaction =
                     CompactionOptions(
-                        // Provider proxies vary; keep this conservative to avoid `context_length_exceeded`.
-                        contextLimit = 16_000,
+                        // Proxy providers vary; keep this large enough for gpt-5.2-class context windows.
+                        // Tool outputs are separately bounded (e.g. WebFetch), so we don't need to compact at ~16k.
+                        contextLimit = 200_000,
                     ),
                 includePartialMessages = true,
                 maxSteps = 120,
