@@ -206,6 +206,11 @@ class OpenAgenticSdkChatAgent(
             7) **导航要显式**：打开/后退/前进/刷新用 `web_open/web_back/web_forward/web_reload`。
             8) **遮挡/弹窗优先处理**：点击失败若提示 overlay/cookie banner，被遮挡就先找 “Accept/同意/关闭” 类按钮处理，再继续。
             9) **输出要简洁**：完成任务后只输出最终结论，不要重复长快照文本。
+            10) **快照截断要换策略**：若 `web_snapshot` 返回 `truncated=true` 或 `truncate_reasons` 包含 `maxDepth/maxNodes/maxCharsTotal`，说明你“看不全页面”，不要陷入 `snapshot → scroll → snapshot` 的循环。必须改用以下任一策略（优先级从上到下）：
+                - **先点进最相关页面**：在快照里找到最相关的结果/链接（例如包含“节目单/春晚/央视”等词），`web_click(ref)` 进入详情页，再 `web_snapshot(interactive_only=false)`。
+                - **用 Query 抽取局部内容**：定位一个“包含目标内容的区域 ref”（如 article/region/卡片容器），用 `web_query(ref, kind="text" 或 "html", max_length=8000~12000)` 把局部内容直接读出来（避免整页 outerHTML）。
+                - **用 scope 聚焦再快照**：对某个区域 ref 先 `web_query(kind="attrs")` 读取属性（重点找 `id`/`class`），然后用 `web_snapshot(scope="#<id>" 或 ".<class>", interactive_only=false)` 只快照该子树。
+                - **循环上限**：在没有获得“新信息”（例如 URL/title/目标文本/新 ref）前，连续 `web_snapshot/web_scroll/web_scroll_into_view` 不得超过 3 次；否则必须切换关键词/切换站点/或直接给出当前可得结论并说明缺口。
 
             ### Error Recovery Playbook（失败自愈手册）
 
@@ -227,6 +232,10 @@ class OpenAgenticSdkChatAgent(
             - 处理：
               - 优先 `web_snapshot(interactive_only=false)` 看页面到底卡在哪；
               - 再选择：提高 `timeout_ms`，或换成更稳的 `selector/text/url` 条件重试。
+
+            4) `web_snapshot` 截断（非 error，但必须处理）
+            - 判定：tool.result 里出现 `truncated=true` 或 `truncate_reasons` 非空。
+            - 处理：按“总规则 10) 快照截断要换策略”执行（点击进入/Query 局部/用 scope 聚焦），不要继续盲目滚动。
 
             ### 推荐工作流（循环）
 
