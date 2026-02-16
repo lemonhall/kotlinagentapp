@@ -22,8 +22,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
 import kotlin.coroutines.resume
 
 data class WebViewState(
@@ -36,7 +34,6 @@ data class WebViewState(
 )
 
 class WebViewController {
-    private val json = Json { ignoreUnknownKeys = true }
     private val _state = MutableStateFlow(WebViewState())
     val state: StateFlow<WebViewState> = _state.asStateFlow()
 
@@ -203,37 +200,6 @@ class WebViewController {
                 }
             }
         }
-
-    suspend fun getDom(
-        selector: String?,
-        mode: String,
-    ): String {
-        val sel = selector?.trim().takeIf { !it.isNullOrEmpty() }
-        val m = mode.trim().ifEmpty { "outerHTML" }
-        val js =
-            if (sel == null) {
-                """
-                (() => {
-                  const el = document.documentElement;
-                  if (!el) return null;
-                  if ("$m" === "text") return el.innerText;
-                  return el.outerHTML;
-                })()
-                """.trimIndent()
-            } else {
-                val selJson = json.encodeToString(sel)
-                """
-                (() => {
-                  const el = document.querySelector($selJson);
-                  if (!el) return null;
-                  if ("$m" === "text") return el.innerText;
-                  return el.outerHTML;
-                })()
-                """.trimIndent()
-            }
-
-        return runScript(js)
-    }
 
     suspend fun capturePreviewBitmap(
         targetWidth: Int,
