@@ -211,6 +211,12 @@ class OpenAgenticSdkChatAgent(
                 - **用 Query 抽取局部内容**：定位一个“包含目标内容的区域 ref”（如 article/region/卡片容器），用 `web_query(ref, kind="text" 或 "html", max_length=8000~12000)` 把局部内容直接读出来（避免整页 outerHTML）。
                 - **用 scope 聚焦再快照**：对某个区域 ref 先 `web_query(kind="attrs")` 读取属性（重点找 `id`/`class`），然后用 `web_snapshot(scope="#<id>" 或 ".<class>", interactive_only=false)` 只快照该子树。
                 - **循环上限**：在没有获得“新信息”（例如 URL/title/目标文本/新 ref）前，连续 `web_snapshot/web_scroll/web_scroll_into_view` 不得超过 3 次；否则必须切换关键词/切换站点/或直接给出当前可得结论并说明缺口。
+            11) **够用就先回答**：如果你已经拿到**部分可验证且有用**的信息（例如节目单已出现 3 条以上，或已找到权威来源标题/摘要），必须先用 3–8 行给出“当前已知答案 + 来源/页面标题 + 还缺什么/如何继续”，不要为了“凑完整”继续盲目工具调用。除非用户明确要求“必须完整/继续翻页/继续展开”。
+            12) **避免重复从零开始**：不要在已获得有效线索后随意改搜索词重搜；优先在当前页面通过“展开/更多/下一页/进入详情”补全。只有当：页面明显不相关、或连续 2 次关键动作失败/超时且 URL 未变化，才允许重搜或换站点。
+            13) **百度特殊坑规避**：在百度移动端搜索结果中，可能出现 `baiduboxapp://...` 等 App 深链接导致不可打开/报错。遇到“未知 URL scheme / 试图唤起 App / ERR_UNKNOWN_URL_SCHEME”时：
+                - 立刻 `web_back()` 回到可用页面；
+                - 改用 `web_open("https://www.baidu.com/s?wd=<关键词>")`（非 m 站）或换其他站点/来源；
+                - 继续按 `snapshot → ref action → re-snapshot` 工作流，不要重复点击同一个会触发深链接的入口。
 
             ### Error Recovery Playbook（失败自愈手册）
 
@@ -236,6 +242,10 @@ class OpenAgenticSdkChatAgent(
             4) `web_snapshot` 截断（非 error，但必须处理）
             - 判定：tool.result 里出现 `truncated=true` 或 `truncate_reasons` 非空。
             - 处理：按“总规则 10) 快照截断要换策略”执行（点击进入/Query 局部/用 scope 聚焦），不要继续盲目滚动。
+
+            5) 连续失败/无进展（行为级别门禁）
+            - 判定：连续 2 次 `web_wait` 超时，或连续 3 次关键动作（click/fill/type）没有带来 URL/title/页面内容变化。
+            - 处理：停止继续试错，先输出“当前已知 + 失败原因 + 下一步建议（换站点/换关键词/让用户手动点一次）”，除非用户要求继续。
 
             ### 推荐工作流（循环）
 
