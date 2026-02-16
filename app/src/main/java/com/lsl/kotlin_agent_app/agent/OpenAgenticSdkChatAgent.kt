@@ -149,7 +149,7 @@ class OpenAgenticSdkChatAgent(
                 sessionStore = sessionStore,
                 resumeSessionId = sessionId,
                 includePartialMessages = true,
-                maxSteps = 20,
+                maxSteps = 120,
             )
 
         return OpenAgenticSdk.query(prompt = text, options = options).onEach { ev ->
