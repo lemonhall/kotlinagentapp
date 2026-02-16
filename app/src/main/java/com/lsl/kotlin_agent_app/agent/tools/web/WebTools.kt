@@ -314,10 +314,17 @@ private class WebSnapshotTool(runtime: WebToolRuntime) :
                 else -> scopeRaw
             }
 
+        val jsMaxNodes = if (interactiveOnly) 900 else 2500
+        val renderMaxDepth = if (interactiveOnly) 18 else 28
+        val renderMaxNodes = if (interactiveOnly) 320 else 650
+
         val raw =
             runtime.eval(
                 AgentBrowser.snapshotJs(
                     SnapshotJsOptions(
+                        maxNodes = jsMaxNodes,
+                        maxTextPerNode = 160,
+                        maxAttrValueLen = 120,
                         interactiveOnly = interactiveOnly,
                         cursorInteractive = cursorInteractive,
                         scope = scope,
@@ -332,7 +339,7 @@ private class WebSnapshotTool(runtime: WebToolRuntime) :
         val rendered =
             AgentBrowser.renderSnapshot(
                 raw,
-                RenderOptions(maxCharsTotal = 8000, maxNodes = 260, maxDepth = 14, compact = true),
+                RenderOptions(maxCharsTotal = 8000, maxNodes = renderMaxNodes, maxDepth = renderMaxDepth, compact = true),
             )
 
         return ToolOutput.Json(
