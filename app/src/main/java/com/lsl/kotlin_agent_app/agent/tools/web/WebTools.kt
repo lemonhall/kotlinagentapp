@@ -49,6 +49,20 @@ internal class WebToolRuntime(
         dig.joinToString("") { b -> "%02x".format(b) }
     }
 
+    @Volatile
+    private var lastSnapshotSha256: String? = null
+
+    fun snapshotSha256(text: String): String {
+        val dig = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+        return dig.joinToString("") { b -> "%02x".format(b) }
+    }
+
+    fun updateAndCheckSameSnapshot(currentSha256: String): Boolean {
+        val prev = lastSnapshotSha256
+        lastSnapshotSha256 = currentSha256
+        return prev != null && prev == currentSha256
+    }
+
     fun scriptVersionSha256(): String = scriptSha256
 
     fun isBound(): Boolean = controller.isBound()
@@ -351,6 +365,8 @@ private class WebSnapshotTool(runtime: WebToolRuntime) :
                     compact = true,
                 ),
             )
+        val snapshotSha = runtime.snapshotSha256(rendered.text)
+        val sameAsPrev = runtime.updateAndCheckSameSnapshot(snapshotSha)
 
         return ToolOutput.Json(
             value =
@@ -358,6 +374,8 @@ private class WebSnapshotTool(runtime: WebToolRuntime) :
                     put("ok", JsonPrimitive(true))
                     put("url", JsonPrimitive(parsed.meta?.url ?: ""))
                     put("agent_browser_js_sha256", JsonPrimitive(runtime.scriptVersionSha256()))
+                    put("snapshot_sha256", JsonPrimitive(snapshotSha))
+                    put("same_as_prev", JsonPrimitive(sameAsPrev))
                     put("snapshot_text", JsonPrimitive(rendered.text))
                     put("truncated", JsonPrimitive(rendered.stats.truncated))
                     put("truncate_reasons", JsonArray(rendered.stats.truncateReasons.map { JsonPrimitive(it) }))

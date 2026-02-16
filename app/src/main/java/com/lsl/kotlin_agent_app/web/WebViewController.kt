@@ -11,6 +11,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ImageButton
@@ -69,6 +70,40 @@ class WebViewController {
 
         webView.webViewClient =
             object : WebViewClient() {
+                private fun isAllowedScheme(url: String): Boolean {
+                    val u = url.trim()
+                    if (u.isEmpty()) return false
+                    val lower = u.lowercase()
+                    return lower.startsWith("http://") ||
+                        lower.startsWith("https://") ||
+                        lower.startsWith("file://") ||
+                        lower.startsWith("about:")
+                }
+
+                private fun shouldBlockUrl(url: String): Boolean {
+                    val lower = url.trim().lowercase()
+                    if (lower.startsWith("baiduboxapp://")) return true
+                    if (lower.startsWith("intent://")) return true
+                    if (!isAllowedScheme(lower)) return true
+                    return false
+                }
+
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                ): Boolean {
+                    val url = request?.url?.toString().orEmpty()
+                    if (url.isBlank()) return false
+                    return shouldBlockUrl(url)
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                    val u = url.orEmpty()
+                    if (u.isBlank()) return false
+                    return shouldBlockUrl(u)
+                }
+
                 override fun onPageStarted(
                     view: WebView?,
                     url: String?,

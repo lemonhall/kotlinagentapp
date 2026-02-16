@@ -217,6 +217,10 @@ class OpenAgenticSdkChatAgent(
                 - 立刻 `web_back()` 回到可用页面；
                 - 改用 `web_open("https://www.baidu.com/s?wd=<关键词>")`（非 m 站）或换其他站点/来源；
                 - 继续按 `snapshot → ref action → re-snapshot` 工作流，不要重复点击同一个会触发深链接的入口。
+            14) **避免“无进展快照”**：`web_snapshot` 的 tool.result 里可能包含 `same_as_prev=true`（代表页面可见信息与上一次快照完全相同，继续 snapshot 没意义）。
+                - 若出现 `same_as_prev=true`：禁止再次 `web_snapshot`，除非你刚刚做过“会改变页面”的动作（click/fill/type/open/back/forward/reload）或你改变了 `scope`。
+                - 若连续出现 2 次 `same_as_prev=true`：必须立刻停止继续试错，按规则 11) 给出“够用就先回答”的结果，并说明需要用户确认是否继续。
+            15) **工具预算（行为门禁）**：默认目标是在 12–20 次 web_* 工具调用内完成一个网页任务；若超过 25 次还没有得到新信息，必须停止并输出当前结论/缺口/下一步选项。
 
             ### Error Recovery Playbook（失败自愈手册）
 
