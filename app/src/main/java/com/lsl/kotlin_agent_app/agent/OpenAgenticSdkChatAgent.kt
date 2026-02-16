@@ -17,6 +17,7 @@ import me.lemonhall.openagentic.sdk.hooks.HookDecision
 import me.lemonhall.openagentic.sdk.hooks.HookEngine
 import me.lemonhall.openagentic.sdk.hooks.HookMatcher
 import me.lemonhall.openagentic.sdk.providers.OpenAIResponsesHttpProvider
+import me.lemonhall.openagentic.sdk.compaction.CompactionOptions
 import me.lemonhall.openagentic.sdk.runtime.OpenAgenticOptions
 import me.lemonhall.openagentic.sdk.runtime.OpenAgenticSdk
 import me.lemonhall.openagentic.sdk.sessions.FileSessionStore
@@ -148,6 +149,11 @@ class OpenAgenticSdkChatAgent(
                 hookEngine = hookEngine,
                 sessionStore = sessionStore,
                 resumeSessionId = sessionId,
+                compaction =
+                    CompactionOptions(
+                        // Provider proxies vary; keep this conservative to avoid `context_length_exceeded`.
+                        contextLimit = 16_000,
+                    ),
                 includePartialMessages = true,
                 maxSteps = 120,
             )
