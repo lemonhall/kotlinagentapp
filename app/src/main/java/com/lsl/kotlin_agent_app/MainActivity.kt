@@ -9,6 +9,8 @@ import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupActionBarWithNavController
 import androidx.navigation.ui.setupWithNavController
 import com.lsl.kotlin_agent_app.databinding.ActivityMainBinding
+import com.lsl.kotlin_agent_app.config.SharedPreferencesProxyConfigRepository
+import com.lsl.kotlin_agent_app.net.ProxyManager
 import com.lsl.kotlin_agent_app.web.WebViewControllerProvider
 
 class MainActivity : AppCompatActivity() {
@@ -20,6 +22,10 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        val prefs = getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
+        val proxyConfig = SharedPreferencesProxyConfigRepository(prefs).get()
+        ProxyManager.apply(applicationContext, proxyConfig)
 
         val navView: BottomNavigationView = binding.navView
 

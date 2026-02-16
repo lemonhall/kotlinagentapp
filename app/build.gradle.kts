@@ -53,6 +53,9 @@ android {
             buildConfigField("String", "DEFAULT_MODEL", "\"\"")
             buildConfigField("String", "DEFAULT_TAVILY_URL", "\"\"")
             buildConfigField("String", "DEFAULT_TAVILY_API_KEY", "\"\"")
+            buildConfigField("String", "DEFAULT_HTTP_PROXY", "\"\"")
+            buildConfigField("String", "DEFAULT_HTTPS_PROXY", "\"\"")
+            buildConfigField("boolean", "DEFAULT_PROXY_ENABLED", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -64,11 +67,16 @@ android {
             val model = dotenv["MODEL"].orEmpty()
             val tavilyUrl = dotenv["TAVILY_URL"].orEmpty()
             val tavilyApiKey = dotenv["TAVILY_API_KEY"].orEmpty()
+            val httpProxy = dotenv["HTTP_PROXY"].orEmpty()
+            val httpsProxy = dotenv["HTTPS_PROXY"].orEmpty()
             buildConfigField("String", "DEFAULT_OPENAI_BASE_URL", "\"${escapedForBuildConfig(baseUrl)}\"")
             buildConfigField("String", "DEFAULT_OPENAI_API_KEY", "\"${escapedForBuildConfig(apiKey)}\"")
             buildConfigField("String", "DEFAULT_MODEL", "\"${escapedForBuildConfig(model)}\"")
             buildConfigField("String", "DEFAULT_TAVILY_URL", "\"${escapedForBuildConfig(tavilyUrl)}\"")
             buildConfigField("String", "DEFAULT_TAVILY_API_KEY", "\"${escapedForBuildConfig(tavilyApiKey)}\"")
+            buildConfigField("String", "DEFAULT_HTTP_PROXY", "\"${escapedForBuildConfig(httpProxy)}\"")
+            buildConfigField("String", "DEFAULT_HTTPS_PROXY", "\"${escapedForBuildConfig(httpsProxy)}\"")
+            buildConfigField("boolean", "DEFAULT_PROXY_ENABLED", (httpProxy.isNotBlank() || httpsProxy.isNotBlank()).toString())
         }
     }
     compileOptions {
@@ -112,6 +120,7 @@ dependencies {
     implementation("com.squareup.okio:okio:3.8.0")
     implementation("io.noties.markwon:core:4.6.2")
     implementation("io.noties.markwon:linkify:4.6.2")
+    implementation("androidx.webkit:webkit:1.10.0")
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)

@@ -10,7 +10,10 @@ import androidx.lifecycle.lifecycleScope
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.config.LlmConfig
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
+import com.lsl.kotlin_agent_app.config.SharedPreferencesProxyConfigRepository
+import com.lsl.kotlin_agent_app.config.ProxyConfig
 import com.lsl.kotlin_agent_app.databinding.FragmentSettingsBinding
+import com.lsl.kotlin_agent_app.net.ProxyManager
 import com.lsl.kotlin_agent_app.web.WebViewDataCleaner
 import kotlinx.coroutines.launch
 
@@ -29,6 +32,7 @@ class SettingsFragment : Fragment() {
             SharedPreferencesLlmConfigRepository(
                 prefs,
             )
+        val proxyRepo = SharedPreferencesProxyConfigRepository(prefs)
 
         val current = repo.get()
         binding.inputBaseUrl.setText(current.baseUrl)
@@ -37,6 +41,11 @@ class SettingsFragment : Fragment() {
         binding.inputTavilyUrl.setText(current.tavilyUrl)
         binding.inputTavilyApiKey.setText(current.tavilyApiKey)
         binding.switchWebPreview.isChecked = prefs.getBoolean(AppPrefsKeys.WEB_PREVIEW_ENABLED, false)
+
+        val proxyCurrent = proxyRepo.get()
+        binding.switchUseProxy.isChecked = proxyCurrent.enabled
+        binding.inputHttpProxy.setText(proxyCurrent.httpProxy)
+        binding.inputHttpsProxy.setText(proxyCurrent.httpsProxy)
 
         binding.buttonClearWebData.setOnClickListener {
             binding.buttonClearWebData.isEnabled = false
@@ -59,6 +68,16 @@ class SettingsFragment : Fragment() {
                 ),
             )
             prefs.edit().putBoolean(AppPrefsKeys.WEB_PREVIEW_ENABLED, binding.switchWebPreview.isChecked).apply()
+
+            val newProxy =
+                ProxyConfig(
+                    enabled = binding.switchUseProxy.isChecked,
+                    httpProxy = binding.inputHttpProxy.text?.toString().orEmpty(),
+                    httpsProxy = binding.inputHttpsProxy.text?.toString().orEmpty(),
+                )
+            proxyRepo.set(newProxy)
+            ProxyManager.apply(requireContext().applicationContext, newProxy)
+
             Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
         }
 
