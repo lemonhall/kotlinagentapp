@@ -24,4 +24,7 @@ include(":app")
 
 // Local SDK (composite build). See docs/plan/v2-sdk-composite-build.md
 includeBuild("external/openagentic-sdk-kotlin")
+
+// Local agent-browser-kotlin (composite build).
+includeBuild("external/agent-browser-kotlin")
  

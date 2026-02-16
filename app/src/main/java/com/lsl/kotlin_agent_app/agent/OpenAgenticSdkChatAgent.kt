@@ -30,7 +30,7 @@ import me.lemonhall.openagentic.sdk.tools.ToolRegistry
 import me.lemonhall.openagentic.sdk.tools.WebFetchTool
 import me.lemonhall.openagentic.sdk.tools.WebSearchTool
 import me.lemonhall.openagentic.sdk.tools.WriteTool
-import com.lsl.kotlin_agent_app.agent.tools.WebViewTool
+import com.lsl.kotlin_agent_app.agent.tools.web.OpenAgenticWebTools
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -64,6 +64,7 @@ class OpenAgenticSdkChatAgent(
         val rootPath = agentsRoot.absolutePath.replace('\\', '/').toPath()
         val fileSystem = FileSystem.SYSTEM
 
+        val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = false)
         val tools =
             ToolRegistry(
                 listOf(
@@ -79,8 +80,7 @@ class OpenAgenticSdkChatAgent(
                         endpoint = buildTavilySearchEndpoint(config.tavilyUrl),
                         apiKeyProvider = { config.tavilyApiKey.trim().ifEmpty { null } },
                     ),
-                    WebViewTool(),
-                ),
+                ) + webTools,
             )
 
         val systemPrompt = buildSystemPrompt(root = rootPath)
@@ -121,6 +121,20 @@ class OpenAgenticSdkChatAgent(
         val sessionId = prefs.getString(KEY_SESSION_ID, null)?.trim()?.ifEmpty { null }
 
         val provider = OpenAIResponsesHttpProvider(baseUrl = baseUrl)
+        val allowedTools =
+            (
+                setOf(
+                    "Read",
+                    "Write",
+                    "Edit",
+                    "List",
+                    "Glob",
+                    "Grep",
+                    "Skill",
+                    "WebFetch",
+                    "WebSearch",
+                ) + webTools.map { it.name }
+            ).toSet()
         val options =
             OpenAgenticOptions(
                 provider = provider,
@@ -130,19 +144,7 @@ class OpenAgenticSdkChatAgent(
                 cwd = rootPath,
                 projectDir = rootPath,
                 tools = tools,
-                allowedTools =
-                    setOf(
-                        "Read",
-                        "Write",
-                        "Edit",
-                        "List",
-                        "Glob",
-                        "Grep",
-                        "Skill",
-                        "WebFetch",
-                        "WebSearch",
-                        "WebView",
-                    ),
+                allowedTools = allowedTools,
                 hookEngine = hookEngine,
                 sessionStore = sessionStore,
                 resumeSessionId = sessionId,
@@ -187,10 +189,16 @@ class OpenAgenticSdkChatAgent(
             
             当需要操作文件或加载技能时，优先使用工具：Read / Write / Edit / List / Glob / Grep / Skill。
             当需要查询或抓取网页信息时，使用：WebSearch / WebFetch（也可理解为 web_search / web_fetch）。
-            当需要在 App 内驱动内置 WebView 浏览网页时，使用：WebView（goto/run_script/get_dom/get_state/back/forward/reload）。
+            当需要在 App 内驱动内置 WebView 浏览网页时，使用：web_* 工具（web_open/web_snapshot/web_click/web_fill/...）。
+
+            Web 工具使用规则（必须遵守）：
+            - 先看后做：任何点击/填写前先 web_snapshot，从 snapshot_text 中找到 [ref=eN]。
+            - 只用 ref 操作：click/fill/select 等只接受 ref，不要臆测 selector。
+            - ref 短生命周期：页面导航/刷新/弹窗导致 DOM 变化后，旧 ref 可能失效；失效就重新 web_snapshot。
+            - 严禁 dump 整页 HTML：不要为了“看清楚”去抓 document.body.outerHTML；用 web_snapshot + web_query(limit) 获取必要信息。
 
             对话风格要求：
-            - 优先行动、少说多做：需要打开网页/抓取 DOM 时，先调用 WebView 工具，再用 1-3 句总结结果。
+            - 优先行动、少说多做：需要打开网页/抓取页面信息时，先调用 web_* 工具，再用 1-3 句总结结果。
             - 不要长篇解释工具细节；除非用户追问。
         """.trimIndent()
     }

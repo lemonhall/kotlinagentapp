@@ -95,6 +95,7 @@ android {
 dependencies {
 
     implementation("me.lemonhall.openagentic:openagentic-sdk-kotlin:0.1.0-SNAPSHOT")
+    implementation("com.lsl:agent-browser-kotlin:0.1.0")
 
     coreLibraryDesugaring(libs.android.desugar.jdk.libs)
 

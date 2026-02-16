@@ -1,3 +1,6 @@
 [submodule "external/openagentic-sdk-kotlin"]
 	path = external/openagentic-sdk-kotlin
 	url = https://github.com/lemonhall/openagentic-sdk-kotlin
+[submodule "external/agent-browser-kotlin"]
+	path = external/agent-browser-kotlin
+	url = https://github.com/lemonhall/agent-browser-kotlin

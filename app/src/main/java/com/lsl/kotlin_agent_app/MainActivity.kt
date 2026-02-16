@@ -48,7 +48,7 @@ class MainActivity : AppCompatActivity() {
 
         navController.addOnDestinationChangedListener { _, destination, _ ->
             val showWeb = destination.id == R.id.navigation_web
-            binding.webOverlay.visibility = if (showWeb) View.VISIBLE else View.GONE
+            binding.webOverlay.visibility = if (showWeb) View.VISIBLE else View.INVISIBLE
         }
     }
 }
