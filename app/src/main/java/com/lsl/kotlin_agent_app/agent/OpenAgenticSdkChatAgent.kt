@@ -44,6 +44,7 @@ import java.io.File
 import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.security.MessageDigest
 
 class OpenAgenticSdkChatAgent(
     context: Context,
@@ -176,6 +177,7 @@ class OpenAgenticSdkChatAgent(
     private fun systemPromptHookEngine(
         marker: String,
         systemPrompt: String,
+        actionLabel: String? = null,
     ): HookEngine {
         return HookEngine(
             enableMessageRewriteHooks = true,
@@ -192,7 +194,7 @@ class OpenAgenticSdkChatAgent(
                                 role == "system" && content.contains(marker)
                             } == true
                             if (alreadyInjected) {
-                                HookDecision(action = "system prompt already present")
+                                HookDecision(action = buildSystemPromptHookAction(base = "system prompt already present", label = actionLabel))
                             } else {
                                 val sys =
                                     buildJsonObject {
@@ -201,7 +203,7 @@ class OpenAgenticSdkChatAgent(
                                     }
                                 HookDecision(
                                     overrideModelInput = listOf(sys) + current,
-                                    action = "prepended system prompt",
+                                    action = buildSystemPromptHookAction(base = "prepended system prompt", label = actionLabel),
                                 )
                             }
                         },
@@ -233,7 +235,9 @@ class OpenAgenticSdkChatAgent(
             当用户要求进行“深度研究 / deep-research”时，**必须**使用子会话工具：
             - `Task(agent="deep-research", prompt="<用户问题原文>")`
             
-            当 `Task(agent="deep-research", ...)` 成功后：主对话只输出 `report_path`（不要把研究过程/网页抓取细节带回主对话）。
+            当 `Task(agent="deep-research", ...)` 成功后：主对话必须给用户一个简短自然语言摘要（不要贴全文），并附上 `report_path` 方便用户打开阅读。
+            - 摘要优先使用 `Task` 返回的 `report_summary`（它来自子会话生成的报告内容）。
+            - 若摘要缺失/明显不完整，再用 `Read(file_path=<report_path>)` 读取报告开头少量内容补足摘要（避免把整篇报告读进上下文）。
             当 `Task(agent="webview", ...)` 成功后：主对话直接用自然语言回答用户（输出结论与必要证据），不要输出任何 `sessions/.../events.jsonl` 等路径/调试信息。
             
             约束：
@@ -436,12 +440,21 @@ class OpenAgenticSdkChatAgent(
 
             val skillBody =
                 try {
-                    readDeepResearchSkillBody(root = rootPath)
+                    loadDeepResearchSkillBody(root = rootPath)
                 } catch (_: Throwable) {
                     null
                 }
-            val systemPrompt = buildDeepResearchSubAgentPrompt(root = rootPath, deepResearchSkillBody = skillBody)
-            val hookEngine = systemPromptHookEngine(marker = "OPENAGENTIC_APP_DEEP_RESEARCH_SUBAGENT_PROMPT_V1", systemPrompt = systemPrompt)
+            val systemPrompt = buildDeepResearchSubAgentPrompt(root = rootPath, deepResearchSkillBody = skillBody?.body)
+            val hookEngine =
+                systemPromptHookEngine(
+                    marker = "OPENAGENTIC_APP_DEEP_RESEARCH_SUBAGENT_PROMPT_V1",
+                    systemPrompt = systemPrompt,
+                    actionLabel =
+                        skillBody?.let {
+                            val sha = sha256Hex(it.body).take(12)
+                            "deep-research skill injected source=${it.source} chars=${it.body.length} sha256=$sha"
+                        } ?: "deep-research skill missing",
+                )
             val sessionStore = FileSessionStore(fileSystem = fileSystem, rootDir = rootPath)
 
             val result =
@@ -472,6 +485,13 @@ class OpenAgenticSdkChatAgent(
                 fallbackMarkdown = result.finalText.trim().ifEmpty { "(empty)" },
             )
 
+            val reportSummary =
+                try {
+                    extractDeepResearchSummaryFromReport(absolutePath = reportPathAbs, maxChars = 1200)
+                } catch (_: Throwable) {
+                    null
+                }
+
             buildJsonObject {
                 put("ok", JsonPrimitive(true))
                 put("agent", JsonPrimitive(agent))
@@ -480,6 +500,7 @@ class OpenAgenticSdkChatAgent(
                 put("sub_session_id", JsonPrimitive(result.sessionId))
                 put("events_path", JsonPrimitive("sessions/${result.sessionId}/events.jsonl"))
                 put("report_path", JsonPrimitive(reportPathRel))
+                if (!reportSummary.isNullOrBlank()) put("report_summary", JsonPrimitive(reportSummary))
             }
         }
     }
@@ -534,11 +555,32 @@ class OpenAgenticSdkChatAgent(
         }
     }
 
-    private fun readDeepResearchSkillBody(root: Path): String? {
-        val f = File(root.toString(), "skills/deep-research/SKILL.md")
-        if (!f.exists() || !f.isFile) return null
-        val raw = f.readText(Charsets.UTF_8)
-        return stripYamlFrontmatter(raw).trim().ifBlank { null }
+    private data class LoadedSkillBody(
+        val body: String,
+        val source: String,
+    )
+
+    private fun loadDeepResearchSkillBody(root: Path): LoadedSkillBody? {
+        val rel = "skills/deep-research/SKILL.md"
+        val f = File(root.toString(), rel)
+        if (f.exists() && f.isFile) {
+            val raw = f.readText(Charsets.UTF_8)
+            val body = stripYamlFrontmatter(raw).trim().ifBlank { null } ?: return null
+            return LoadedSkillBody(body = body, source = rel)
+        }
+
+        // Fallback: read bundled asset directly (best-effort).
+        return try {
+            val assetPath = "builtin_skills/deep-research/SKILL.md"
+            val raw =
+                appContext.assets.open(assetPath).use { input ->
+                    input.readBytes().toString(Charsets.UTF_8)
+                }
+            val body = stripYamlFrontmatter(raw).trim().ifBlank { null } ?: return null
+            LoadedSkillBody(body = body, source = "asset:$assetPath")
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun stripYamlFrontmatter(raw: String): String {
@@ -559,6 +601,98 @@ class OpenAgenticSdkChatAgent(
         val lower = normalized.lowercase(Locale.ROOT)
         if (lower.endsWith("/search")) return normalized
         return "$normalized/search"
+    }
+
+    private fun buildSystemPromptHookAction(
+        base: String,
+        label: String?,
+    ): String {
+        val l = label?.trim().orEmpty()
+        return if (l.isEmpty()) base else "$base ($l)"
+    }
+
+    private fun sha256Hex(text: String): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        val bytes = md.digest(text.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { b -> "%02x".format(b) }
+    }
+
+    private fun extractDeepResearchSummaryFromReport(
+        absolutePath: String,
+        maxChars: Int,
+    ): String? {
+        val f = File(absolutePath)
+        if (!f.exists() || !f.isFile) return null
+        val raw =
+            try {
+                // Keep this bounded; we only need the top of the report for a summary.
+                val bytes = f.readBytes()
+                val cap = 256 * 1024
+                val bounded = if (bytes.size <= cap) bytes else bytes.copyOf(cap)
+                bounded.toString(Charsets.UTF_8)
+            } catch (_: Throwable) {
+                return null
+            }
+        val text = raw.replace("\r\n", "\n").trim()
+        if (text.isBlank()) return null
+
+        val section =
+            extractMarkdownSection(
+                markdown = text,
+                headingPatterns =
+                    listOf(
+                        Regex("(?im)^#{1,3}\\s*(执行摘要)\\s*$"),
+                        Regex("(?im)^#{1,3}\\s*(Executive\\s+Summary)\\s*$"),
+                    ),
+            ) ?: extractMarkdownSection(
+                markdown = text,
+                headingPatterns =
+                    listOf(
+                        Regex("(?im)^#{1,3}\\s*(关键发现|Key\\s+Findings)\\s*$"),
+                    ),
+            )
+
+        val candidate =
+            (section ?: text)
+                .trim()
+                .replace(Regex("(?m)^#{1,6}\\s+.*$"), "")
+                .trim()
+                .ifBlank { null }
+                ?: return null
+
+        val limit = maxChars.coerceAtLeast(0)
+        if (limit <= 0) return ""
+        return if (candidate.length <= limit) candidate else headTailForUi(text = candidate, maxChars = limit)
+    }
+
+    private fun extractMarkdownSection(
+        markdown: String,
+        headingPatterns: List<Regex>,
+    ): String? {
+        val md = markdown.replace("\r\n", "\n")
+        val startMatch =
+            headingPatterns.firstNotNullOfOrNull { rx -> rx.find(md) }
+                ?: return null
+        val start = startMatch.range.last + 1
+        if (start >= md.length) return null
+        val after = md.substring(start)
+        val nextHeading = Regex("(?m)^#{1,3}\\s+\\S.*$").find(after)
+        val body = if (nextHeading != null) after.substring(0, nextHeading.range.first) else after
+        return body.trim().ifBlank { null }
+    }
+
+    private fun headTailForUi(
+        text: String,
+        maxChars: Int,
+    ): String {
+        val limit = maxChars.coerceAtLeast(0)
+        if (limit <= 0) return ""
+        if (text.length <= limit) return text
+        val marker = "\n…(truncated)…\n"
+        val remaining = (limit - marker.length).coerceAtLeast(0)
+        val headLen = remaining / 2
+        val tailLen = remaining - headLen
+        return text.take(headLen) + marker + text.takeLast(tailLen)
     }
 
     private companion object {
