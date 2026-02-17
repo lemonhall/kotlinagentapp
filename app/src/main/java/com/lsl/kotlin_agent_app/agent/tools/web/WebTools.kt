@@ -332,10 +332,10 @@ private class WebSnapshotTool(runtime: WebToolRuntime) :
         // - JS side controls DOM traversal + ref assignment (maxNodes).
         // - Kotlin side controls snapshot_text visibility to the model (maxDepth/maxNodes/maxCharsTotal).
         // Keep output bounded to avoid context overflows, but large enough for "套娃" DOM sites.
-        val jsMaxNodes = if (interactiveOnly) 1200 else 3200
-        val renderMaxDepth = if (interactiveOnly) 20 else 25
-        val renderMaxNodes = if (interactiveOnly) 360 else 520
-        val renderMaxCharsTotal = 12_000
+        val jsMaxNodes = if (interactiveOnly) 1600 else 5200
+        val renderMaxDepth = if (interactiveOnly) 22 else 30
+        val renderMaxNodes = if (interactiveOnly) 520 else 900
+        val renderMaxCharsTotal = if (interactiveOnly) 18_000 else 28_000
 
         val raw =
             runtime.eval(
