@@ -468,6 +468,7 @@ class ChatViewModel(
             "Glob" -> str("pattern").takeIf { it.isNotBlank() }?.let { "匹配文件：${it.take(60)}" } ?: "匹配文件"
             "Grep" -> str("pattern").takeIf { it.isNotBlank() }?.let { "搜索文本：${it.take(40)}" } ?: "搜索文本"
             "Skill" -> str("name").takeIf { it.isNotBlank() }?.let { "加载技能：${it.take(40)}" } ?: "加载技能"
+            "terminal_exec" -> str("command").takeIf { it.isNotBlank() }?.let { "运行命令：${it.take(60)}" } ?: "运行命令"
             "Task" -> str("agent").takeIf { it.isNotBlank() }?.let { "运行子任务：${it.take(32)}" } ?: "运行子任务"
             "web_open" -> {
                 val url = str("url")

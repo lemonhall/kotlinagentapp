@@ -3,6 +3,7 @@ package com.lsl.kotlin_agent_app.agent
 import android.content.Context
 import android.content.SharedPreferences
 import com.lsl.kotlin_agent_app.BuildConfig
+import com.lsl.kotlin_agent_app.agent.tools.terminal.TerminalExecTool
 import com.lsl.kotlin_agent_app.agent.tools.web.OpenAgenticWebTools
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +98,7 @@ class OpenAgenticSdkChatAgent(
                     GlobTool(),
                     GrepTool(),
                     SkillTool(),
+                    TerminalExecTool(appContext = appContext),
                     WebFetchTool(),
                     WebSearchTool(
                         endpoint = buildTavilySearchEndpoint(config.tavilyUrl),
@@ -138,6 +140,7 @@ class OpenAgenticSdkChatAgent(
                     "WebFetch",
                     "WebSearch",
                     "Task",
+                    "terminal_exec",
                 )
             ).toSet()
 
@@ -301,6 +304,7 @@ class OpenAgenticSdkChatAgent(
             - sessions：`sessions/<session_id>/events.jsonl`（SDK 自动落盘）
             
             当需要操作文件或加载技能时，优先使用工具：Read / Write / Edit / List / Glob / Grep / Skill。
+            当需要执行“伪终端/白名单 CLI”命令时，使用：terminal_exec（注意：这不是 bash，不支持管道/重定向/多命令）。
             当需要查询或抓取网页信息时，使用：WebSearch / WebFetch（也可理解为 web_search / web_fetch）。
             
             当需要在 App 内驱动内置 WebView 浏览网页时，**必须**使用子会话工具：
@@ -681,6 +685,7 @@ class OpenAgenticSdkChatAgent(
             "Grep" -> str("pattern").takeIf { it.isNotBlank() }?.let { "搜索文本：${it.take(40)}" } ?: "搜索文本"
             "Skill" -> str("name").takeIf { it.isNotBlank() }?.let { "加载技能：${it.take(40)}" } ?: "加载技能"
             "Task" -> str("agent").takeIf { it.isNotBlank() }?.let { "运行子任务：${it.take(32)}" } ?: "运行子任务"
+            "terminal_exec" -> str("command").takeIf { it.isNotBlank() }?.let { "运行命令：${it.take(60)}" } ?: "运行命令"
             "web_open" -> {
                 val url = str("url")
                 val host = url.substringAfter("://", url).substringBefore('/').take(60)
