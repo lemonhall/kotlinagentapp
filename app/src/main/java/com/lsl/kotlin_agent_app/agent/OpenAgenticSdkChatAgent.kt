@@ -35,6 +35,8 @@ import me.lemonhall.openagentic.sdk.runtime.OpenAgenticOptions
 import me.lemonhall.openagentic.sdk.runtime.OpenAgenticSdk
 import me.lemonhall.openagentic.sdk.runtime.TaskContext
 import me.lemonhall.openagentic.sdk.runtime.TaskRunner
+import me.lemonhall.openagentic.sdk.subagents.BuiltInSubAgents
+import me.lemonhall.openagentic.sdk.subagents.TaskRunners
 import me.lemonhall.openagentic.sdk.sessions.FileSessionStore
 import me.lemonhall.openagentic.sdk.tools.EditTool
 import me.lemonhall.openagentic.sdk.tools.GlobTool
@@ -42,6 +44,7 @@ import me.lemonhall.openagentic.sdk.tools.GrepTool
 import me.lemonhall.openagentic.sdk.tools.ListTool
 import me.lemonhall.openagentic.sdk.tools.ReadTool
 import me.lemonhall.openagentic.sdk.tools.SkillTool
+import me.lemonhall.openagentic.sdk.tools.TaskAgent
 import me.lemonhall.openagentic.sdk.tools.ToolRegistry
 import me.lemonhall.openagentic.sdk.tools.WebFetchTool
 import me.lemonhall.openagentic.sdk.tools.WebSearchTool
@@ -135,11 +138,12 @@ class OpenAgenticSdkChatAgent(
                     "Task",
                 )
             ).toSet()
-        val taskRunner =
-            TaskRunner { agent: String, prompt: String, context: TaskContext ->
+
+        val appSubAgentRunner =
+            TaskRunner { agent: String, taskPrompt: String, context: TaskContext ->
                 runSubAgent(
                     agent = agent,
-                    prompt = prompt,
+                    prompt = taskPrompt,
                     parentContext = context,
                     rootPath = rootPath,
                     fileSystem = fileSystem,
@@ -151,6 +155,34 @@ class OpenAgenticSdkChatAgent(
                     emitProgress = ::emitProgress,
                 )
             }
+
+        val baseOptionsForBuiltins =
+            OpenAgenticOptions(
+                provider = provider,
+                model = model,
+                apiKey = apiKey,
+                fileSystem = fileSystem,
+                cwd = rootPath,
+                projectDir = rootPath,
+                tools = tools,
+                allowedTools = allowedTools,
+                hookEngine = hookEngine,
+                taskRunner = null,
+                sessionStore = sessionStore,
+                resumeSessionId = null,
+                compaction = CompactionOptions(contextLimit = 200_000),
+                includePartialMessages = false,
+                maxSteps = 80,
+            )
+        val builtInExploreRunner = TaskRunners.builtInExplore(baseOptions = baseOptionsForBuiltins)
+        val taskRunner = TaskRunners.compose(builtInExploreRunner, appSubAgentRunner)
+
+        val taskAgents =
+            listOf(
+                BuiltInSubAgents.exploreTaskAgent(),
+                TaskAgent(name = "webview", description = "Drive an embedded WebView for interactive browsing.", allowedTools = setOf("web_*")),
+                TaskAgent(name = "deep-research", description = "Deep research: search/fetch + write a Markdown report file.", allowedTools = setOf("Read", "Write", "Edit", "WebFetch", "WebSearch", "web_*")),
+            )
         val options =
             OpenAgenticOptions(
                 provider = provider,
@@ -163,6 +195,7 @@ class OpenAgenticSdkChatAgent(
                 allowedTools = allowedTools,
                 hookEngine = hookEngine,
                 taskRunner = taskRunner,
+                taskAgents = taskAgents,
                 sessionStore = sessionStore,
                 resumeSessionId = sessionId,
                 compaction =
