@@ -357,26 +357,31 @@ class FilesViewModel(
                         },
                     )
 
-                val out =
-                    provider.complete(
-                        ResponsesRequest(
-                            model = model,
-                            input = input,
-                            tools = emptyList(),
-                            apiKey = apiKey,
-                            previousResponseId = null,
-                            store = false,
-                        ),
-                    )
-                out.assistantText
-                    ?.trim()
-                    ?.lineSequence()
-                    ?.firstOrNull()
-                    ?.trim()
-                    ?.let { stripSurroundingQuotes(it) }
-                    ?.let { shrinkForTitle(it) }
-                    ?.ifBlank { null }
-                    ?: heuristic
+                val modelTitle =
+                    try {
+                        val out =
+                            provider.complete(
+                                ResponsesRequest(
+                                    model = model,
+                                    input = input,
+                                    tools = emptyList(),
+                                    apiKey = apiKey,
+                                    previousResponseId = null,
+                                    store = false,
+                                ),
+                            )
+                        out.assistantText
+                            ?.trim()
+                            ?.lineSequence()
+                            ?.firstOrNull()
+                            ?.trim()
+                            ?.let { stripSurroundingQuotes(it) }
+                            ?.let { shrinkForTitle(it) }
+                            ?.ifBlank { null }
+                    } catch (_: Throwable) {
+                        null
+                    }
+                modelTitle ?: heuristic
             } else {
                 heuristic
             }
