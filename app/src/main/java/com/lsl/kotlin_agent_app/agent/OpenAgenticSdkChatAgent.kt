@@ -194,6 +194,7 @@ class OpenAgenticSdkChatAgent(
                 tools = tools,
                 allowedTools = allowedTools,
                 hookEngine = hookEngine,
+                taskProgressEmitter = ::emitProgress,
                 taskRunner = taskRunner,
                 taskAgents = taskAgents,
                 sessionStore = sessionStore,
