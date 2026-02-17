@@ -38,3 +38,33 @@
   - A. 自动：失败自动重试 1 次；仍失败就给“继续/重试”按钮
   - B. 半自动（推荐）：失败立刻提示 + 一键“续跑生成报告”（复用同一子会话或基于已抓取证据汇总）
   - C. 手动：只提示失败，不做任何自动动作
+
+
+  • opencode 那边的“抗 EOF/断流 + 自恢复”策略，核心不在某个子 Agent，而是在会话处理器（SessionProcessor）+ 统一错误建模（MessageV2/ProviderError）+ 流式状态机这三层把“失败”变成可重
+  试、可续跑、且不丢中间产物。
+
+  - 流式层：把解析失败显式变成 error + finishReason="error"，不会“假装成功”
+      - OpenAIResponsesLanguageModel.doStream() 遇到 chunk 校验失败会直接 finishReason="error" 并 enqueue({type:"error"})：E:
+        \development\opencode\packages\opencode\src\provider\sdk\copilot\responses\openai-responses-language-model.ts:851、E:
+        \development\opencode\packages\opencode\src\provider\sdk\copilot\responses\openai-responses-language-model.ts:852
+      - 流结束时一定会 enqueue({type:"finish", finishReason, usage...})：E:\development\opencode\packages\opencode\src\provider\sdk\copilot\responses\openai-responses-language-
+        model.ts:1305
+  - 错误建模层：把网络断开这类问题标成“可重试”
+      - MessageV2.fromError() 将 ECONNRESET 归为 APIError(isRetryable=true)（本质等价于你这边的 EOF/断流类错误）：E:\development\opencode\packages\opencode\src\session\message-
+        v2.ts:830
+      - 对 APICallError/stream error 做结构化解析并带上 isRetryable/headers/body：E:\development\opencode\packages\opencode\src\session\message-v2.ts:811
+  - 会话处理层：自动重试 + 指数退避 + 尊重 Retry-After
+      - SessionProcessor 捕获异常后会走 SessionRetry.retryable()，可重试就 attempt++、算 delay、sleep 后继续跑（不是立刻失败）：E:
+        \development\opencode\packages\opencode\src\session\processor.ts:359、E:\development\opencode\packages\opencode\src\session\processor.ts:362、E:
+        \development\opencode\packages\opencode\src\session\processor.ts:369
+      - delay 逻辑支持 retry-after-ms / retry-after，否则指数退避：E:\development\opencode\packages\opencode\src\session\retry.ts:28、E:
+        \development\opencode\packages\opencode\src\session\retry.ts:61
+  - 最关键的“不断流也不丢成果”：边流式边持久化文本增量
+      - text-delta 会持续 Session.updatePartDelta(...) 把内容落库，所以就算中途断了也有“已生成的半成品”，不会像你现在这样最后只剩空报告：E:
+        \development\opencode\packages\opencode\src\session\processor.ts:302、E:\development\opencode\packages\opencode\src\session\processor.ts:306
+  - 子任务可续跑：Task 支持传 task_id 继续同一个 subagent session
+      - task_id 的语义写得很明确：用于 resume 同一子会话：E:\development\opencode\packages\opencode\src\tool\task.ts:18、E:
+        \development\opencode\packages\opencode\src\tool\task.ts:67、E:\development\opencode\packages\opencode\src\tool\task.ts:148
+
+  用一句话对比你现在的 Kotlin 端：你这边 deep-research 子会话没有“流式增量落盘/落库”、没有“错误=可重试”的统一建模、也没有“会话级自动重试/退避/续跑 task_id”，所以一旦 EOF/断流就只
+  能空交付 + 主会话误判为 ok。

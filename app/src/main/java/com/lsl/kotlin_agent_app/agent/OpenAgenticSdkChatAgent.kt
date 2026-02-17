@@ -308,6 +308,11 @@ class OpenAgenticSdkChatAgent(
             当 `Task(agent="deep-research", ...)` 成功后：主对话必须给用户一个简短自然语言摘要（不要贴全文），并附上 `report_path` 方便用户打开阅读。
             - 摘要优先使用 `Task` 返回的 `report_summary`（它来自子会话生成的报告内容）。
             - 若摘要缺失/明显不完整，再用 `Read(file_path=<report_path>)` 读取报告开头少量内容补足摘要（避免把整篇报告读进上下文）。
+
+            当 `Task(agent="deep-research", ...)` 失败（例如返回 `ok=false` 或 `stop_reason="error"`）时：
+            - **禁止**自动再次调用 `Task(deep-research, ...)`（避免重试风暴 / 多 session 连锁）
+            - 直接向用户说明“深度研究失败”的原因（简短），并附上 `report_path`（报告里包含失败原因、已收集材料指针与续跑建议）
+            - 可建议用户稍后重试、或缩小研究范围/减少子话题
             当 `Task(agent="webview", ...)` 成功后：主对话直接用自然语言回答用户（输出结论与必要证据），不要输出任何 `sessions/.../events.jsonl` 等路径/调试信息。
             
             约束：
@@ -583,9 +588,38 @@ class OpenAgenticSdkChatAgent(
             }
             val result = lastResult ?: Result(finalText = "", sessionId = "", stopReason = "error")
 
+            val ok = (result.stopReason ?: "").lowercase(Locale.ROOT) != "error" && lastRuntimeError == null
+
+            val fallbackMarkdown =
+                if (ok) {
+                    result.finalText.trim().ifEmpty { "(empty)" }
+                } else {
+                    val errType = lastRuntimeError?.errorType?.ifBlank { null } ?: "ProviderError"
+                    val errMsg = lastRuntimeError?.errorMessage?.trim()?.ifBlank { null } ?: "unknown"
+                    """
+                    # 深度研究报告（失败）
+
+                    本次 deep-research 子会话未能完成最终报告生成，已按“失败可交付”原则落盘本文件，供追溯与续跑。
+
+                    ## 失败原因
+                    - error_type: $errType
+                    - error_message: $errMsg
+                    - stop_reason: ${result.stopReason ?: "error"}
+
+                    ## 已收集材料（追溯指针）
+                    - events: $rootPath/sessions/${result.sessionId}/events.jsonl
+                    - tool-output: $rootPath/tool-output/ （如存在）
+
+                    ## 续跑建议
+                    1. 稍后重试（网络/代理瞬断通常可恢复）。
+                    2. 缩小范围：减少子话题/限定时间范围/限定来源类型。
+                    3. 如仍失败：导出本子会话 `events.jsonl` 供定位。
+                    """.trimIndent()
+                }
+
             ensureFileExistsWithFallback(
                 absolutePath = reportPathAbs,
-                fallbackMarkdown = result.finalText.trim().ifEmpty { "(empty)" },
+                fallbackMarkdown = fallbackMarkdown,
             )
 
             val reportSummary =
@@ -596,7 +630,7 @@ class OpenAgenticSdkChatAgent(
                 }
 
             buildJsonObject {
-                put("ok", JsonPrimitive(true))
+                put("ok", JsonPrimitive(ok))
                 put("agent", JsonPrimitive(agent))
                 put("parent_session_id", JsonPrimitive(parentContext.sessionId))
                 put("parent_tool_use_id", JsonPrimitive(parentContext.toolUseId))
@@ -690,7 +724,23 @@ class OpenAgenticSdkChatAgent(
         withContext(Dispatchers.IO) {
             val parent = f.parentFile
             if (parent != null && !parent.exists()) parent.mkdirs()
-            if (!f.exists() || f.length() <= 0L) {
+            val shouldWrite =
+                if (!f.exists() || f.length() <= 0L) {
+                    true
+                } else {
+                    // Overwrite a placeholder-only file (common when a sub-task fails before producing content).
+                    // Keep this bounded to avoid reading large reports.
+                    try {
+                        val bytes = f.readBytes()
+                        val cap = 32 * 1024
+                        val bounded = if (bytes.size <= cap) bytes else bytes.copyOf(cap)
+                        val text = bounded.toString(Charsets.UTF_8).trim()
+                        text.isBlank() || text == "(empty)"
+                    } catch (_: Throwable) {
+                        false
+                    }
+                }
+            if (shouldWrite) {
                 f.writeText(fallbackMarkdown.ifBlank { "(empty)" } + "\n", Charsets.UTF_8)
             }
         }
