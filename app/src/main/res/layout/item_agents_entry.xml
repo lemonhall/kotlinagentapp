@@ -34,5 +34,16 @@
             android:fontFamily="sans-serif-medium"
             android:maxLines="1"
             android:textSize="17sp" />
+
+        <TextView
+            android:id="@+id/entry_subtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="13sp"
+            android:visibility="gone" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

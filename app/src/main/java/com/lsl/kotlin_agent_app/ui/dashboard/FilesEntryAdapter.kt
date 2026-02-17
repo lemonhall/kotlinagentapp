@@ -2,6 +2,7 @@ package com.lsl.kotlin_agent_app.ui.dashboard
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.view.View
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -34,7 +35,10 @@ class FilesEntryAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val item = getItem(position)
-        holder.binding.entryName.text = item.name
+        holder.binding.entryName.text = item.displayName ?: item.name
+        val subtitle = item.subtitle?.trim().orEmpty()
+        holder.binding.entrySubtitle.visibility = if (subtitle.isBlank()) View.GONE else View.VISIBLE
+        holder.binding.entrySubtitle.text = subtitle
         holder.binding.entryIcon.setImageResource(
             if (item.type == AgentsDirEntryType.Dir) R.drawable.ic_folder_24 else R.drawable.ic_insert_drive_file_24
         )

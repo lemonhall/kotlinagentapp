@@ -7,6 +7,9 @@ import java.io.File
 data class AgentsDirEntry(
     val name: String,
     val type: AgentsDirEntryType,
+    val displayName: String? = null,
+    val subtitle: String? = null,
+    val sortKey: Long? = null,
 )
 
 enum class AgentsDirEntryType {
@@ -50,6 +53,17 @@ class AgentsWorkspace(
                 )
             }
             .sortedWith(compareBy<AgentsDirEntry>({ it.type != AgentsDirEntryType.Dir }, { it.name.lowercase() }))
+    }
+
+    fun exists(path: String): Boolean {
+        val f = resolveAgentsPath(path)
+        return f.exists()
+    }
+
+    fun lastModified(path: String): Long? {
+        val f = resolveAgentsPath(path)
+        if (!f.exists()) return null
+        return f.lastModified().takeIf { it > 0L }
     }
 
     fun readTextFile(path: String, maxBytes: Long = 256 * 1024): String {
