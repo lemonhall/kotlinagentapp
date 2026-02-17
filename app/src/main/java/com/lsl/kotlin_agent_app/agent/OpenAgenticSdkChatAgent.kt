@@ -2,9 +2,12 @@ package com.lsl.kotlin_agent_app.agent
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -20,6 +23,8 @@ import me.lemonhall.openagentic.sdk.providers.OpenAIResponsesHttpProvider
 import me.lemonhall.openagentic.sdk.compaction.CompactionOptions
 import me.lemonhall.openagentic.sdk.runtime.OpenAgenticOptions
 import me.lemonhall.openagentic.sdk.runtime.OpenAgenticSdk
+import me.lemonhall.openagentic.sdk.runtime.TaskContext
+import me.lemonhall.openagentic.sdk.runtime.TaskRunner
 import me.lemonhall.openagentic.sdk.sessions.FileSessionStore
 import me.lemonhall.openagentic.sdk.tools.EditTool
 import me.lemonhall.openagentic.sdk.tools.GlobTool
@@ -37,6 +42,8 @@ import okio.Path
 import okio.Path.Companion.toPath
 import java.io.File
 import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.Date
 
 class OpenAgenticSdkChatAgent(
     context: Context,
@@ -65,7 +72,6 @@ class OpenAgenticSdkChatAgent(
         val rootPath = agentsRoot.absolutePath.replace('\\', '/').toPath()
         val fileSystem = FileSystem.SYSTEM
 
-        val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = false)
         val tools =
             ToolRegistry(
                 listOf(
@@ -81,42 +87,12 @@ class OpenAgenticSdkChatAgent(
                         endpoint = buildTavilySearchEndpoint(config.tavilyUrl),
                         apiKeyProvider = { config.tavilyApiKey.trim().ifEmpty { null } },
                     ),
-                ) + webTools,
+                ),
             )
 
-        val systemPrompt = buildSystemPrompt(root = rootPath)
+        val systemPrompt = buildMainSystemPrompt(root = rootPath)
         val hookEngine =
-            HookEngine(
-                enableMessageRewriteHooks = true,
-                beforeModelCall =
-                    listOf(
-                        HookMatcher(
-                            name = "app.system_prompt",
-                            hook = { payload ->
-                                val arr = payload["input"] as? JsonArray
-                                val current = arr?.mapNotNull { it as? JsonObject }.orEmpty()
-                                val alreadyInjected = current.firstOrNull()?.let { first ->
-                                    val role = (first["role"] as? JsonPrimitive)?.content?.trim().orEmpty()
-                                    val content = (first["content"] as? JsonPrimitive)?.content?.trim().orEmpty()
-                                    role == "system" && content.contains("OPENAGENTIC_APP_SYSTEM_PROMPT_V1")
-                                } == true
-                                if (alreadyInjected) {
-                                    HookDecision(action = "system prompt already present")
-                                } else {
-                                    val sys =
-                                        buildJsonObject {
-                                            put("role", JsonPrimitive("system"))
-                                            put("content", JsonPrimitive(systemPrompt))
-                                        }
-                                    HookDecision(
-                                        overrideModelInput = listOf(sys) + current,
-                                        action = "prepended system prompt",
-                                    )
-                                }
-                            },
-                        ),
-                    ),
-            )
+            systemPromptHookEngine(marker = "OPENAGENTIC_APP_SYSTEM_PROMPT_V1", systemPrompt = systemPrompt)
 
         val sessionStore = FileSessionStore(fileSystem = fileSystem, rootDir = rootPath)
         val sessionId = prefs.getString(KEY_SESSION_ID, null)?.trim()?.ifEmpty { null }
@@ -134,8 +110,24 @@ class OpenAgenticSdkChatAgent(
                     "Skill",
                     "WebFetch",
                     "WebSearch",
-                ) + webTools.map { it.name }
+                    "Task",
+                )
             ).toSet()
+        val taskRunner =
+            TaskRunner { agent: String, prompt: String, context: TaskContext ->
+                runSubAgent(
+                    agent = agent,
+                    prompt = prompt,
+                    parentContext = context,
+                    rootPath = rootPath,
+                    fileSystem = fileSystem,
+                    provider = provider,
+                    apiKey = apiKey,
+                    model = model,
+                    tavilyUrl = config.tavilyUrl,
+                    tavilyApiKey = config.tavilyApiKey,
+                )
+            }
         val options =
             OpenAgenticOptions(
                 provider = provider,
@@ -147,6 +139,7 @@ class OpenAgenticSdkChatAgent(
                 tools = tools,
                 allowedTools = allowedTools,
                 hookEngine = hookEngine,
+                taskRunner = taskRunner,
                 sessionStore = sessionStore,
                 resumeSessionId = sessionId,
                 compaction =
@@ -180,7 +173,44 @@ class OpenAgenticSdkChatAgent(
         prefs.edit().putString(KEY_SESSION_ID, sid).apply()
     }
 
-    private fun buildSystemPrompt(root: Path): String {
+    private fun systemPromptHookEngine(
+        marker: String,
+        systemPrompt: String,
+    ): HookEngine {
+        return HookEngine(
+            enableMessageRewriteHooks = true,
+            beforeModelCall =
+                listOf(
+                    HookMatcher(
+                        name = "app.system_prompt",
+                        hook = { payload ->
+                            val arr = payload["input"] as? JsonArray
+                            val current = arr?.mapNotNull { it as? JsonObject }.orEmpty()
+                            val alreadyInjected = current.firstOrNull()?.let { first ->
+                                val role = (first["role"] as? JsonPrimitive)?.content?.trim().orEmpty()
+                                val content = (first["content"] as? JsonPrimitive)?.content?.trim().orEmpty()
+                                role == "system" && content.contains(marker)
+                            } == true
+                            if (alreadyInjected) {
+                                HookDecision(action = "system prompt already present")
+                            } else {
+                                val sys =
+                                    buildJsonObject {
+                                        put("role", JsonPrimitive("system"))
+                                        put("content", JsonPrimitive(systemPrompt))
+                                    }
+                                HookDecision(
+                                    overrideModelInput = listOf(sys) + current,
+                                    action = "prepended system prompt",
+                                )
+                            }
+                        },
+                    ),
+                ),
+        )
+    }
+
+    private fun buildMainSystemPrompt(root: Path): String {
         // Marker is used to avoid duplicate injection from hooks.
         val marker = "OPENAGENTIC_APP_SYSTEM_PROMPT_V1"
         return """
@@ -196,9 +226,31 @@ class OpenAgenticSdkChatAgent(
             
             当需要操作文件或加载技能时，优先使用工具：Read / Write / Edit / List / Glob / Grep / Skill。
             当需要查询或抓取网页信息时，使用：WebSearch / WebFetch（也可理解为 web_search / web_fetch）。
-            当需要在 App 内驱动内置 WebView 浏览网页时，使用：web_* 工具（web_open/web_snapshot/web_click/web_fill/...）。
+            
+            当需要在 App 内驱动内置 WebView 浏览网页时，**必须**使用子会话工具：
+            - `Task(agent="webview", prompt="...")`
+            
+            当用户要求进行“深度研究 / deep-research”时，**必须**使用子会话工具：
+            - `Task(agent="deep-research", prompt="<用户问题原文>")`
+            
+            成功后主对话只输出 `report_path`（不要把研究过程/网页抓取细节带回主对话）。
+            
+            约束：
+            - 主会话禁止直接调用任何 `web_*` 工具（避免高噪音输出污染历史导致上下文溢出）。
+            - `Task(webview, ...)` 会返回结构化摘要（含子会话 session id 的追溯指针）。
+        """.trimIndent()
+    }
 
-            你是一个在 Android WebView 中操作网页的 Agent。只能使用 `web_*` 工具浏览与交互网页。
+    private fun buildWebViewSubAgentPrompt(root: Path): String {
+        val marker = "OPENAGENTIC_APP_WEBVIEW_SUBAGENT_PROMPT_V1"
+        return """
+            $marker
+            你是一个在 Android WebView 中操作网页的子 Agent。只能使用 `web_*` 工具浏览与交互网页。
+            
+            工作区根目录（project root）：$root
+            你只能通过工具读写该根目录下的文件；任何试图访问根目录之外的路径都会失败。
+            
+            你必须优先输出“结论/证据/下一步”，不要把长快照文本原样复述到对话里。
 
             ---
 
@@ -244,15 +296,6 @@ class OpenAgenticSdkChatAgent(
 
             ---
 
-            ## 🟡 搜索结果页处理模式
-
-            1. **snapshot 拿到搜索结果后**：先扫一遍，找到最相关的卡片/链接
-            2. **如果有"展开"按钮**：点击展开，然后用 `web_query(ref=容器ref, kind="text", max_length=8000)` 一次性读取内容，不要再 snapshot
-            3. **如果 snapshot 截断且无展开按钮**：直接 `web_click` 点进最相关的搜索结果详情页
-            4. **拿到足够信息后**：立即输出，附上来源
-
-            ---
-
             ## 🟠 错误恢复（按 error.code 走固定路径）
 
             | error.code | 含义 | 处理 |
@@ -265,27 +308,250 @@ class OpenAgenticSdkChatAgent(
 
             ---
 
-            ## 🟠 web_query 用法速查
+            ## 🟢 输出格式（强制）
 
-            只在需要"读取小块信息/确认状态"时使用：
-
-            | kind | 用途 |
-            |---|---|
-            | `text` | 读取元素内文本（最常用，配合 max_length） |
-            | `value` | 读取输入框当前值 |
-            | `attrs` | 读取元素属性（找 id/class 用于 scope） |
-            | `ischecked/isenabled/isvisible` | 确认元素状态 |
-
-            ---
-
-            ## 🟢 输出格式
-
-            任务完成时：
-            - 用 3-8 行给出结论
-            - 附上信息来源（页面标题/URL）
-            - 如果信息不完整，说明"还缺什么"以及"如何继续"
-            - 不要复述长快照文本
+            返回给主会话的内容必须满足：
+            - 3-8 行结论
+            - 1-3 条证据（标题/URL/页面内证据点）
+            - 如不完整：说明还缺什么 + 继续步骤
+            - 不复述长快照文本（只摘关键 ref/关键句即可）
         """.trimIndent()
+    }
+
+    private suspend fun runSubAgent(
+        agent: String,
+        prompt: String,
+        parentContext: TaskContext,
+        rootPath: Path,
+        fileSystem: FileSystem,
+        provider: OpenAIResponsesHttpProvider,
+        apiKey: String,
+        model: String,
+        tavilyUrl: String,
+        tavilyApiKey: String,
+    ): JsonElement {
+        if (agent != "webview" && agent != "deep-research") {
+            return buildJsonObject {
+                put("ok", JsonPrimitive(false))
+                put("error_type", JsonPrimitive("UnknownSubAgent"))
+                put("error_message", JsonPrimitive("unknown agent: $agent (supported: webview, deep-research)"))
+            }
+        }
+
+        return if (agent == "webview") {
+            val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = false)
+            val tools = ToolRegistry(webTools)
+            val allowedTools = webTools.map { it.name }.toSet()
+
+            val systemPrompt = buildWebViewSubAgentPrompt(root = rootPath)
+            val hookEngine = systemPromptHookEngine(marker = "OPENAGENTIC_APP_WEBVIEW_SUBAGENT_PROMPT_V1", systemPrompt = systemPrompt)
+            val sessionStore = FileSessionStore(fileSystem = fileSystem, rootDir = rootPath)
+
+            val result =
+                OpenAgenticSdk.run(
+                    prompt = prompt,
+                    options =
+                        OpenAgenticOptions(
+                            provider = provider,
+                            model = model,
+                            apiKey = apiKey,
+                            fileSystem = fileSystem,
+                            cwd = rootPath,
+                            projectDir = rootPath,
+                            tools = tools,
+                            allowedTools = allowedTools,
+                            hookEngine = hookEngine,
+                            taskRunner = null,
+                            sessionStore = sessionStore,
+                            resumeSessionId = null,
+                            compaction = CompactionOptions(contextLimit = 200_000),
+                            includePartialMessages = false,
+                            maxSteps = 80,
+                        ),
+                )
+
+            val summary =
+                result.finalText
+                    .trim()
+                    .ifEmpty { "(empty)" }
+                    .let { text ->
+                        val max = 4000
+                        if (text.length <= max) text else (text.take(1800) + "\n…truncated…\n" + text.takeLast(1800))
+                    }
+
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("agent", JsonPrimitive(agent))
+                put("parent_session_id", JsonPrimitive(parentContext.sessionId))
+                put("parent_tool_use_id", JsonPrimitive(parentContext.toolUseId))
+                put("sub_session_id", JsonPrimitive(result.sessionId))
+                put("events_path", JsonPrimitive("sessions/${result.sessionId}/events.jsonl"))
+                put("summary", JsonPrimitive(summary))
+            }
+        } else {
+            val reportPathRel = allocateDeepResearchReportPath()
+            val reportPathAbs = File(rootPath.toString(), reportPathRel).absolutePath.replace('\\', '/')
+            val preface =
+                """
+                你正在执行 deep-research 子会话。你必须生成一个 Markdown 研究交付报告文件，并写入下面这个路径（必须精确一致）：
+                
+                report_path: $reportPathAbs
+                
+                交付要求：
+                - 用 deep-research 的结构化格式（执行摘要/关键发现/详细分析/参考来源等）
+                - 引用用 [1][2] 编号；参考来源列表放在末尾
+                - 研究过程不要塞回主对话；最终在聊天里只输出 report_path（一行即可）
+                """.trimIndent()
+
+            val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = false)
+            val tools =
+                ToolRegistry(
+                    listOf(
+                        ReadTool(),
+                        WriteTool(),
+                        EditTool(),
+                        ListTool(limit = 200),
+                        GlobTool(),
+                        GrepTool(),
+                        SkillTool(),
+                        WebFetchTool(),
+                        WebSearchTool(
+                            endpoint = buildTavilySearchEndpoint(tavilyUrl),
+                            apiKeyProvider = { tavilyApiKey.trim().ifEmpty { null } },
+                        ),
+                    ) + webTools,
+                )
+            val allowedTools =
+                (
+                    setOf(
+                        "Read",
+                        "Write",
+                        "Edit",
+                        "List",
+                        "Glob",
+                        "Grep",
+                        "Skill",
+                        "WebFetch",
+                        "WebSearch",
+                    ) + webTools.map { it.name }
+                ).toSet()
+
+            val skillBody =
+                try {
+                    readDeepResearchSkillBody(root = rootPath)
+                } catch (_: Throwable) {
+                    null
+                }
+            val systemPrompt = buildDeepResearchSubAgentPrompt(root = rootPath, deepResearchSkillBody = skillBody)
+            val hookEngine = systemPromptHookEngine(marker = "OPENAGENTIC_APP_DEEP_RESEARCH_SUBAGENT_PROMPT_V1", systemPrompt = systemPrompt)
+            val sessionStore = FileSessionStore(fileSystem = fileSystem, rootDir = rootPath)
+
+            val result =
+                OpenAgenticSdk.run(
+                    prompt = preface + "\n\n" + prompt.trim(),
+                    options =
+                        OpenAgenticOptions(
+                            provider = provider,
+                            model = model,
+                            apiKey = apiKey,
+                            fileSystem = fileSystem,
+                            cwd = rootPath,
+                            projectDir = rootPath,
+                            tools = tools,
+                            allowedTools = allowedTools,
+                            hookEngine = hookEngine,
+                            taskRunner = null,
+                            sessionStore = sessionStore,
+                            resumeSessionId = null,
+                            compaction = CompactionOptions(contextLimit = 200_000),
+                            includePartialMessages = false,
+                            maxSteps = 200,
+                        ),
+                )
+
+            ensureFileExistsWithFallback(
+                absolutePath = reportPathAbs,
+                fallbackMarkdown = result.finalText.trim().ifEmpty { "(empty)" },
+            )
+
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("agent", JsonPrimitive(agent))
+                put("parent_session_id", JsonPrimitive(parentContext.sessionId))
+                put("parent_tool_use_id", JsonPrimitive(parentContext.toolUseId))
+                put("sub_session_id", JsonPrimitive(result.sessionId))
+                put("events_path", JsonPrimitive("sessions/${result.sessionId}/events.jsonl"))
+                put("report_path", JsonPrimitive(reportPathRel))
+            }
+        }
+    }
+
+    private fun buildDeepResearchSubAgentPrompt(
+        root: Path,
+        deepResearchSkillBody: String?,
+    ): String {
+        val marker = "OPENAGENTIC_APP_DEEP_RESEARCH_SUBAGENT_PROMPT_V1"
+        return """
+            $marker
+            你是一个“深度研究（deep-research）”子 Agent。你的目标是产出一个可阅读的研究交付报告 Markdown 文件，并只把报告路径返回给主会话。
+            
+            工作区根目录（project root）：$root
+            你只能通过工具读写该根目录下的文件；任何试图访问根目录之外的路径都会失败。
+            
+            约束：
+            - 优先使用 WebFetch/WebSearch 做快速抓取与检索。
+            - 仅当网页明显依赖 JS 渲染、或 WebFetch 无法获得正文时，才使用 `web_*`（WebView）工具。
+            - 若 `web_*` 返回未绑定（例如提示需要先打开 Web 页签初始化 WebView），立刻降级回 WebFetch/WebSearch，不要死磕。
+            - 研究过程不要在聊天里输出长正文；正文写入 report_path 指定文件。
+            - 最终在聊天里只输出一行：`report_path: <path>`（必须包含 report_path 字样）。
+            
+            ---
+            
+            ## 已加载 Skill：deep-research
+            
+            下方是当前 App 内置的 deep-research 技能正文（供你严格遵循）。你不需要也不应该再次调用 `Skill(name="deep-research")` 来加载它。
+            
+            ${deepResearchSkillBody?.trim().orEmpty()}
+        """.trimIndent()
+    }
+
+    private fun allocateDeepResearchReportPath(): String {
+        val dir = "artifacts/reports/deep-research"
+        val fmt = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+        val ts = fmt.format(Date())
+        return "$dir/${ts}_Deep-Research.md"
+    }
+
+    private suspend fun ensureFileExistsWithFallback(
+        absolutePath: String,
+        fallbackMarkdown: String,
+    ) {
+        val f = File(absolutePath)
+        withContext(Dispatchers.IO) {
+            val parent = f.parentFile
+            if (parent != null && !parent.exists()) parent.mkdirs()
+            if (!f.exists() || f.length() <= 0L) {
+                f.writeText(fallbackMarkdown.ifBlank { "(empty)" } + "\n", Charsets.UTF_8)
+            }
+        }
+    }
+
+    private fun readDeepResearchSkillBody(root: Path): String? {
+        val f = File(root.toString(), "skills/deep-research/SKILL.md")
+        if (!f.exists() || !f.isFile) return null
+        val raw = f.readText(Charsets.UTF_8)
+        return stripYamlFrontmatter(raw).trim().ifBlank { null }
+    }
+
+    private fun stripYamlFrontmatter(raw: String): String {
+        val s = raw.trimStart()
+        if (!s.startsWith("---")) return raw
+        val lines = s.split('\n')
+        if (lines.isEmpty()) return raw
+        if (lines.first().trim() != "---") return raw
+        val endIdx = lines.indexOfFirst { it.trim() == "---" && it != lines.first() }
+        if (endIdx <= 0) return raw
+        return lines.drop(endIdx + 1).joinToString("\n")
     }
 
     private fun buildTavilySearchEndpoint(raw: String): String {
