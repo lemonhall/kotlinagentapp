@@ -160,12 +160,21 @@ fn truncate_items(items, policy):
 
 ### 3) WebSearch 只记“动作”，不把“结果全文”写进历史（把“原始材料”留在系统外）
 
-这个点特别适合拿来做 WebFetch 的改造方向：**历史里只记“我去搜了/打开了/找到了什么”，至于原始结果全文，不要硬塞进上下文。**
+先把话说清楚（我前一版写得太像“Codex 自带摘要结果”了，这是误导）：
+
+- **Codex 并没有把“搜索结果/网页正文”做成一个可持久化的“找到什么摘要”写进历史。**  
+  它记录的是 `web_search_call` 发生时的 **动作参数**（例如搜了什么 query、打开了哪个 url、在页面里找了哪个 pattern），而不是把 results/body 这种大块内容塞进 history。
+- 你在 UI 里看到的“找到了什么/做了什么”的**人类可读短句**，本质上是把这些动作参数拼出来的一行 detail（比如 `"'pattern' in https://..."`），不是“总结搜索结果”。
+
+这个点特别适合拿来做 WebFetch 的改造方向：**历史里只记“我去搜了/打开了/在页面里找了什么”，至于原始结果全文，不要硬塞进上下文。**
 
 **代码入口（Codex repo）**
 - `web_search_call` 的历史 item 结构：`codex-rs/protocol/src/models.rs:167`（`ResponseItem::WebSearchCall`）
   - 你会发现它只有 `status` 和 `action`，没有“results/body/content”这种大字段。
   - 快速定位：`rg -n "WebSearchCall" codex-rs/protocol/src/models.rs`
+- “动作参数 → 一行短句”的拼装：`codex-rs/core/src/web_search.rs:18`（`web_search_action_detail` / `web_search_detail`）
+  - 它把 `Search(query/queries)`、`OpenPage(url)`、`FindInPage(url, pattern)` 变成可展示的 detail。
+  - 快速定位：`rg -n "web_search_action_detail" codex-rs/core/src/web_search.rs`
 - 什么时候把 web_search 工具暴露给模型：`codex-rs/core/src/tools/spec.rs:1563`（`match config.web_search_mode`）
   - 快速定位：`rg -n "match config.web_search_mode" codex-rs/core/src/tools/spec.rs`
 
@@ -190,6 +199,15 @@ WebSearchCall {
 
 # 重点：没有 results[] / page_text / html 之类的大字段
 ```
+
+**所以，“找到了什么摘要”到底是谁写的？（关键澄清）**
+
+- 在 Codex 的持久化模型里：**没有一个系统自动生成的“结果摘要字段”**。
+- 如果你希望“找到了什么”在历史里可追溯，靠的是两种方式之一：
+  1) **模型自己用一条 `assistant` 消息说清楚**（例如“我在页面里找到了 X，相关段落是 …”），这条文本会进入 history；
+  2) 你在产品侧/SDK 侧实现一个**显式的‘结果摘要步骤’**：把原始 results/body（不进历史）→ 生成一个小 JSON 摘要（进历史），并附带 artifacts 指针（文件路径/哈希/来源 URL 等）。
+
+换句话说：Codex 的工程选择是“**历史先轻量化**（动作可追溯），需要结果再让 assistant/产品补一条小摘要”，而不是把 web 搜索的原始材料当成历史正文。
 
 **借鉴到我们 SDK 的落地翻译**  
 WebFetch/WebSearch 这种“外部世界材料”最好走同一条路：
