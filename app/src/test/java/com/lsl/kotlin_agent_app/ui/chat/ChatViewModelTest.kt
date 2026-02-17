@@ -9,10 +9,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import me.lemonhall.openagentic.sdk.events.AssistantDelta
 import me.lemonhall.openagentic.sdk.events.AssistantMessage
 import me.lemonhall.openagentic.sdk.events.Event
 import me.lemonhall.openagentic.sdk.events.Result
+import me.lemonhall.openagentic.sdk.events.ToolUse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -57,6 +60,7 @@ class ChatViewModelTest {
 
         val assistantText = vm.uiState.value.messages[1].content
         assertEquals("AB", assistantText)
+        assertEquals(null, vm.uiState.value.messages[1].statusLine)
         assertFalse(vm.uiState.value.isSending)
     }
 
@@ -148,5 +152,38 @@ class ChatViewModelTest {
 
         assertFalse(vm.uiState.value.isSending)
         assertTrue(vm.uiState.value.toolTraces.any { it.summary.contains("canceled") })
+    }
+
+    @Test
+    fun sendUserMessage_toolUseUpdatesStatusLine() = runTest {
+        val agent =
+            object : ChatAgent {
+                override fun streamReply(prompt: String): Flow<Event> =
+                    flow {
+                        emit(
+                            ToolUse(
+                                toolUseId = "t1",
+                                name = "WebSearch",
+                                input = buildJsonObject { put("query", JsonPrimitive("kotlin flow merge")) },
+                            ),
+                        )
+                        delay(60_000)
+                    }
+
+                override fun clearSession() = Unit
+            }
+
+        val vm = ChatViewModel(agent = agent, files = files, agentDispatcher = Dispatchers.Main)
+        vm.sendUserMessage("hi")
+        runCurrent()
+
+        val assistant = vm.uiState.value.messages.last()
+        assertEquals(ChatRole.Assistant, assistant.role)
+        assertTrue(assistant.statusLine?.contains("搜索") == true)
+        assertTrue(vm.uiState.value.isSending)
+
+        vm.stopSending()
+        runCurrent()
+        assertFalse(vm.uiState.value.isSending)
     }
 }

@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +45,11 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private var activeSendJob: Job? = null
+    private var activeStatusTickerJob: Job? = null
+    private var activeAssistantMessageId: String? = null
+    private var statusStartedAtMs: Long = 0L
+    private var statusStep: Int = 0
+    private var statusBase: String? = null
     private val toolNameByUseId = linkedMapOf<String, String>()
     private var lastWebviewTaskAnswer: String? = null
     private var lastDeepResearchReportLink: ReportLink? = null
@@ -58,6 +64,10 @@ class ChatViewModel(
 
         val userMessage = ChatMessage(role = ChatRole.User, content = text)
         val assistantMessage = ChatMessage(role = ChatRole.Assistant, content = "")
+        activeAssistantMessageId = assistantMessage.id
+        statusStartedAtMs = System.currentTimeMillis()
+        statusStep = 0
+        statusBase = null
         _uiState.value =
             _uiState.value.copy(
                 isSending = true,
@@ -65,6 +75,9 @@ class ChatViewModel(
                 messages = _uiState.value.messages + userMessage + assistantMessage,
                 toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "agent.run", summary = "start"),
             )
+
+        setStatusBase(assistantMessageId = assistantMessage.id, base = "准备中")
+        startStatusTicker(assistantMessageId = assistantMessage.id)
 
         activeSendJob =
             viewModelScope.launch {
@@ -98,6 +111,10 @@ class ChatViewModel(
     fun clearConversation() {
         activeSendJob?.cancel()
         activeSendJob = null
+        activeStatusTickerJob?.cancel()
+        activeStatusTickerJob = null
+        activeAssistantMessageId = null
+        statusBase = null
         agent.clearSession()
         toolNameByUseId.clear()
         lastWebviewTaskAnswer = null
@@ -168,6 +185,14 @@ class ChatViewModel(
         if (activeSendJob?.isActive != true) return
         activeSendJob?.cancel()
         activeSendJob = null
+        activeStatusTickerJob?.cancel()
+        activeStatusTickerJob = null
+        activeAssistantMessageId?.let { id ->
+            val elapsed = System.currentTimeMillis() - statusStartedAtMs
+            setAssistantStatusLine(assistantMessageId = id, statusLine = "已取消（${formatElapsedMs(elapsed)}）")
+        }
+        activeAssistantMessageId = null
+        statusBase = null
         _uiState.value =
             _uiState.value.copy(
                 isSending = false,
@@ -192,6 +217,7 @@ class ChatViewModel(
 
             is ToolUse -> {
                 toolNameByUseId[ev.toolUseId] = ev.name.ifBlank { "Tool" }
+                setStatusBase(assistantMessageId = assistantMessageId, base = humanizeToolUse(ev.name, ev.input))
                 val inputSummary = summarizeJson(ev.input)
                 val summary =
                     if (inputSummary.isBlank()) "call_id=${ev.toolUseId}" else "call_id=${ev.toolUseId} $inputSummary"
@@ -215,6 +241,9 @@ class ChatViewModel(
                     } else {
                         "ok"
                     }
+                if (ev.isError) {
+                    setStatusBase(assistantMessageId = assistantMessageId, base = "工具失败：${toolName ?: ev.toolUseId}")
+                }
                 captureWebviewTaskAnswer(toolName = toolName, output = ev.output)
                 captureDeepResearchReport(toolName = toolName, output = ev.output, assistantMessageId = assistantMessageId)
                 _uiState.value =
@@ -231,6 +260,12 @@ class ChatViewModel(
             }
 
             is HookEvent -> {
+                if (ev.hookPoint == "TaskProgress") {
+                    val action = ev.action?.trim().orEmpty()
+                    if (action.isNotBlank()) setStatusBase(assistantMessageId = assistantMessageId, base = action)
+                    return
+                }
+
                 val sum = listOfNotNull(ev.name.takeIf { it.isNotBlank() }, ev.action).joinToString(" ").ifBlank { "hook" }
                 _uiState.value =
                     _uiState.value.copy(
@@ -252,6 +287,7 @@ class ChatViewModel(
             }
 
             is RuntimeError -> {
+                setStatusBase(assistantMessageId = assistantMessageId, base = "运行错误：${ev.errorType.ifBlank { "error" }}")
                 _uiState.value =
                     _uiState.value.copy(
                         errorMessage = ev.errorMessage ?: ev.errorType,
@@ -275,8 +311,13 @@ class ChatViewModel(
                 } else if (finalText.isNotBlank()) {
                     setAssistantContent(assistantMessageId = assistantMessageId, content = finalText)
                 }
+                setAssistantStatusLine(assistantMessageId = assistantMessageId, statusLine = null)
                 lastWebviewTaskAnswer = null
                 lastDeepResearchReportLink = null
+                activeStatusTickerJob?.cancel()
+                activeStatusTickerJob = null
+                activeAssistantMessageId = null
+                statusBase = null
                 _uiState.value =
                     _uiState.value.copy(
                         isSending = false,
@@ -285,6 +326,110 @@ class ChatViewModel(
             }
 
             else -> Unit
+        }
+    }
+
+    private fun startStatusTicker(assistantMessageId: String) {
+        activeStatusTickerJob?.cancel()
+        activeStatusTickerJob =
+            viewModelScope.launch {
+                while (_uiState.value.isSending && activeAssistantMessageId == assistantMessageId) {
+                    val base = statusBase
+                    if (!base.isNullOrBlank()) {
+                        setAssistantStatusLine(
+                            assistantMessageId = assistantMessageId,
+                            statusLine = buildStatusLine(base = base, step = statusStep),
+                        )
+                    }
+                    delay(1_000)
+                }
+            }
+    }
+
+    private fun setStatusBase(
+        assistantMessageId: String,
+        base: String,
+    ) {
+        val b = base.trim().takeIf { it.isNotEmpty() } ?: return
+        if (statusBase == b) {
+            setAssistantStatusLine(assistantMessageId = assistantMessageId, statusLine = buildStatusLine(base = b, step = statusStep))
+            return
+        }
+        statusBase = b
+        statusStep += 1
+        setAssistantStatusLine(assistantMessageId = assistantMessageId, statusLine = buildStatusLine(base = b, step = statusStep))
+    }
+
+    private fun buildStatusLine(
+        base: String,
+        step: Int,
+    ): String {
+        val elapsed = System.currentTimeMillis() - statusStartedAtMs
+        val stepPrefix = if (step > 0) "步骤$step " else ""
+        return "$stepPrefix$base（${formatElapsedMs(elapsed)}）"
+    }
+
+    private fun formatElapsedMs(ms: Long): String {
+        val totalSec = (ms.coerceAtLeast(0) / 1000).toInt()
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val s = totalSec % 60
+        return when {
+            h > 0 -> "%dh %02dm %02ds".format(h, m, s)
+            m > 0 -> "%dm %02ds".format(m, s)
+            else -> "%ds".format(s)
+        }
+    }
+
+    private fun setAssistantStatusLine(
+        assistantMessageId: String,
+        statusLine: String?,
+    ) {
+        val st = _uiState.value
+        val idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        if (idx < 0) return
+        val msg = st.messages[idx]
+        if (msg.role != ChatRole.Assistant) return
+        if (msg.statusLine == statusLine) return
+        val newMsg = msg.copy(statusLine = statusLine)
+        val newMessages = st.messages.toMutableList()
+        newMessages[idx] = newMsg
+        _uiState.value = st.copy(messages = newMessages)
+    }
+
+    private fun humanizeToolUse(
+        name: String,
+        input: JsonObject?,
+    ): String {
+        val n = name.trim()
+        fun str(key: String): String = (input?.get(key) as? JsonPrimitive)?.content?.trim().orEmpty()
+        return when (n) {
+            "WebSearch" -> str("query").takeIf { it.isNotBlank() }?.let { "搜索：${it.take(40)}" } ?: "搜索中"
+            "WebFetch" -> {
+                val url = str("url")
+                val host = url.substringAfter("://", url).substringBefore('/').take(60)
+                if (host.isNotBlank()) "抓取：$host" else "抓取网页"
+            }
+            "Read" -> str("file_path").takeIf { it.isNotBlank() }?.let { "读取文件：${it.takeLast(60)}" } ?: "读取文件"
+            "Write" -> str("file_path").takeIf { it.isNotBlank() }?.let { "写入文件：${it.takeLast(60)}" } ?: "写入文件"
+            "Edit" -> str("file_path").takeIf { it.isNotBlank() }?.let { "编辑文件：${it.takeLast(60)}" } ?: "编辑文件"
+            "List" -> str("path").takeIf { it.isNotBlank() }?.let { "列目录：${it.takeLast(60)}" } ?: "列目录"
+            "Glob" -> str("pattern").takeIf { it.isNotBlank() }?.let { "匹配文件：${it.take(60)}" } ?: "匹配文件"
+            "Grep" -> str("pattern").takeIf { it.isNotBlank() }?.let { "搜索文本：${it.take(40)}" } ?: "搜索文本"
+            "Skill" -> str("name").takeIf { it.isNotBlank() }?.let { "加载技能：${it.take(40)}" } ?: "加载技能"
+            "Task" -> str("agent").takeIf { it.isNotBlank() }?.let { "运行子任务：${it.take(32)}" } ?: "运行子任务"
+            "web_open" -> {
+                val url = str("url")
+                val host = url.substringAfter("://", url).substringBefore('/').take(60)
+                if (host.isNotBlank()) "打开网页：$host" else "打开网页"
+            }
+            "web_wait" -> "等待页面就绪"
+            "web_snapshot" -> "读取页面快照"
+            "web_click" -> "点击页面元素"
+            "web_fill" -> "填写输入框"
+            "web_type" -> "输入文本"
+            "web_eval" -> "执行页面脚本"
+            else -> n.ifBlank { "处理中" }.take(40)
         }
     }
 

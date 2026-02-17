@@ -6,6 +6,9 @@ import com.lsl.kotlin_agent_app.BuildConfig
 import com.lsl.kotlin_agent_app.agent.tools.web.OpenAgenticWebTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -15,9 +18,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.lemonhall.openagentic.sdk.events.HookEvent
 import me.lemonhall.openagentic.sdk.events.Event
 import me.lemonhall.openagentic.sdk.events.Result
 import me.lemonhall.openagentic.sdk.events.SystemInit
+import me.lemonhall.openagentic.sdk.events.ToolUse
+import me.lemonhall.openagentic.sdk.events.ToolResult
+import me.lemonhall.openagentic.sdk.events.RuntimeError
 import me.lemonhall.openagentic.sdk.hooks.HookDecision
 import me.lemonhall.openagentic.sdk.hooks.HookEngine
 import me.lemonhall.openagentic.sdk.hooks.HookMatcher
@@ -100,6 +107,18 @@ class OpenAgenticSdkChatAgent(
         val sessionId = prefs.getString(KEY_SESSION_ID, null)?.trim()?.ifEmpty { null }
 
         val provider = OpenAIResponsesHttpProvider(baseUrl = baseUrl)
+        val progressEvents = MutableSharedFlow<Event>(extraBufferCapacity = 256)
+        fun emitProgress(text: String) {
+            val msg = text.trim().takeIf { it.isNotBlank() } ?: return
+            progressEvents.tryEmit(
+                HookEvent(
+                    hookPoint = "TaskProgress",
+                    name = "task.progress",
+                    matched = true,
+                    action = msg.take(400),
+                ),
+            )
+        }
         val allowedTools =
             (
                 setOf(
@@ -128,6 +147,7 @@ class OpenAgenticSdkChatAgent(
                     model = model,
                     tavilyUrl = config.tavilyUrl,
                     tavilyApiKey = config.tavilyApiKey,
+                    emitProgress = ::emitProgress,
                 )
             }
         val options =
@@ -154,13 +174,15 @@ class OpenAgenticSdkChatAgent(
                 maxSteps = 120,
             )
 
-        return OpenAgenticSdk.query(prompt = text, options = options).onEach { ev ->
-            when (ev) {
-                is SystemInit -> setSessionIdIfMissing(ev.sessionId)
-                is Result -> setSessionIdIfMissing(ev.sessionId)
-                else -> Unit
+        val sdkFlow =
+            OpenAgenticSdk.query(prompt = text, options = options).onEach { ev ->
+                when (ev) {
+                    is SystemInit -> setSessionIdIfMissing(ev.sessionId)
+                    is Result -> setSessionIdIfMissing(ev.sessionId)
+                    else -> Unit
+                }
             }
-        }
+        return merge(progressEvents, sdkFlow)
     }
 
     override fun clearSession() {
@@ -336,6 +358,7 @@ class OpenAgenticSdkChatAgent(
         model: String,
         tavilyUrl: String,
         tavilyApiKey: String,
+        emitProgress: ((String) -> Unit)? = null,
     ): JsonElement {
         if (agent != "webview" && agent != "deep-research") {
             return buildJsonObject {
@@ -346,6 +369,7 @@ class OpenAgenticSdkChatAgent(
         }
 
         return if (agent == "webview") {
+            emitProgress?.invoke("子任务(webview)：启动")
             val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = BuildConfig.DEBUG)
             val tools = ToolRegistry(webTools)
             val allowedTools = webTools.map { it.name }.toSet()
@@ -354,28 +378,41 @@ class OpenAgenticSdkChatAgent(
             val hookEngine = systemPromptHookEngine(marker = "OPENAGENTIC_APP_WEBVIEW_SUBAGENT_PROMPT_V1", systemPrompt = systemPrompt)
             val sessionStore = FileSessionStore(fileSystem = fileSystem, rootDir = rootPath)
 
-            val result =
-                OpenAgenticSdk.run(
-                    prompt = prompt,
-                    options =
-                        OpenAgenticOptions(
-                            provider = provider,
-                            model = model,
-                            apiKey = apiKey,
-                            fileSystem = fileSystem,
-                            cwd = rootPath,
-                            projectDir = rootPath,
-                            tools = tools,
-                            allowedTools = allowedTools,
-                            hookEngine = hookEngine,
-                            taskRunner = null,
-                            sessionStore = sessionStore,
-                            resumeSessionId = null,
-                            compaction = CompactionOptions(contextLimit = 200_000),
-                            includePartialMessages = false,
-                            maxSteps = 80,
-                        ),
-                )
+            var lastResult: Result? = null
+            var lastRuntimeError: RuntimeError? = null
+            OpenAgenticSdk.query(
+                prompt = prompt,
+                options =
+                    OpenAgenticOptions(
+                        provider = provider,
+                        model = model,
+                        apiKey = apiKey,
+                        fileSystem = fileSystem,
+                        cwd = rootPath,
+                        projectDir = rootPath,
+                        tools = tools,
+                        allowedTools = allowedTools,
+                        hookEngine = hookEngine,
+                        taskRunner = null,
+                        sessionStore = sessionStore,
+                        resumeSessionId = null,
+                        compaction = CompactionOptions(contextLimit = 200_000),
+                        includePartialMessages = false,
+                        maxSteps = 80,
+                    ),
+            ).collect { ev ->
+                when (ev) {
+                    is ToolUse -> emitProgress?.invoke("子任务(webview)：${humanizeProgressToolUse(ev.name, ev.input)}")
+                    is ToolResult -> if (ev.isError) emitProgress?.invoke("子任务(webview)：工具失败 ${ev.errorType ?: "error"}")
+                    is RuntimeError -> {
+                        lastRuntimeError = ev
+                        emitProgress?.invoke("子任务(webview)：运行错误 ${ev.errorType}")
+                    }
+                    is Result -> lastResult = ev
+                    else -> Unit
+                }
+            }
+            val result = lastResult ?: Result(finalText = "", sessionId = "", stopReason = "error")
 
             val summary =
                 result.finalText
@@ -391,8 +428,12 @@ class OpenAgenticSdkChatAgent(
                 put("agent", JsonPrimitive(agent))
                 put("sub_session_id", JsonPrimitive(result.sessionId))
                 put("answer", JsonPrimitive(summary))
+                if (result.stopReason != null) put("stop_reason", JsonPrimitive(result.stopReason))
+                if (lastRuntimeError?.errorType?.isNotBlank() == true) put("error_type", JsonPrimitive(lastRuntimeError!!.errorType))
+                if (!lastRuntimeError?.errorMessage.isNullOrBlank()) put("error_message", JsonPrimitive(lastRuntimeError!!.errorMessage!!))
             }
         } else {
+            emitProgress?.invoke("子任务(deep-research)：启动")
             val reportPathRel = allocateDeepResearchReportPath()
             val reportPathAbs = File(rootPath.toString(), reportPathRel).absolutePath.replace('\\', '/')
             val preface =
@@ -459,28 +500,41 @@ class OpenAgenticSdkChatAgent(
                 )
             val sessionStore = FileSessionStore(fileSystem = fileSystem, rootDir = rootPath)
 
-            val result =
-                OpenAgenticSdk.run(
-                    prompt = preface + "\n\n" + prompt.trim(),
-                    options =
-                        OpenAgenticOptions(
-                            provider = provider,
-                            model = model,
-                            apiKey = apiKey,
-                            fileSystem = fileSystem,
-                            cwd = rootPath,
-                            projectDir = rootPath,
-                            tools = tools,
-                            allowedTools = allowedTools,
-                            hookEngine = hookEngine,
-                            taskRunner = null,
-                            sessionStore = sessionStore,
-                            resumeSessionId = null,
-                            compaction = CompactionOptions(contextLimit = 200_000),
-                            includePartialMessages = false,
-                            maxSteps = 200,
-                        ),
-                )
+            var lastResult: Result? = null
+            var lastRuntimeError: RuntimeError? = null
+            OpenAgenticSdk.query(
+                prompt = preface + "\n\n" + prompt.trim(),
+                options =
+                    OpenAgenticOptions(
+                        provider = provider,
+                        model = model,
+                        apiKey = apiKey,
+                        fileSystem = fileSystem,
+                        cwd = rootPath,
+                        projectDir = rootPath,
+                        tools = tools,
+                        allowedTools = allowedTools,
+                        hookEngine = hookEngine,
+                        taskRunner = null,
+                        sessionStore = sessionStore,
+                        resumeSessionId = null,
+                        compaction = CompactionOptions(contextLimit = 200_000),
+                        includePartialMessages = false,
+                        maxSteps = 200,
+                    ),
+            ).collect { ev ->
+                when (ev) {
+                    is ToolUse -> emitProgress?.invoke("子任务(deep-research)：${humanizeProgressToolUse(ev.name, ev.input)}")
+                    is ToolResult -> if (ev.isError) emitProgress?.invoke("子任务(deep-research)：工具失败 ${ev.errorType ?: "error"}")
+                    is RuntimeError -> {
+                        lastRuntimeError = ev
+                        emitProgress?.invoke("子任务(deep-research)：运行错误 ${ev.errorType}")
+                    }
+                    is Result -> lastResult = ev
+                    else -> Unit
+                }
+            }
+            val result = lastResult ?: Result(finalText = "", sessionId = "", stopReason = "error")
 
             ensureFileExistsWithFallback(
                 absolutePath = reportPathAbs,
@@ -503,7 +557,45 @@ class OpenAgenticSdkChatAgent(
                 put("events_path", JsonPrimitive("sessions/${result.sessionId}/events.jsonl"))
                 put("report_path", JsonPrimitive(reportPathRel))
                 if (!reportSummary.isNullOrBlank()) put("report_summary", JsonPrimitive(reportSummary))
+                if (result.stopReason != null) put("stop_reason", JsonPrimitive(result.stopReason))
+                if (lastRuntimeError?.errorType?.isNotBlank() == true) put("error_type", JsonPrimitive(lastRuntimeError!!.errorType))
+                if (!lastRuntimeError?.errorMessage.isNullOrBlank()) put("error_message", JsonPrimitive(lastRuntimeError!!.errorMessage!!))
             }
+        }
+    }
+
+    private fun humanizeProgressToolUse(
+        name: String,
+        input: JsonObject?,
+    ): String {
+        fun str(key: String): String = (input?.get(key) as? JsonPrimitive)?.content?.trim().orEmpty()
+        return when (name.trim()) {
+            "WebSearch" -> str("query").takeIf { it.isNotBlank() }?.let { "搜索：${it.take(40)}" } ?: "搜索中"
+            "WebFetch" -> {
+                val url = str("url")
+                val host = url.substringAfter("://", url).substringBefore('/').take(60)
+                if (host.isNotBlank()) "抓取：$host" else "抓取网页"
+            }
+            "Read" -> str("file_path").takeIf { it.isNotBlank() }?.let { "读取文件：${it.takeLast(60)}" } ?: "读取文件"
+            "Write" -> str("file_path").takeIf { it.isNotBlank() }?.let { "写入文件：${it.takeLast(60)}" } ?: "写入文件"
+            "Edit" -> str("file_path").takeIf { it.isNotBlank() }?.let { "编辑文件：${it.takeLast(60)}" } ?: "编辑文件"
+            "List" -> str("path").takeIf { it.isNotBlank() }?.let { "列目录：${it.takeLast(60)}" } ?: "列目录"
+            "Glob" -> str("pattern").takeIf { it.isNotBlank() }?.let { "匹配文件：${it.take(60)}" } ?: "匹配文件"
+            "Grep" -> str("pattern").takeIf { it.isNotBlank() }?.let { "搜索文本：${it.take(40)}" } ?: "搜索文本"
+            "Skill" -> str("name").takeIf { it.isNotBlank() }?.let { "加载技能：${it.take(40)}" } ?: "加载技能"
+            "Task" -> str("agent").takeIf { it.isNotBlank() }?.let { "运行子任务：${it.take(32)}" } ?: "运行子任务"
+            "web_open" -> {
+                val url = str("url")
+                val host = url.substringAfter("://", url).substringBefore('/').take(60)
+                if (host.isNotBlank()) "打开网页：$host" else "打开网页"
+            }
+            "web_wait" -> "等待页面就绪"
+            "web_snapshot" -> "读取页面快照"
+            "web_click" -> "点击页面元素"
+            "web_fill" -> "填写输入框"
+            "web_type" -> "输入文本"
+            "web_eval" -> "执行页面脚本"
+            else -> name.trim().ifBlank { "处理中" }.take(40)
         }
     }
 

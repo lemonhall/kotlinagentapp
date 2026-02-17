@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
@@ -481,12 +482,26 @@ private fun MessageBubble(
             val pad = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
             if (!isUser && message.role == ChatRole.Assistant) {
                 val fontSize = MaterialTheme.typography.bodyLarge.fontSize.value.takeIf { it > 0f } ?: 16f
-                MarkdownText(
-                    modifier = pad,
-                    markdown = message.content,
-                    color = fg,
-                    textSizeSp = fontSize,
-                )
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    if (message.content.isNotBlank()) {
+                        MarkdownText(
+                            markdown = message.content,
+                            color = fg,
+                            textSizeSp = fontSize,
+                        )
+                    }
+                    val status = message.statusLine?.trim().orEmpty()
+                    if (status.isNotBlank()) {
+                        Text(
+                            modifier = Modifier.padding(top = if (message.content.isNotBlank()) 8.dp else 0.dp),
+                            text = status,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             } else {
                 Text(
                     modifier = pad,
