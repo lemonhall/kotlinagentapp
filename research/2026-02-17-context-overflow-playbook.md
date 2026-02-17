@@ -1,6 +1,7 @@
-# 上下文总是“炸”？从 Codex 取经，给 OpenAgentic SDK 的一份“治爆”备忘录（v0）
+# 上下文总是“炸”？从 Codex 取经，给 OpenAgentic SDK 的一份“治爆”备忘录（v1）
 
 日期：2026-02-17  
+最后更新：2026-02-17  
 背景：kotlin-agent-app / `external/openagentic-sdk-kotlin` 集成过程中，线程经常触发 `context_length_exceeded`（或等价的 token 过载），体验非常割裂：**明明我们知道怎么做，但模型“装不下了”**。
 
 这份备忘录不是“学术论文腔”，而是想把 Codex 里那些**真正能落地**、能让你立刻舒一口气的手段，翻译成我们 SDK 能用的工程动作。后面我们可以照着它，一条条拉清单改造。
@@ -20,16 +21,61 @@ compaction 是“救急车”，不是“消防栓”。真正稳定的是：**�
 
 ---
 
+## 这份报告怎么读（不迷路版）
+
+- 你如果现在就烦到想摔键盘：直接跳到「可以立刻搬回家的改造清单」那一节，照着 A → B → D 的顺序改，先止血。
+- 你如果要把“治爆”做成可长期维护的工程能力：从「我们现在为什么容易炸」→「Codex 怎么稳住不炸」→「改造清单」按顺序读。
+- 你如果关心 WebView（`web_*`）这条链路：重点看「我们现在为什么容易炸」里关于 `WebSnapshot` 的预算与“过程材料隔离”的建议，以及「Codex 的 sub-agent 思路」那一段。
+
+## 目录（按“工程落地”顺序排）
+
+1) 我们现在为什么容易炸（结合本仓库代码）  
+2) Codex 是怎么稳住不炸的（代码入口 + 伪代码）  
+3) 可以立刻搬回家的改造清单（按性价比排序）  
+4) 下一步动刀顺序（建议）  
+5) 验收清单（每改一刀就对照）  
+6) 附：我们已经有的基础（别重复造轮子）
+
 ## 我们现在为什么容易炸（以现有 SDK 代码为参照）
 
-我们其实已经做了不少防护：
+先说一句公道话：我们不是“啥都没做”。相反，我们已经做了不少关键防护——只是这些防护还不够“从源头兜底”，所以一旦碰上 WebFetch/WebView 这类高噪音链路，还是会炸。
 
-- 工具层面有“最大输出”概念：例如 `WebFetchTool` 会把 `text` 限制在 `max_chars`（默认 24k，最大可到 80k）。  
-  但这依然可能很大：80k 字符粗算 20k tokens 左右，来两三次就把上下文掏空了。
-- 我们也有 compaction & tool output pruning：  
-  `Compaction.kt` 里有 `TOOL_OUTPUT_PLACEHOLDER`，并会在特定条件下把旧 tool result 清空。
+### 我们已经做对的事（别丢）
 
-问题常出在两类场景：
+1) **events.jsonl 不落 streaming delta（避免 trace 膨胀）**  
+   - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/sessions/FileSessionStore.kt:65`（`AssistantDelta` 直接跳过，不写盘）
+
+2) **Preflight compaction：在 provider call 之前先估算 tokens，提前 compact**  
+   - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:176`（`Preflight compaction`）  
+   - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:1123`（`estimateModelInputTokens`）
+
+3) **Tool output pruning：旧 tool result 可以被占位清空（减少回放输入体积）**  
+   - 占位符常量：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/compaction/Compaction.kt:40`（`TOOL_OUTPUT_PLACEHOLDER`）  
+   - Responses input 里用占位符替换：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:490`  
+
+4) **WebView 工具本身已经有“预算意识”**（这点非常好，只是还需要“历史侧兜底”）  
+   - `web_snapshot` 默认可见文本预算：`app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/web/WebTools.kt:338`（`renderMaxCharsTotal = 12_000`）  
+   - `web_query` 默认 `max_length=4000`：`app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/web/WebTools.kt:591`  
+   - 还已经能落地截图 artifact：`app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/web/WebTools.kt:139`（`.agents/artifacts/web_screenshots`）
+
+### 我们仍然会炸的根因（结合“真实代码路径”）
+
+根因不是一句“max_chars 太大”这么简单，而是三件事叠在一起：
+
+1) **工具输出是“内联进 provider input 的字符串”**（会二次膨胀）  
+   在 `buildResponsesInput` 里，`ToolResult.output` 会先被 JSON 序列化，然后再塞进 `"output": "<json-string>"`。这会导致转义/引号额外开销，越长越夸张：  
+   - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:496`（`function_call_output` + `encodeToString(...)`）
+
+2) **WebFetch 虽然截断，但依旧是“把正文塞回历史”**（缺少“落文件 + 指针”这一层）  
+   - `max_chars`：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/WebFetchTool.kt:47`（默认 24_000；上限 80_000）  
+   - 返回里仍然是 `text`（截断后的正文）：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/WebFetchTool.kt:95`  
+   - prompt 里也强调“size-bounded”，但仍是“返回文本”：`external/openagentic-sdk-kotlin/src/main/resources/me/lemonhall/openagentic/sdk/toolprompts/webfetch.txt:3`
+
+3) **我们把 compaction 的门槛设得很高，但还缺“工具输出入口的硬预算”**  
+   App 侧当前把 `contextLimit` 配到 200k（为了大上下文模型），这本身没错，但它意味着：如果工具输出持续往历史里堆，等 compaction 出手时往往已经很难救得漂亮。  
+   - `app/src/main/java/com/lsl/kotlin_agent_app/agent/OpenAgenticSdkChatAgent.kt:156`（`contextLimit = 200_000`）
+
+于是，最常出问题的场景就变成了：
 
 1) **“大结果”在 compaction 触发之前就已经把上下文塞爆**  
 尤其是连续 WebFetch / Bash / Read / Grep 之类组合拳，一轮下来历史里堆了一堆大块 JSON。
@@ -465,6 +511,17 @@ if buffer.size > MAX_BYTES:
 
 ---
 
+## 把 Codex 的“作业”翻译成我们仓库里的落点（对照表）
+
+这一段的目的很朴素：**别让“抄作业”停留在口号**。我们要能一眼看出：改动应该落在哪个文件、哪个函数、为什么那里最划算。
+
+| Codex 的做法 | 对应到我们现在的代码现实 | 我们应该怎么抄 |
+|---|---|---|
+| 统一入口截断 tool outputs（写历史/回喂模型前就预算化） | 我们目前主要在构建 provider input 时把 `ToolResult` 直接内联成 JSON 字符串：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:496` | 在 `buildResponsesInput/buildLegacyMessages` 里对 `ToolResult` 做统一预算（头+尾 + marker），并优先输出“预览 + 指针”结构 |
+| 大输出落文件，history 只留指针 | 我们的 `BashTool` 已经这么干：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/BashTool.kt:168`（`full_output_file_path`） | 让 `WebFetch`、`web_snapshot` 也学这一套：正文/快照写 artifact，tool.result 只回小 JSON |
+| WebSearch 历史项只记动作，不记结果全文 | 我们的 tool schema 侧已经有 prompts 注入：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/OpenAiToolSchemas.kt:64`（`ToolPrompts.render("webfetch", ...)`） | 强化 prompts：把“原始材料别塞回对话”写进工具说明，并把“结果摘要字段”显式化（summary/evidence/artifact_path） |
+| prompt 里写明：高日志任务用 sub-agent（省主上下文） | 我们 app 侧已经对 WebView 写了“预算铁律”：`app/src/main/java/com/lsl/kotlin_agent_app/agent/OpenAgenticSdkChatAgent.kt:208`（`web_*` 20 次上限等） | 在 SDK/工具层再加一层：把 WebView 自动化过程材料隔离到 artifacts（必要时做 sub-session/sub-agent），主对话只拿结构化结果 |
+
 ## 可以立刻“搬回家”的改造清单（按性价比排序）
 
 下面我按“最快能缓解痛苦”的顺序排。我们后续可以一条条过，愿意的话就落到 PRD/Plan。
@@ -473,14 +530,20 @@ if buffer.size > MAX_BYTES:
 
 目标：不管哪个 Tool 一时兴起吐了个大包，都别让 session history 变成炸药桶。
 
-建议落点（方向，不限定具体文件/函数）：
+建议落点（按我们当前代码现实，能直接开工）：
 
-- 在 `OpenAgenticSdk` 构建 `modelInput` 之前，或者在 `sessionStore.appendEvent` 前，增加一层“输出预算化”：
-  - 对 `ToolResult.output` 做 token/char 预算截断
-  - 对 `AssistantMessage`（尤其是长 Markdown）也可选做预算截断（保留尾巴）
-- 策略建议：
+- **优先落在“构建 provider input”这一层**（更安全：events.jsonl 仍保留完整可追溯；回喂模型时再预算化）：  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:448`（`buildResponsesInput`）  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:509`（`buildLegacyMessages`）  
+  这里会把 `ToolResult.output` JSON 序列化后塞进字符串字段（`"output"` / `"content"`），所以预算化放这层最划算：**不然一条 tool.result 可能把下一轮输入直接撑爆**。
+- **备选落点：写 events.jsonl 前就做预算化**（更激进，适合移动端存储压力极大时）：  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/sessions/FileSessionStore.kt:61`（`appendEvent`）  
+  但这会牺牲“完整审计/回放”，除非你同时把完整内容写到 artifacts 并在 event 里留指针。
+
+策略建议：
   - “头+尾”截断 + marker
   - JSON 结构尽量保持（比如 `text_preview`、`artifact_path`、`truncated=true`），不要把 JSON 截成半截字符串
+  - 预算别算得太死：预留一点序列化/转义开销（Codex 那个 `* 1.2` 的小细节非常值得学）
 
 验收口径（很工程化，但舒服）：
 1) 连续 10 次 WebFetch，`events.jsonl` 仍保持可控体积  
@@ -488,14 +551,21 @@ if buffer.size > MAX_BYTES:
 
 ### B. WebFetchTool 学 BashTool：大内容落文件，返回“指针 + 预览”
 
-现在的 `WebFetchTool` 会返回 `text`，最多 80k 字符。建议改成两层输出：
+现在的 `WebFetchTool` 会返回 `text`，最多 80k 字符：  
+- `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/WebFetchTool.kt:47`（`max_chars` 默认 24k，上限 80k）  
+- `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/WebFetchTool.kt:95`（返回 JSON 里仍然放 `text`）  
+同时 tool prompt 也已经在提醒“size-bounded 防爆”：`external/openagentic-sdk-kotlin/src/main/resources/me/lemonhall/openagentic/sdk/toolprompts/webfetch.txt:3`。  
+
+但“只截断并返回文本”还不够——我们真正想要的是“两层输出”（preview 进上下文，full 落盘）：
 
 - **永远返回小 JSON**（适合进上下文）：
   - `final_url / title / content_type / mode / truncated`
   - `text_preview`（比如 4k~8k，头+尾）
-  - `artifact_path`（完整内容写到 session artifact 文件）
-- 完整内容写到文件（和 BashTool 的“full output file”一致的体验）：
-  - 模型如果要继续看，用 `Read/Grep` 工具去“读文件的一段/搜关键字”
+  - `artifact_path`（完整内容写到 artifact 文件）
+- **完整内容写到文件**（对齐 BashTool 的体验；它已经能输出 `full_output_file_path`）：  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/BashTool.kt:49`（`.openagentic-sdk/tool-output/...`）  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/BashTool.kt:168`（`full_output_file_path`）  
+  模型如果要继续看：用 `Read/Grep` 去“读文件的一段/搜关键字”，而不是再 WebFetch 叠 buff。
 
 这样一来，WebFetch 不再是“上下文杀手”，而是一个“产出 artifact 的抓取器”。
 
@@ -503,10 +573,14 @@ if buffer.size > MAX_BYTES:
 
 一旦我们把外部材料当作 artifacts，就能自然做两件事：
 
-1) UI 体验更好：Files 页可以直接浏览这些抓取结果文件（我们刚好也做了 JSON/JSONL 的默认查看模式）。  
+1) UI 体验更好：Files 页可以直接浏览这些抓取结果文件（配合 JSON/JSONL 默认“查看模式”会很舒服）。  
 2) 模型更稳定：上下文里不再重复塞同一份大材料。
 
 这一步可以先从 WebFetch 做，后面再扩到“网页截图、PDF、长日志、HTML”等。
+
+顺便说一句：**WebView 的 `web_snapshot` 也非常适合走这条路**。现在它会把 `snapshot_text`（默认最多 12k 字符）直接作为 tool.result 写回历史：  
+- `app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/web/WebTools.kt:338`（`renderMaxCharsTotal = 12_000`）  
+建议后续改成“预览 + 指针”：把完整快照（或 raw snapshot JSON）写到 `.agents/artifacts/...`，tool.result 只保留 `snapshot_sha256 + preview + artifact_path`，需要精读再 `Read/Grep`。
 
 ### D. compaction 的触发更“兜底”：usage 不可靠时，用估算触发（优先级 #3）
 
@@ -514,6 +588,7 @@ if buffer.size > MAX_BYTES:
 
 - 如果 usage 不可用：用 `estimateModelInputTokens(modelInput)` 兜底判断是否接近阈值
 - compaction 触发不要等“>=100%”：可以在 80%~90% 就先做一次，避免一脚踩爆
+  - 对应代码路径（便于开工定位）：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:312`（`wouldOverflow(options.compaction, modelOut.usage)`）
 
 ### E. 可选：把“研究/搜索”做成子会话（sub-session）而不是主会话堆料（优先级：看你想不想做大）
 
@@ -553,8 +628,29 @@ if buffer.size > MAX_BYTES:
 
 这点也值得写下来，免得我们“以为缺”，其实早有：
 
-- `Compaction.kt` 已经支持对旧 tool result 做占位清空（`TOOL_OUTPUT_PLACEHOLDER`）  
-- `BashTool` 已经有“大输出写文件 + 截断返回”的模式  
-- `Read/Grep/List` 等工具已经具备“围绕文件做精确读取/搜索”的能力
+- tool 输出占位清空：  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/compaction/Compaction.kt:40`（`TOOL_OUTPUT_PLACEHOLDER`）  
+  - 输入构建时替换占位：`external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt:490`
+- Bash 大输出落文件（我们后面给 WebFetch/WebSnapshot 抄的“样板间”）：  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/BashTool.kt:49`（落盘目录 `.openagentic-sdk/tool-output`）  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/BashTool.kt:168`（`full_output_file_path`）  
+  - 以及 prompt 已经明确“超限会写文件，别自己 head/tail”：`external/openagentic-sdk-kotlin/src/main/resources/me/lemonhall/openagentic/sdk/toolprompts/bash.txt:27`
+- Read/Grep/List 这套“围绕文件精读/检索”的能力已经具备：  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/ReadTool.kt`  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/GrepTool.kt`  
+  - `external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/ListTool.kt`
 
 下一步不是从 0 到 1，而是把这些能力串起来，形成一个统一的“预算化 + artifact 化”的闭环。
+
+---
+
+## 附：在本仓库里快速定位（复制就能用）
+
+PowerShell 下建议这样搜（避免翻文件翻到眼花）：
+
+```powershell
+rg -n "buildResponsesInput|buildLegacyMessages|function_call_output" external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/runtime/OpenAgenticSdk.kt
+rg -n "max_chars|truncated\\\"|\\\"text\\\"" external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/WebFetchTool.kt
+rg -n "full_output_file_path|tool-output" external/openagentic-sdk-kotlin/src/main/kotlin/me/lemonhall/openagentic/sdk/tools/BashTool.kt
+rg -n "renderMaxCharsTotal|web_snapshot|snapshot_text" app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/web/WebTools.kt
+```
