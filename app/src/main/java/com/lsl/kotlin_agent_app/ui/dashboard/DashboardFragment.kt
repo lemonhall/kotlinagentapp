@@ -22,6 +22,7 @@ import com.google.android.material.color.MaterialColors
 import com.lsl.kotlin_agent_app.ui.markdown.MarkwonProvider
 import java.io.File
 import java.net.URLConnection
+import android.widget.Toast
 
 class DashboardFragment : Fragment() {
 
@@ -101,12 +102,28 @@ class DashboardFragment : Fragment() {
         }
         binding.buttonNewFile.setOnClickListener { promptNew("新建文件") { filesViewModel.createFile(it) } }
         binding.buttonNewFolder.setOnClickListener { promptNew("新建目录") { filesViewModel.createFolder(it) } }
+        binding.buttonClearSessions.setOnClickListener {
+            val cwd = filesViewModel.state.value?.cwd ?: ".agents"
+            if (cwd != ".agents/sessions") {
+                Toast.makeText(requireContext(), "仅在 sessions 目录可用", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("清理 sessions")
+                .setMessage("将删除 .agents/sessions 下所有会话目录（不删除文件）。此操作不可恢复。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清理") { _, _ ->
+                    filesViewModel.clearSessions()
+                }
+                .show()
+        }
 
         filesViewModel.state.observe(viewLifecycleOwner) { st ->
             binding.textCwd.text = displayCwd(st.cwd)
             binding.textError.visibility = if (st.errorMessage.isNullOrBlank()) View.GONE else View.VISIBLE
             binding.textError.text = st.errorMessage.orEmpty()
             adapter.submitList(st.entries)
+            binding.buttonClearSessions.visibility = if (st.cwd == ".agents/sessions") View.VISIBLE else View.GONE
 
             val openPath = st.openFilePath
             val openText = st.openFileText

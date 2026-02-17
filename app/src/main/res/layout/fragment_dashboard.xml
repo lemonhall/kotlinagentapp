@@ -55,6 +55,17 @@
             android:tint="?attr/colorOnSurface" />
 
         <ImageButton
+            android:id="@+id/button_clear_sessions"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="清理 sessions"
+            android:src="@drawable/ic_delete_24"
+            android:tint="?attr/colorOnSurface"
+            android:visibility="gone" />
+
+        <ImageButton
             android:id="@+id/button_refresh"
             android:layout_width="40dp"
             android:layout_height="40dp"

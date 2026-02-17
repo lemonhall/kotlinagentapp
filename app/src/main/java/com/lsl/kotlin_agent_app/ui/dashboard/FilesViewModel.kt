@@ -179,6 +179,31 @@ class FilesViewModel(
         }
     }
 
+    fun clearSessions() {
+        val prev = _state.value ?: FilesUiState()
+        _state.value = prev.copy(isLoading = true, errorMessage = null)
+        sessionTitleJob?.cancel()
+        sessionTitleJob = null
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    workspace.ensureInitialized()
+                    val sessionsDir = ".agents/sessions"
+                    val entries = workspace.listDir(sessionsDir)
+                    for (e in entries) {
+                        if (e.type != AgentsDirEntryType.Dir) continue
+                        val path = workspace.joinPath(sessionsDir, e.name)
+                        workspace.deletePath(path, recursive = true)
+                    }
+                }
+                refresh()
+            } catch (t: Throwable) {
+                val now = _state.value ?: prev
+                _state.value = now.copy(isLoading = false, errorMessage = t.message ?: "Clear sessions failed")
+            }
+        }
+    }
+
     private fun decorateEntries(
         cwd: String,
         entries: List<AgentsDirEntry>,
