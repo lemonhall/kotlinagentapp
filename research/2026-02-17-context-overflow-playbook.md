@@ -334,6 +334,76 @@ Codex: codex-rs/core/src/web_search.rs
 
 这点和我们“上下文总炸”的痛点是直接对应的：**Codex 把“节省上下文”当作一条操作准则写进了 prompt，而不是事后靠 compaction 亡羊补牢。**
 
+为了避免后续我们实现时“只记得大意”，这里把最关键那句原样摘出来（来自 `codex-rs/core/templates/collab/experimental_prompt.md`）：
+
+```text
+* Running tests or some config commands can output a large amount of logs. In order to optimize your own context, you can spawn an agent and ask it to do it for you. In such cases, you must tell this agent that it can't spawn another agent himself (to prevent infinite recursion)
+```
+
+并且，这不是“口号”。Codex 里确实有一套可运行的 multi-agent 控制平面：
+
+- `E:\development\codex\codex-rs\core\src\agent\control.rs:40`（`AgentControl::spawn_agent`：创建 thread + 发送初始 prompt）
+- `E:\development\codex\codex-rs\core\src\codex_delegate.rs:26`（`run_codex_thread_interactive/one_shot`：起 sub-agent、转发事件、把 approvals 路由回父 session）
+
+**把这条“sub-agent 省上下文”的思路，直接借鉴到我们 WebView 工具链上（强烈建议）**
+
+你提到的“驱动 WebView 去搞事情”其实和“跑测试输出巨量日志”是同一类灾难现场：  
+DOM 片段、Console logs、Network logs、截图、重试/等待的状态机……如果我们把这些一股脑当成普通对话消息/事件写进历史，**炸上下文只是时间问题**。
+
+Codex 这条 prompt 规则，翻译成我们 SDK 的工程化落地，可以非常具体：
+
+1) **把 WebView 执行从“主对话的一部分”变成“可委托的一次性子任务”**  
+   主 agent 只拿一个结构化结果（几百 token 以内），所有原始过程材料进 artifacts（文件/数据库），想看再按需取。
+
+2) **约束子任务输出：默认不回灌原始日志，只回“高信号摘要 + 指针”**  
+   这点最好不是“靠模型自觉”，而是靠工具返回 schema 去卡死：`webview.run` 返回固定字段（summary、artifacts、next_steps），不允许把 trace 全文塞回 `summary`。
+
+3) **可选：把“WebView 子任务”实现成真正的 sub-agent（有独立上下文预算）**  
+   参考 Codex 的做法，父 session 负责“交互与决策”，子 session 负责“脏活累活”，并明确告诉它：禁止再 spawn，避免递归失控。
+
+下面是“照着写就能做出来”的伪代码级接口/流程（刻意对齐 Codex 的概念）：
+
+```text
+// 主 agent：负责用户对话 + 最终结论
+handleUserIntent(intent):
+  if intent.requiresWebViewAutomation():
+    return runWebViewAsSubTask(intent)
+  else:
+    return runNormally(intent)
+
+runWebViewAsSubTask(intent):
+  sub = spawn_sub_agent(
+          purpose="webview-worker",
+          instructions=[
+            "默认不要把 trace/log 原文写回对话",
+            "把截图/DOM/网络日志落到 artifacts",
+            "只返回：结论 + 关键证据点 + artifacts 指针",
+            "禁止再 spawn 子 agent"
+          ])
+
+  // 子 agent：只做执行，不做长篇叙述
+  web = sub.call_tool("webview.run", {
+          goal: intent.goal,
+          url: intent.url,
+          time_budget_ms: 120000,
+          record: ["screenshot","console","network","dom_snapshots"],
+          artifact_dir: ".agents/artifacts/webview/<run_id>/"
+        })
+
+  // 子 agent 把“脏材料”写盘（trace.jsonl + screenshots + net.har 等）
+  // 主 agent 只拿一个小结果（<= N tokens）
+  return {
+    ok: web.ok,
+    what_happened: web.summary,          // 10~30 行以内
+    evidence: web.key_evidence[],        // 3~7 条要点（含 selector/url/截图编号）
+    artifacts: web.artifacts[],          // 可点击/可检索的指针
+    next_steps: web.next_steps[]
+  }
+```
+
+**为什么这招对我们特别值钱？**  
+因为 WebView 自动化天然是“高噪音 I/O 密集型任务”。你不可能指望 compaction 每次都救得回来；最划算的办法是：一开始就把“噪音”隔离到系统外（artifacts / 子任务上下文），主对话只保留“可复用、可推理、可继续行动”的小信息。
+
 **(d) 这份 Base Instructions 在代码里是怎么进请求的？**
 
 Codex 会在启动 session 时确定 base instructions 的优先级（config override / session meta / model default），代码在：
