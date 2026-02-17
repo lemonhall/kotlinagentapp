@@ -310,11 +310,11 @@ class FilesViewModel(
         val events =
             try {
                 if (!workspace.exists(eventsPath)) ""
-                else workspace.readTextFile(eventsPath, maxBytes = 256 * 1024)
+                else workspace.readTextFileHead(eventsPath, maxBytes = 16 * 1024)
             } catch (_: Throwable) {
                 ""
             }
-        val (firstUser, lastAssistant) = extractTitleInputs(events)
+        val firstUser = extractFirstUserMessage(events, maxLines = 10)
         val heuristic = firstUser?.trim()?.ifBlank { null }?.let { shrinkForTitle(it) }
 
         val cfg =
@@ -332,7 +332,7 @@ class FilesViewModel(
                 val provider = OpenAIResponsesHttpProvider(baseUrl = baseUrl)
                 val sys =
                     """
-                    你是会话标题生成器。根据给定的“首条用户消息/最后助手回复”，生成一个中文标题。
+                    你是会话标题生成器。根据给定的“首条用户消息”，生成一个中文标题。
                     约束：
                     - 只输出标题本身（不要解释）
                     - 1 行、不要换行、不要加引号
@@ -343,8 +343,6 @@ class FilesViewModel(
                     buildString {
                         append("首条用户消息：\n")
                         append(firstUser?.trim().orEmpty().ifBlank { "（缺失）" })
-                        append("\n\n最后助手回复：\n")
-                        append(lastAssistant?.trim().orEmpty().ifBlank { "（缺失）" })
                     }
 
                 val input =
@@ -399,11 +397,14 @@ class FilesViewModel(
         return finalTitle
     }
 
-    private fun extractTitleInputs(eventsJsonl: String): Pair<String?, String?> {
-        if (eventsJsonl.isBlank()) return null to null
+    private fun extractFirstUserMessage(
+        eventsJsonl: String,
+        maxLines: Int,
+    ): String? {
+        if (eventsJsonl.isBlank()) return null
         var firstUser: String? = null
-        var lastAssistant: String? = null
-        val lines = eventsJsonl.lineSequence().filter { it.isNotBlank() }
+        val limit = maxLines.coerceAtLeast(0)
+        val lines = eventsJsonl.lineSequence().filter { it.isNotBlank() }.let { seq -> if (limit > 0) seq.take(limit) else seq }
         for (line in lines) {
             val obj: JsonObject =
                 try {
@@ -423,12 +424,11 @@ class FilesViewModel(
                         firstUser = obj["prompt"]?.jsonPrimitive?.content
                     }
                 }
-                "assistant.message" -> {
-                    lastAssistant = obj["text"]?.jsonPrimitive?.content ?: lastAssistant
-                }
+                else -> Unit
             }
+            if (firstUser != null) break
         }
-        return firstUser to lastAssistant
+        return firstUser
     }
 
     private fun stripSurroundingQuotes(text: String): String {

@@ -3,6 +3,7 @@ package com.lsl.kotlin_agent_app.agent
 import android.content.Context
 import com.lsl.kotlin_agent_app.BuildConfig
 import java.io.File
+import java.io.FileInputStream
 
 data class AgentsDirEntry(
     val name: String,
@@ -72,6 +73,19 @@ class AgentsWorkspace(
         val len = f.length()
         if (len > maxBytes) error("File too large (${len}B), max ${maxBytes}B")
         return f.readText(Charsets.UTF_8)
+    }
+
+    fun readTextFileHead(path: String, maxBytes: Int = 64 * 1024): String {
+        val f = resolveAgentsPath(path)
+        if (!f.exists() || !f.isFile) error("Not a file: $path")
+        val cap = maxBytes.coerceAtLeast(0)
+        if (cap == 0) return ""
+        FileInputStream(f).use { input ->
+            val buf = ByteArray(cap)
+            val n = input.read(buf)
+            if (n <= 0) return ""
+            return buf.copyOf(n).toString(Charsets.UTF_8)
+        }
     }
 
     fun writeTextFile(path: String, content: String) {
