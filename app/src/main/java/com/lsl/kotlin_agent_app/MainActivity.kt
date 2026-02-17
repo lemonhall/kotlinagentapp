@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
         val navView: BottomNavigationView = binding.navView
 
         val navController = findNavController(R.id.nav_host_fragment_activity_main)
+        val navHostView = findViewById<View>(R.id.nav_host_fragment_activity_main)
         // Passing each menu ID as a set of Ids because each
         // menu should be considered as top level destinations.
         val appBarConfiguration = AppBarConfiguration(
@@ -54,7 +55,15 @@ class MainActivity : AppCompatActivity() {
 
         navController.addOnDestinationChangedListener { _, destination, _ ->
             val showWeb = destination.id == R.id.navigation_web
-            binding.webOverlay.visibility = if (showWeb) View.VISIBLE else View.INVISIBLE
+            // Keep WebView "shown" (not INVISIBLE) so preview capture (draw-to-bitmap) stays fresh even when
+            // the Web tab isn't the active destination. We hide it by z-order instead of visibility.
+            binding.webOverlay.visibility = View.VISIBLE
+            if (showWeb) {
+                binding.webOverlay.bringToFront()
+            } else {
+                navHostView.bringToFront()
+            }
+            binding.navView.bringToFront()
         }
     }
 }
