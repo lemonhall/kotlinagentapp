@@ -25,6 +25,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.lemonhall.openagentic.sdk.providers.OpenAIResponsesHttpProvider
 import me.lemonhall.openagentic.sdk.providers.ResponsesRequest
+import me.lemonhall.openagentic.sdk.runtime.ProviderStreamEvent
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -359,18 +360,24 @@ class FilesViewModel(
 
                 val modelTitle =
                     try {
-                        val out =
-                            provider.complete(
-                                ResponsesRequest(
-                                    model = model,
-                                    input = input,
-                                    tools = emptyList(),
-                                    apiKey = apiKey,
-                                    previousResponseId = null,
-                                    store = false,
-                                ),
+                        var completedText: String? = null
+                        val req =
+                            ResponsesRequest(
+                                model = model,
+                                input = input,
+                                tools = emptyList(),
+                                apiKey = apiKey,
+                                previousResponseId = null,
+                                store = false,
                             )
-                        out.assistantText
+                        provider.stream(req).collect { sev ->
+                            when (sev) {
+                                is ProviderStreamEvent.TextDelta -> Unit
+                                is ProviderStreamEvent.Completed -> completedText = sev.output.assistantText
+                                is ProviderStreamEvent.Failed -> error("session title stream failed: ${sev.message}")
+                            }
+                        }
+                        completedText
                             ?.trim()
                             ?.lineSequence()
                             ?.firstOrNull()
