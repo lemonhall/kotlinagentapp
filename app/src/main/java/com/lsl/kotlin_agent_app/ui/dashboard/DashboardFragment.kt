@@ -111,36 +111,59 @@ class DashboardFragment : Fragment() {
             val openPath = st.openFilePath
             val openText = st.openFileText
             if (!openPath.isNullOrBlank() && openText != null) {
-                val desiredKind = if (isMarkdownPath(openPath)) EditorDialogKind.MarkdownPreview else EditorDialogKind.PlainEditor
+                val desiredKind =
+                    when {
+                        isMarkdownPath(openPath) -> EditorDialogKind.MarkdownPreview
+                        isJsonPath(openPath) -> EditorDialogKind.PlainPreview
+                        else -> EditorDialogKind.PlainEditor
+                    }
                 val shouldShow =
                     (editorDialog?.isShowing != true) ||
                         (editorDialogPath != openPath) ||
                         (editorDialogKind != desiredKind)
 
                 if (shouldShow) {
-                    if (desiredKind == EditorDialogKind.MarkdownPreview) {
-                        showMarkdownPreview(openPath, openText) { action ->
-                            when (action) {
-                                EditorAction.Edit -> showEditor(openPath, openText) { editor ->
-                                    when (editor) {
-                                        is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
-                                        EditorAction.Close -> filesViewModel.closeEditor()
-                                        else -> Unit
+                    when (desiredKind) {
+                        EditorDialogKind.MarkdownPreview ->
+                            showMarkdownPreview(openPath, openText) { action ->
+                                when (action) {
+                                    EditorAction.Edit -> showEditor(openPath, openText) { editor ->
+                                        when (editor) {
+                                            is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
+                                            EditorAction.Close -> filesViewModel.closeEditor()
+                                            else -> Unit
+                                        }
                                     }
-                                }
 
-                                EditorAction.Close -> filesViewModel.closeEditor()
-                                else -> Unit
+                                    EditorAction.Close -> filesViewModel.closeEditor()
+                                    else -> Unit
+                                }
                             }
-                        }
-                    } else {
-                        showEditor(openPath, openText) { action ->
-                            when (action) {
-                                is EditorAction.Save -> filesViewModel.saveEditor(action.text)
-                                EditorAction.Close -> filesViewModel.closeEditor()
-                                else -> Unit
+
+                        EditorDialogKind.PlainPreview ->
+                            showPlainPreview(openPath, openText) { action ->
+                                when (action) {
+                                    EditorAction.Edit -> showEditor(openPath, openText) { editor ->
+                                        when (editor) {
+                                            is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
+                                            EditorAction.Close -> filesViewModel.closeEditor()
+                                            else -> Unit
+                                        }
+                                    }
+
+                                    EditorAction.Close -> filesViewModel.closeEditor()
+                                    else -> Unit
+                                }
                             }
-                        }
+
+                        EditorDialogKind.PlainEditor ->
+                            showEditor(openPath, openText) { action ->
+                                when (action) {
+                                    is EditorAction.Save -> filesViewModel.saveEditor(action.text)
+                                    EditorAction.Close -> filesViewModel.closeEditor()
+                                    else -> Unit
+                                }
+                            }
                     }
                 }
             }
@@ -198,7 +221,44 @@ class DashboardFragment : Fragment() {
 
     private enum class EditorDialogKind {
         PlainEditor,
+        PlainPreview,
         MarkdownPreview,
+    }
+
+    private fun showPlainPreview(path: String, content: String, onAction: (EditorAction) -> Unit) {
+        val tv =
+            TextView(requireContext()).apply {
+                setTextIsSelectable(true)
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15.5f)
+                setTextColor(
+                    MaterialColors.getColor(
+                        this,
+                        com.google.android.material.R.attr.colorOnSurface,
+                        android.graphics.Color.BLACK,
+                    ),
+                )
+                typeface = android.graphics.Typeface.MONOSPACE
+                text = content
+            }
+        val scroll = ScrollView(requireContext()).apply { addView(tv) }
+
+        if (editorDialog?.isShowing == true) {
+            suppressCloseOnDismissOnce = true
+            editorDialog?.dismiss()
+        }
+        val dialog =
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(path)
+                .setView(scroll)
+                .setNegativeButton("关闭") { _, _ -> onAction(EditorAction.Close) }
+                .setPositiveButton("编辑") { _, _ -> onAction(EditorAction.Edit) }
+                .create()
+        dialog.setOnDismissListener { handleDialogDismiss(onAction, closeAction = EditorAction.Close) }
+        editorDialog = dialog
+        editorDialogPath = path
+        editorDialogKind = EditorDialogKind.PlainPreview
+        dialog.show()
     }
 
     private fun showMarkdownPreview(path: String, text: String, onAction: (EditorAction) -> Unit) {
@@ -242,6 +302,11 @@ class DashboardFragment : Fragment() {
     private fun isMarkdownPath(path: String): Boolean {
         val p = path.lowercase()
         return p.endsWith(".md") || p.endsWith(".markdown")
+    }
+
+    private fun isJsonPath(path: String): Boolean {
+        val p = path.lowercase()
+        return p.endsWith(".json") || p.endsWith(".jsonl")
     }
 
     private fun dp(value: Int): Int {
