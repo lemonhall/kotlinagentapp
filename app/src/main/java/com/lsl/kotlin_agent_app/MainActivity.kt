@@ -59,8 +59,11 @@ class MainActivity : AppCompatActivity() {
             // the Web tab isn't the active destination. We hide it by z-order instead of visibility.
             binding.webOverlay.visibility = View.VISIBLE
             if (showWeb) {
+                binding.webOverlay.alpha = 1f
                 binding.webOverlay.bringToFront()
             } else {
+                // Avoid showing the WebView behind other tabs when their UI is transparent.
+                binding.webOverlay.alpha = 0f
                 navHostView.bringToFront()
             }
             binding.navView.bringToFront()
