@@ -299,6 +299,62 @@ Codex: codex-rs/core/src/web_search.rs
   30: }
 ```
 
+#### 3.3 Codex 的 “System Prompts / Base Instructions” 里有没有写工具调用技巧？有，但偏“流程/习惯”，不偏“web_search 教程”
+
+你问得很关键：如果 Codex 只给了一个很薄的 `web_search` tool schema，那“怎么用得好”靠什么？答案是两层：
+
+1) **全局 Base Instructions（你说的 System Prompts）**：教模型“怎么当个靠谱的 CLI coding agent”（包括工具调用的节奏、怎么汇报、怎么组织多次 tool calls）。
+2) **工具 schema**：把工具“长什么样/有哪些参数/什么时候可用”暴露给模型。对 `web_search` 这种内建 tool，语义主要由模型+API 内建实现决定；Codex 这里不会再写一份“怎么搜网页”的教程。
+
+下面把这层 Base Instructions 的关键片段在报告里“放钉子”（文件 + 行号），避免后续实现时只能凭印象：
+
+**(a) “调用工具前先打一段前导说明（preamble）”**
+
+- 文件：`E:\development\codex\codex-rs\core\prompt.md`  
+- 关键行：`codex-rs/core/prompt.md:33`（`### Preamble messages`）
+
+它要求模型在 tool call 前先说一句“我接下来要干嘛”，并强调：合并相关操作、简短、承接上下文、避免对每个小读取都啰嗦。
+这不是强制机制（代码不会替你做），但在交互体验上非常关键：**减少用户焦虑，减少无意义追问，也减少“重复解释导致的上下文膨胀”。**
+
+**(b) “用工具要讲效率：搜文件优先 rg；修改文件优先 apply_patch”**
+
+- 文件：`E:\development\codex\codex-rs\core\gpt-5.2-codex_prompt.md`  
+- 关键行：`codex-rs/core/gpt-5.2-codex_prompt.md:5`（prefer `rg`），`:11`（prefer `apply_patch`）
+
+它的本质不是“语法偏好”，而是控制交互成本：
+- `rg` 比 `cat`/`grep -R` 更快更准，通常能用更少输出拿到定位
+- `apply_patch` 鼓励“最小 diff”，避免把大段文件全文反复搬进上下文
+
+**(c) “用 sub-agent 节省上下文/日志噪音（明确写在 prompt 里）”**
+
+- 文件：`E:\development\codex\codex-rs\core\templates\collab\experimental_prompt.md`  
+- 关键行：`codex-rs/core/templates/collab/experimental_prompt.md:12`
+
+这里写得非常直白：跑测试/某些命令会输出大量日志，为了优化主上下文，可以 spawn 一个 agent 去做；并且要求你告诉子 agent 不要再 spawn 子 agent，避免递归。
+
+这点和我们“上下文总炸”的痛点是直接对应的：**Codex 把“节省上下文”当作一条操作准则写进了 prompt，而不是事后靠 compaction 亡羊补牢。**
+
+**(d) 这份 Base Instructions 在代码里是怎么进请求的？**
+
+Codex 会在启动 session 时确定 base instructions 的优先级（config override / session meta / model default），代码在：
+
+- `E:\development\codex\codex-rs\core\src\codex.rs:341`（Resolve base instructions priority order）
+
+伪代码（对应 `codex-rs/core/src/codex.rs:341` 的逻辑）：
+
+```text
+modelInfo = modelsManager.get_model_info(model)
+baseInstructions =
+  config.base_instructions
+  or conversation_history.session_meta.base_instructions
+  or modelInfo.get_model_instructions(personality)
+
+ResponsesAPI.request.instructions = baseInstructions
+ResponsesAPI.request.tools = [...tool schemas...]
+```
+
+补一句：你在 `codex-rs/core/models.json` 里看到的 `base_instructions` 字段，本质就是“这一层 System Prompt 的落地载体”。例如 `gpt-5.2-codex` 的 `base_instructions` 就是 `gpt-5.2-codex_prompt.md` 的内容内联进去的（可在 `codex-rs/core/models.json:86` 附近看到）。
+
 **借鉴到我们 SDK 的落地翻译**  
 WebFetch/WebSearch 这种“外部世界材料”最好走同一条路：
 1) 历史里留下“小 JSON（动作+摘要+指针）”  
