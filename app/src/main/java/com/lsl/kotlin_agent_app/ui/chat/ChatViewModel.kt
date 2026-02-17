@@ -34,12 +34,14 @@ class ChatViewModel(
 
     private var activeSendJob: Job? = null
     private val toolNameByUseId = linkedMapOf<String, String>()
+    private var lastWebviewTaskAnswer: String? = null
 
     fun sendUserMessage(rawText: String) {
         val text = rawText.trim()
         if (text.isEmpty()) return
 
         if (activeSendJob?.isActive == true) return
+        lastWebviewTaskAnswer = null
 
         val userMessage = ChatMessage(role = ChatRole.User, content = text)
         val assistantMessage = ChatMessage(role = ChatRole.Assistant, content = "")
@@ -85,6 +87,7 @@ class ChatViewModel(
         activeSendJob = null
         agent.clearSession()
         toolNameByUseId.clear()
+        lastWebviewTaskAnswer = null
         _uiState.value = ChatUiState()
     }
 
@@ -139,6 +142,7 @@ class ChatViewModel(
                     } else {
                         "ok"
                     }
+                captureWebviewTaskAnswer(toolName = toolName, output = ev.output)
                 _uiState.value =
                     _uiState.value.copy(
                         toolTraces =
@@ -191,7 +195,13 @@ class ChatViewModel(
             is Result -> {
                 val summary = ev.stopReason ?: "end"
                 val finalText = ev.finalText
-                if (finalText.isNotBlank()) setAssistantContent(assistantMessageId = assistantMessageId, content = finalText)
+                val fallback = lastWebviewTaskAnswer?.trim().orEmpty()
+                if (fallback.isNotBlank() && isLikelyPointerOnlyResponse(finalText)) {
+                    setAssistantContent(assistantMessageId = assistantMessageId, content = fallback)
+                } else if (finalText.isNotBlank()) {
+                    setAssistantContent(assistantMessageId = assistantMessageId, content = finalText)
+                }
+                lastWebviewTaskAnswer = null
                 _uiState.value =
                     _uiState.value.copy(
                         isSending = false,
@@ -243,6 +253,31 @@ class ChatViewModel(
         } catch (_: Throwable) {
             null
         }?.trim()?.ifBlank { null }?.take(6000)
+    }
+
+    private fun captureWebviewTaskAnswer(
+        toolName: String?,
+        output: JsonElement?,
+    ) {
+        if (toolName != "Task") return
+        val obj = output as? JsonObject ?: return
+        val agent = (obj["agent"] as? JsonPrimitive)?.content?.trim().orEmpty()
+        if (agent != "webview") return
+        val answer = (obj["answer"] as? JsonPrimitive)?.content?.trim().orEmpty()
+        if (answer.isBlank()) return
+        lastWebviewTaskAnswer = answer
+    }
+
+    private fun isLikelyPointerOnlyResponse(rawText: String?): Boolean {
+        val text = rawText?.trim().orEmpty()
+        if (text.isBlank()) return true
+        val lower = text.lowercase()
+        if (lower == "(empty)") return true
+        if (lower.startsWith("report_path:") && lower.contains("sessions/") && lower.contains("events.jsonl")) return true
+        if (lower.startsWith("events_path:") && lower.contains("sessions/") && lower.contains("events.jsonl")) return true
+        if (lower.matches(Regex("^sessions/[a-z0-9_-]+/events\\.jsonl$"))) return true
+        if (lower.contains("events.jsonl") && lower.contains("sessions/") && text.length <= 160) return true
+        return false
     }
 
     private fun appendAssistantDelta(

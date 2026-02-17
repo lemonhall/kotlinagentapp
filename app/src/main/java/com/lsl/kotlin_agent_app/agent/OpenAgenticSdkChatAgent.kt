@@ -233,7 +233,8 @@ class OpenAgenticSdkChatAgent(
             当用户要求进行“深度研究 / deep-research”时，**必须**使用子会话工具：
             - `Task(agent="deep-research", prompt="<用户问题原文>")`
             
-            成功后主对话只输出 `report_path`（不要把研究过程/网页抓取细节带回主对话）。
+            当 `Task(agent="deep-research", ...)` 成功后：主对话只输出 `report_path`（不要把研究过程/网页抓取细节带回主对话）。
+            当 `Task(agent="webview", ...)` 成功后：主对话直接用自然语言回答用户（输出结论与必要证据），不要输出任何 `sessions/.../events.jsonl` 等路径/调试信息。
             
             约束：
             - 主会话禁止直接调用任何 `web_*` 工具（避免高噪音输出污染历史导致上下文溢出）。
@@ -382,11 +383,8 @@ class OpenAgenticSdkChatAgent(
             buildJsonObject {
                 put("ok", JsonPrimitive(true))
                 put("agent", JsonPrimitive(agent))
-                put("parent_session_id", JsonPrimitive(parentContext.sessionId))
-                put("parent_tool_use_id", JsonPrimitive(parentContext.toolUseId))
                 put("sub_session_id", JsonPrimitive(result.sessionId))
-                put("events_path", JsonPrimitive("sessions/${result.sessionId}/events.jsonl"))
-                put("summary", JsonPrimitive(summary))
+                put("answer", JsonPrimitive(summary))
             }
         } else {
             val reportPathRel = allocateDeepResearchReportPath()
