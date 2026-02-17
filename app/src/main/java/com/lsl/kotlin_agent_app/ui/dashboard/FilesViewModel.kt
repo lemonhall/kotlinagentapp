@@ -210,7 +210,15 @@ class FilesViewModel(
     ): Pair<List<AgentsDirEntry>, List<String>> {
         if (cwd != ".agents/sessions") return entries to emptyList()
 
-        val sessions = mutableListOf<AgentsDirEntry>()
+        data class Decorated(
+            val entry: AgentsDirEntry,
+            val kindRank: Int,
+            val lastMs: Long,
+            val sessionId: String,
+            val wantsAutoTitle: Boolean,
+        )
+
+        val sessions = mutableListOf<Decorated>()
         val others = mutableListOf<AgentsDirEntry>()
         val missingTitles = mutableListOf<String>()
 
@@ -220,21 +228,71 @@ class FilesViewModel(
                 val sid = e.name
                 val title = readSessionTitle(sid)
                 val lastMs = sessionLastActivityMs(sid) ?: sessionCreatedAtMs(sid) ?: 0L
-                val subtitle = formatTimestamp(lastMs)
+                val identity = readSessionIdentity(sid)
+                val kind = identity?.kind?.trim()?.lowercase(Locale.ROOT).orEmpty()
+                val isTask = kind == "task"
+                val kindRank = if (isTask) 1 else 0
+                val kindLabel =
+                    if (!isTask) {
+                        "主会话"
+                    } else {
+                        val agent = identity?.agent?.trim()?.ifBlank { null }
+                        if (agent != null) "子会话($agent)" else "子会话"
+                    }
+                val parentLabel =
+                    if (isTask) {
+                        identity?.parentSessionId?.trim()?.takeIf { it.length >= 8 }?.let { " · parent=${it.take(8)}" }.orEmpty()
+                    } else {
+                        ""
+                    }
+                val subtitle = (formatTimestamp(lastMs).ifBlank { "" } + " · " + kindLabel + parentLabel).trim().trim('·').trim()
                 val displayName = title?.ifBlank { null } ?: sid.take(8)
-                sessions.add(e.copy(displayName = displayName, subtitle = subtitle, sortKey = lastMs))
-                if (title.isNullOrBlank()) missingTitles.add(sid)
+                val wantsAutoTitle = !isTask
+                sessions.add(Decorated(e.copy(displayName = displayName, subtitle = subtitle, sortKey = lastMs), kindRank = kindRank, lastMs = lastMs, sessionId = sid, wantsAutoTitle = wantsAutoTitle))
+                if (wantsAutoTitle && title.isNullOrBlank()) missingTitles.add(sid)
             } else {
                 others.add(e)
             }
         }
 
         val sortedSessions =
-            sessions.sortedByDescending { it.sortKey ?: 0L }
+            sessions
+                .sortedWith(compareBy<Decorated> { it.kindRank }.thenByDescending { it.lastMs })
+                .map { it.entry }
         val sortedOthers =
             others.sortedWith(compareBy<AgentsDirEntry>({ it.type != AgentsDirEntryType.Dir }, { it.name.lowercase() }))
 
         return (sortedSessions + sortedOthers) to missingTitles
+    }
+
+    private data class SessionIdentity(
+        val kind: String?,
+        val agent: String?,
+        val parentSessionId: String?,
+    )
+
+    private fun readSessionIdentity(sessionId: String): SessionIdentity? {
+        val metaPath = ".agents/sessions/$sessionId/meta.json"
+        val raw =
+            try {
+                if (!workspace.exists(metaPath)) return null
+                workspace.readTextFile(metaPath, maxBytes = 64 * 1024)
+            } catch (_: Throwable) {
+                return null
+            }
+        val metaObj =
+            try {
+                json.parseToJsonElement(raw).jsonObject
+            } catch (_: Throwable) {
+                return null
+            }
+        val md = metaObj["metadata"] as? JsonObject ?: return null
+        fun str(key: String): String? = md[key]?.jsonPrimitive?.content?.trim()?.ifBlank { null }
+        return SessionIdentity(
+            kind = str("kind"),
+            agent = str("agent"),
+            parentSessionId = str("parent_session_id"),
+        )
     }
 
     private fun sessionLastActivityMs(sessionId: String): Long? {

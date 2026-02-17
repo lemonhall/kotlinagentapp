@@ -24,6 +24,7 @@ import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 import com.lsl.kotlin_agent_app.web.WebPreviewCoordinator
 import com.lsl.kotlin_agent_app.web.WebViewControllerProvider
+import java.io.File
 
 class ChatFragment : Fragment() {
     private val viewModel: ChatViewModel by viewModels {
@@ -37,12 +38,21 @@ class ChatFragment : Fragment() {
 
                 override fun readTextFile(path: String, maxBytes: Long): String = workspace.readTextFile(path, maxBytes = maxBytes)
             }
+        val getActiveSessionId = {
+            prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null }
+        }
+        val storeRootDir = File(requireContext().filesDir, ".agents").absolutePath
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return ChatViewModel(agent = agent, files = files) as T
+                return ChatViewModel(agent = agent, files = files, getActiveSessionId = getActiveSessionId, storeRootDir = storeRootDir) as T
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.syncSessionHistoryIfNeeded()
     }
 
     override fun onCreateView(

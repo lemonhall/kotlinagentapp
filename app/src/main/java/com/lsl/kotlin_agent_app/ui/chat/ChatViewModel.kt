@@ -26,6 +26,9 @@ import me.lemonhall.openagentic.sdk.events.Result
 import me.lemonhall.openagentic.sdk.events.RuntimeError
 import me.lemonhall.openagentic.sdk.events.ToolResult
 import me.lemonhall.openagentic.sdk.events.ToolUse
+import me.lemonhall.openagentic.sdk.events.UserMessage
+import me.lemonhall.openagentic.sdk.events.UserQuestion
+import me.lemonhall.openagentic.sdk.sessions.FileSessionStore
 
 interface AgentsFiles {
     fun ensureInitialized()
@@ -39,20 +42,59 @@ interface AgentsFiles {
 class ChatViewModel(
     private val agent: ChatAgent,
     private val files: AgentsFiles,
+    private val getActiveSessionId: () -> String?,
+    private val storeRootDir: String,
     private val agentDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private var activeSendJob: Job? = null
+    private var activeHistoryJob: Job? = null
     private var activeStatusTickerJob: Job? = null
     private var activeAssistantMessageId: String? = null
+    private var loadedSessionId: String? = null
     private var statusStartedAtMs: Long = 0L
     private var statusStep: Int = 0
     private var statusBase: String? = null
     private val toolNameByUseId = linkedMapOf<String, String>()
     private var lastWebviewTaskAnswer: String? = null
     private var lastDeepResearchReportLink: ReportLink? = null
+
+    fun syncSessionHistoryIfNeeded(force: Boolean = false) {
+        val sid = getActiveSessionId.invoke()?.trim()?.ifEmpty { null }
+        val sending = (activeSendJob?.isActive == true)
+        val st0 = _uiState.value
+
+        // If there's no active session id yet (e.g. first request before SystemInit),
+        // never clobber an in-flight UI.
+        if (sid == null) {
+            if (sending || st0.messages.isNotEmpty()) return
+            loadedSessionId = null
+            _uiState.value = ChatUiState()
+            return
+        }
+
+        if (!force && sid == loadedSessionId) return
+        if (!force && sending) return
+
+        activeHistoryJob?.cancel()
+        activeHistoryJob = null
+
+        activeHistoryJob =
+            viewModelScope.launch {
+                try {
+                    withContext(agentDispatcher) { files.ensureInitialized() }
+                    val store = FileSessionStore.system(storeRootDir.replace('\\', '/').trim())
+                    val events = withContext(agentDispatcher) { store.readEvents(sid) }
+                    val messages = replayMessagesFromEvents(events, maxMessages = 120)
+                    loadedSessionId = sid
+                    _uiState.value = ChatUiState(messages = messages)
+                } catch (t: Throwable) {
+                    _uiState.value = _uiState.value.copy(errorMessage = t.message ?: t.toString())
+                }
+            }
+    }
 
     fun sendUserMessage(rawText: String) {
         val text = rawText.trim()
@@ -111,9 +153,12 @@ class ChatViewModel(
     fun clearConversation() {
         activeSendJob?.cancel()
         activeSendJob = null
+        activeHistoryJob?.cancel()
+        activeHistoryJob = null
         activeStatusTickerJob?.cancel()
         activeStatusTickerJob = null
         activeAssistantMessageId = null
+        loadedSessionId = null
         statusBase = null
         agent.clearSession()
         toolNameByUseId.clear()
@@ -204,6 +249,7 @@ class ChatViewModel(
         ev: Event,
         assistantMessageId: String,
     ) {
+        ensureInFlightUiIfNeeded(assistantMessageId = assistantMessageId)
         when (ev) {
             is AssistantDelta -> {
                 val delta = ev.textDelta
@@ -385,8 +431,13 @@ class ChatViewModel(
         assistantMessageId: String,
         statusLine: String?,
     ) {
-        val st = _uiState.value
-        val idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        var st = _uiState.value
+        var idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        if (idx < 0) {
+            ensureAssistantMessageExists(assistantMessageId)
+            st = _uiState.value
+            idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        }
         if (idx < 0) return
         val msg = st.messages[idx]
         if (msg.role != ChatRole.Assistant) return
@@ -545,8 +596,13 @@ class ChatViewModel(
         assistantMessageId: String,
         delta: String,
     ) {
-        val st = _uiState.value
-        val idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        var st = _uiState.value
+        var idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        if (idx < 0) {
+            ensureAssistantMessageExists(assistantMessageId)
+            st = _uiState.value
+            idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        }
         if (idx < 0) return
         val msg = st.messages[idx]
         _uiState.value = st.copy(messages = st.messages.toMutableList().also { it[idx] = msg.copy(content = msg.content + delta) })
@@ -556,10 +612,75 @@ class ChatViewModel(
         assistantMessageId: String,
         content: String,
     ) {
-        val st = _uiState.value
-        val idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        var st = _uiState.value
+        var idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        if (idx < 0) {
+            ensureAssistantMessageExists(assistantMessageId)
+            st = _uiState.value
+            idx = st.messages.indexOfFirst { it.id == assistantMessageId }
+        }
         if (idx < 0) return
         val msg = st.messages[idx]
         _uiState.value = st.copy(messages = st.messages.toMutableList().also { it[idx] = msg.copy(content = content) })
+    }
+
+    private fun ensureInFlightUiIfNeeded(assistantMessageId: String) {
+        if (activeSendJob?.isActive != true) return
+        val st = _uiState.value
+        if (!st.isSending) {
+            _uiState.value = st.copy(isSending = true)
+        }
+        if (activeAssistantMessageId == assistantMessageId && activeStatusTickerJob?.isActive != true) {
+            startStatusTicker(assistantMessageId = assistantMessageId)
+        }
+        ensureAssistantMessageExists(assistantMessageId)
+    }
+
+    private fun ensureAssistantMessageExists(assistantMessageId: String) {
+        val st = _uiState.value
+        if (st.messages.any { it.id == assistantMessageId }) return
+        val msg = ChatMessage(id = assistantMessageId, role = ChatRole.Assistant, content = "")
+        _uiState.value = st.copy(messages = st.messages + msg)
+    }
+
+    private fun replayMessagesFromEvents(
+        events: List<Event>,
+        maxMessages: Int,
+    ): List<ChatMessage> {
+        val out = mutableListOf<ChatMessage>()
+        var lastAssistantText: String? = null
+        for (e in events) {
+            when (e) {
+                is UserMessage -> out.add(ChatMessage(role = ChatRole.User, content = e.text.trim()))
+                is UserQuestion -> out.add(ChatMessage(role = ChatRole.User, content = e.prompt.trim()))
+                is AssistantMessage -> {
+                    val text = e.text.trim()
+                    if (text.isNotBlank()) {
+                        lastAssistantText = text
+                        out.add(ChatMessage(role = ChatRole.Assistant, content = text))
+                    }
+                }
+                is RuntimeError -> {
+                    val err = listOfNotNull(e.errorType.trim().ifBlank { null }, e.errorMessage?.trim()?.ifBlank { null }).joinToString(": ").trim()
+                    if (err.isNotBlank()) out.add(ChatMessage(role = ChatRole.Assistant, content = "运行错误：$err"))
+                }
+                is Result -> {
+                    val text = e.finalText.trim()
+                    if (text.isNotBlank() && text != lastAssistantText) {
+                        lastAssistantText = text
+                        out.add(ChatMessage(role = ChatRole.Assistant, content = text))
+                    }
+                }
+                else -> Unit
+            }
+        }
+        val normalized =
+            out
+                .mapNotNull { m ->
+                    val c = m.content.trim()
+                    if (c.isBlank()) null else m.copy(content = c)
+                }
+        val limit = maxMessages.coerceAtLeast(1)
+        return if (normalized.size <= limit) normalized else normalized.takeLast(limit)
     }
 }

@@ -8,6 +8,7 @@ import android.util.TypedValue
 import android.widget.ScrollView
 import android.widget.TextView
 import android.content.Intent
+import android.content.Context
 import androidx.core.content.FileProvider
 import android.webkit.MimeTypeMap
 import android.content.ClipData
@@ -20,6 +21,12 @@ import com.lsl.kotlin_agent_app.databinding.FragmentDashboardBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
 import com.lsl.kotlin_agent_app.ui.markdown.MarkwonProvider
+import com.lsl.kotlin_agent_app.config.AppPrefsKeys
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.net.URLConnection
 import android.widget.Toast
@@ -36,6 +43,8 @@ class DashboardFragment : Fragment() {
     private var editorDialogPath: String? = null
     private var editorDialogKind: EditorDialogKind? = null
     private var suppressCloseOnDismissOnce: Boolean = false
+    private val sidRx = Regex("^[a-f0-9]{32}$", RegexOption.IGNORE_CASE)
+    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -52,8 +61,18 @@ class DashboardFragment : Fragment() {
         val adapter =
             FilesEntryAdapter(
                 onClick = { entry ->
+                    val cwd = filesViewModel.state.value?.cwd ?: ".agents"
                     if (entry.type == AgentsDirEntryType.Dir) {
-                        filesViewModel.goInto(entry)
+                        if (cwd == ".agents/sessions" && sidRx.matches(entry.name)) {
+                            val kind = readSessionKind(entry.name)
+                            if (kind == "task") {
+                                filesViewModel.goInto(entry)
+                            } else {
+                                resumeChatSession(entry.name)
+                            }
+                        } else {
+                            filesViewModel.goInto(entry)
+                        }
                     } else {
                         filesViewModel.openFile(entry)
                     }
@@ -65,7 +84,8 @@ class DashboardFragment : Fragment() {
 
                     val actions =
                         if (isDir) {
-                            arrayOf("删除")
+                            val isSessionDir = (cwd == ".agents/sessions" && sidRx.matches(entry.name))
+                            if (isSessionDir) arrayOf("进入目录", "删除") else arrayOf("删除")
                         } else {
                             arrayOf("分享", "删除")
                         }
@@ -75,6 +95,7 @@ class DashboardFragment : Fragment() {
                         .setItems(actions) { _, which ->
                             val action = actions.getOrNull(which) ?: return@setItems
                             when (action) {
+                                "进入目录" -> filesViewModel.goInto(entry)
                                 "分享" -> shareAgentsFile(relativePath)
                                 "删除" ->
                                     MaterialAlertDialogBuilder(requireContext())
@@ -381,6 +402,41 @@ class DashboardFragment : Fragment() {
         if (p == ".agents") return "根目录"
         if (p.startsWith(".agents/")) return "根目录/" + p.removePrefix(".agents/").trimStart('/')
         return p
+    }
+
+    private fun resumeChatSession(sessionId: String) {
+        val sid = sessionId.trim()
+        if (!sidRx.matches(sid)) return
+        val prefs = requireContext().getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
+        prefs.edit().putString(AppPrefsKeys.CHAT_SESSION_ID, sid).apply()
+
+        Toast.makeText(requireContext(), "已切换会话：${sid.take(8)}", Toast.LENGTH_SHORT).show()
+
+        val bottomNav = activity?.findViewById<BottomNavigationView>(com.lsl.kotlin_agent_app.R.id.nav_view)
+        if (bottomNav != null) {
+            bottomNav.selectedItemId = com.lsl.kotlin_agent_app.R.id.navigation_home
+        }
+    }
+
+    private fun readSessionKind(sessionId: String): String? {
+        val sid = sessionId.trim()
+        if (!sidRx.matches(sid)) return null
+        val meta = File(requireContext().filesDir, ".agents/sessions/$sid/meta.json")
+        if (!meta.exists() || !meta.isFile) return null
+        val raw =
+            try {
+                meta.readText(Charsets.UTF_8)
+            } catch (_: Throwable) {
+                return null
+            }
+        val obj =
+            try {
+                json.parseToJsonElement(raw).jsonObject
+            } catch (_: Throwable) {
+                return null
+            }
+        val md = obj["metadata"] as? JsonObject ?: return null
+        return md["kind"]?.jsonPrimitive?.content?.trim()?.lowercase()?.ifBlank { null }
     }
 
     override fun onDestroyView() {

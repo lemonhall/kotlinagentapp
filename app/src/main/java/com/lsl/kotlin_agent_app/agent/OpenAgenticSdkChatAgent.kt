@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lsl.kotlin_agent_app.BuildConfig
 import com.lsl.kotlin_agent_app.agent.tools.web.OpenAgenticWebTools
+import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -53,6 +54,7 @@ import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 import java.io.File
+import java.io.FileInputStream
 import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -108,7 +110,7 @@ class OpenAgenticSdkChatAgent(
             systemPromptHookEngine(marker = "OPENAGENTIC_APP_SYSTEM_PROMPT_V1", systemPrompt = systemPrompt)
 
         val sessionStore = FileSessionStore(fileSystem = fileSystem, rootDir = rootPath)
-        val sessionId = prefs.getString(KEY_SESSION_ID, null)?.trim()?.ifEmpty { null }
+        val sessionId = prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null }
 
         val provider = OpenAIResponsesHttpProvider(baseUrl = baseUrl)
         val progressEvents = MutableSharedFlow<Event>(extraBufferCapacity = 256)
@@ -170,6 +172,7 @@ class OpenAgenticSdkChatAgent(
                 taskRunner = null,
                 sessionStore = sessionStore,
                 resumeSessionId = null,
+                createSessionMetadata = mapOf("kind" to "task", "agent" to "explore"),
                 compaction = CompactionOptions(contextLimit = 200_000),
                 includePartialMessages = false,
                 maxSteps = 80,
@@ -199,6 +202,7 @@ class OpenAgenticSdkChatAgent(
                 taskAgents = taskAgents,
                 sessionStore = sessionStore,
                 resumeSessionId = sessionId,
+                createSessionMetadata = mapOf("kind" to "primary"),
                 compaction =
                     CompactionOptions(
                         // Proxy providers vary; keep this large enough for gpt-5.2-class context windows.
@@ -233,15 +237,15 @@ class OpenAgenticSdkChatAgent(
     }
 
     override fun clearSession() {
-        prefs.edit().remove(KEY_SESSION_ID).apply()
+        prefs.edit().remove(AppPrefsKeys.CHAT_SESSION_ID).apply()
     }
 
     private fun setSessionIdIfMissing(id: String?) {
         val sid = id?.trim().orEmpty()
         if (sid.isEmpty()) return
-        val existing = prefs.getString(KEY_SESSION_ID, null)?.trim().orEmpty()
+        val existing = prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim().orEmpty()
         if (existing.isNotEmpty()) return
-        prefs.edit().putString(KEY_SESSION_ID, sid).apply()
+        prefs.edit().putString(AppPrefsKeys.CHAT_SESSION_ID, sid).apply()
     }
 
     private fun systemPromptHookEngine(
@@ -448,6 +452,12 @@ class OpenAgenticSdkChatAgent(
                         taskRunner = null,
                         sessionStore = sessionStore,
                         resumeSessionId = null,
+                        createSessionMetadata =
+                            mapOf(
+                                "kind" to "task",
+                                "agent" to agent,
+                                "parent_session_id" to parentContext.sessionId,
+                            ),
                         compaction = CompactionOptions(contextLimit = 200_000),
                         includePartialMessages = false,
                         maxSteps = 80,
@@ -570,6 +580,12 @@ class OpenAgenticSdkChatAgent(
                         taskRunner = null,
                         sessionStore = sessionStore,
                         resumeSessionId = null,
+                        createSessionMetadata =
+                            mapOf(
+                                "kind" to "task",
+                                "agent" to agent,
+                                "parent_session_id" to parentContext.sessionId,
+                            ),
                         compaction = CompactionOptions(contextLimit = 200_000),
                         includePartialMessages = false,
                         maxSteps = 200,
@@ -731,10 +747,19 @@ class OpenAgenticSdkChatAgent(
                     // Overwrite a placeholder-only file (common when a sub-task fails before producing content).
                     // Keep this bounded to avoid reading large reports.
                     try {
-                        val bytes = f.readBytes()
                         val cap = 32 * 1024
-                        val bounded = if (bytes.size <= cap) bytes else bytes.copyOf(cap)
-                        val text = bounded.toString(Charsets.UTF_8).trim()
+                        val bounded = ByteArray(cap)
+                        val len =
+                            FileInputStream(f).use { input ->
+                                var offset = 0
+                                while (offset < cap) {
+                                    val n = input.read(bounded, offset, cap - offset)
+                                    if (n <= 0) break
+                                    offset += n
+                                }
+                                offset
+                            }
+                        val text = bounded.copyOf(len).toString(Charsets.UTF_8).trim()
                         text.isBlank() || text == "(empty)"
                     } catch (_: Throwable) {
                         false
@@ -887,6 +912,5 @@ class OpenAgenticSdkChatAgent(
     }
 
     private companion object {
-        private const val KEY_SESSION_ID = "chat.session_id"
     }
 }
