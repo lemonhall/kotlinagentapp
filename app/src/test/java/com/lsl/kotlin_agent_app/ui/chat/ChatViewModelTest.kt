@@ -25,6 +25,13 @@ class ChatViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
+    private val files =
+        object : AgentsFiles {
+            override fun ensureInitialized() = Unit
+
+            override fun readTextFile(path: String, maxBytes: Long): String = ""
+        }
+
     @Test
     fun sendUserMessage_streamingAppendsDeltaAndFinalText() = runTest {
         val agent =
@@ -40,7 +47,7 @@ class ChatViewModelTest {
                 override fun clearSession() = Unit
             }
 
-        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
+        val vm = ChatViewModel(agent = agent, files = files, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("hi")
 
         assertEquals(2, vm.uiState.value.messages.size)
@@ -64,7 +71,7 @@ class ChatViewModelTest {
                 override fun clearSession() = Unit
             }
 
-        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
+        val vm = ChatViewModel(agent = agent, files = files, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("hi")
 
         assertFalse(vm.uiState.value.isSending)
@@ -81,7 +88,7 @@ class ChatViewModelTest {
                 override fun clearSession() = Unit
             }
 
-        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
+        val vm = ChatViewModel(agent = agent, files = files, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("   ")
 
         assertEquals(0, vm.uiState.value.messages.size)
@@ -105,7 +112,7 @@ class ChatViewModelTest {
                 }
             }
 
-        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
+        val vm = ChatViewModel(agent = agent, files = files, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("hi")
         assertEquals(2, vm.uiState.value.messages.size)
 
@@ -131,7 +138,7 @@ class ChatViewModelTest {
                 override fun clearSession() = Unit
             }
 
-        val vm = ChatViewModel(agent, agentDispatcher = Dispatchers.Main)
+        val vm = ChatViewModel(agent = agent, files = files, agentDispatcher = Dispatchers.Main)
         vm.sendUserMessage("hi")
         runCurrent()
         assertTrue(vm.uiState.value.isSending)

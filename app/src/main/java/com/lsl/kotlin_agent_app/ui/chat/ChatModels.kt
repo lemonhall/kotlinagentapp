@@ -24,9 +24,19 @@ data class ToolTraceEvent(
     val timestampMs: Long = System.currentTimeMillis(),
 )
 
+data class ReportLink(
+    val path: String,
+    val summary: String? = null,
+)
+
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val toolTraces: List<ToolTraceEvent> = emptyList(),
+    val reportLinksByMessageId: Map<String, ReportLink> = emptyMap(),
+    val reportViewerPath: String? = null,
+    val reportViewerText: String? = null,
+    val reportViewerError: String? = null,
+    val isReportViewerLoading: Boolean = false,
     val isSending: Boolean = false,
     val errorMessage: String? = null,
 )

@@ -19,6 +19,7 @@ import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.lsl.kotlin_agent_app.agent.OpenAgenticSdkChatAgent
+import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 import com.lsl.kotlin_agent_app.web.WebPreviewCoordinator
@@ -29,10 +30,17 @@ class ChatFragment : Fragment() {
         val prefs = requireContext().getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
         val repo = SharedPreferencesLlmConfigRepository(prefs)
         val agent = OpenAgenticSdkChatAgent(requireContext(), prefs, repo)
+        val workspace = AgentsWorkspace(requireContext())
+        val files =
+            object : AgentsFiles {
+                override fun ensureInitialized() = workspace.ensureInitialized()
+
+                override fun readTextFile(path: String, maxBytes: Long): String = workspace.readTextFile(path, maxBytes = maxBytes)
+            }
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return ChatViewModel(agent) as T
+                return ChatViewModel(agent = agent, files = files) as T
             }
         }
     }
@@ -64,6 +72,8 @@ class ChatFragment : Fragment() {
                         onSend = viewModel::sendUserMessage,
                         onClear = viewModel::clearConversation,
                         onStop = viewModel::stopSending,
+                        onOpenReport = viewModel::openReportViewer,
+                        onCloseReport = viewModel::closeReportViewer,
                         webPreviewVisible = webPreviewVisible,
                         webPreviewFrame = frame,
                         onToggleWebPreview = { webPreviewVisible = !webPreviewVisible },

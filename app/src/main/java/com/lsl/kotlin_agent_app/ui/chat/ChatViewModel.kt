@@ -7,6 +7,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,8 +26,18 @@ import me.lemonhall.openagentic.sdk.events.RuntimeError
 import me.lemonhall.openagentic.sdk.events.ToolResult
 import me.lemonhall.openagentic.sdk.events.ToolUse
 
+interface AgentsFiles {
+    fun ensureInitialized()
+
+    fun readTextFile(
+        path: String,
+        maxBytes: Long,
+    ): String
+}
+
 class ChatViewModel(
     private val agent: ChatAgent,
+    private val files: AgentsFiles,
     private val agentDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -35,6 +46,7 @@ class ChatViewModel(
     private var activeSendJob: Job? = null
     private val toolNameByUseId = linkedMapOf<String, String>()
     private var lastWebviewTaskAnswer: String? = null
+    private var lastDeepResearchReportLink: ReportLink? = null
 
     fun sendUserMessage(rawText: String) {
         val text = rawText.trim()
@@ -42,6 +54,7 @@ class ChatViewModel(
 
         if (activeSendJob?.isActive == true) return
         lastWebviewTaskAnswer = null
+        lastDeepResearchReportLink = null
 
         val userMessage = ChatMessage(role = ChatRole.User, content = text)
         val assistantMessage = ChatMessage(role = ChatRole.Assistant, content = "")
@@ -88,7 +101,67 @@ class ChatViewModel(
         agent.clearSession()
         toolNameByUseId.clear()
         lastWebviewTaskAnswer = null
+        lastDeepResearchReportLink = null
         _uiState.value = ChatUiState()
+    }
+
+    fun openReportViewer(path: String) {
+        val normalized = normalizeAgentsPathFromReportPath(path)
+        if (normalized == null) {
+            _uiState.value =
+                _uiState.value.copy(
+                    reportViewerPath = path,
+                    reportViewerText = null,
+                    reportViewerError = "无法识别报告路径：$path",
+                    isReportViewerLoading = false,
+                )
+            return
+        }
+        _uiState.value =
+            _uiState.value.copy(
+                reportViewerPath = normalized,
+                reportViewerText = null,
+                reportViewerError = null,
+                isReportViewerLoading = true,
+            )
+        viewModelScope.launch {
+            try {
+                val text =
+                    withContext(Dispatchers.IO) {
+                        files.ensureInitialized()
+                        files.readTextFile(normalized, maxBytes = 512 * 1024)
+                    }
+                val now = _uiState.value
+                _uiState.value =
+                    now.copy(
+                        reportViewerPath = normalized,
+                        reportViewerText = text,
+                        reportViewerError = null,
+                        isReportViewerLoading = false,
+                    )
+            } catch (t: Throwable) {
+                val now = _uiState.value
+                _uiState.value =
+                    now.copy(
+                        reportViewerPath = normalized,
+                        reportViewerText = null,
+                        reportViewerError = t.message ?: "Open failed",
+                        isReportViewerLoading = false,
+                    )
+            }
+        }
+    }
+
+    fun closeReportViewer() {
+        val st = _uiState.value
+        if (st.reportViewerPath == null && st.reportViewerText == null && st.reportViewerError == null) return
+        _uiState.value =
+            st.copy(
+                reportViewerPath = null,
+                reportViewerText = null,
+                reportViewerError = null,
+                isReportViewerLoading = false,
+            )
     }
 
     fun stopSending() {
@@ -143,6 +216,7 @@ class ChatViewModel(
                         "ok"
                     }
                 captureWebviewTaskAnswer(toolName = toolName, output = ev.output)
+                captureDeepResearchReport(toolName = toolName, output = ev.output, assistantMessageId = assistantMessageId)
                 _uiState.value =
                     _uiState.value.copy(
                         toolTraces =
@@ -202,6 +276,7 @@ class ChatViewModel(
                     setAssistantContent(assistantMessageId = assistantMessageId, content = finalText)
                 }
                 lastWebviewTaskAnswer = null
+                lastDeepResearchReportLink = null
                 _uiState.value =
                     _uiState.value.copy(
                         isSending = false,
@@ -268,6 +343,33 @@ class ChatViewModel(
         lastWebviewTaskAnswer = answer
     }
 
+    private fun captureDeepResearchReport(
+        toolName: String?,
+        output: JsonElement?,
+        assistantMessageId: String,
+    ) {
+        if (toolName != "Task") return
+        val obj = output as? JsonObject ?: return
+        val agent = (obj["agent"] as? JsonPrimitive)?.content?.trim().orEmpty()
+        if (agent != "deep-research") return
+        val rawPath = (obj["report_path"] as? JsonPrimitive)?.content?.trim().orEmpty()
+        if (rawPath.isBlank()) return
+        val normalized = normalizeAgentsPathFromReportPath(rawPath) ?: return
+        val summary = (obj["report_summary"] as? JsonPrimitive)?.content?.trim()?.takeIf { it.isNotBlank() }
+
+        val link = ReportLink(path = normalized, summary = summary)
+        lastDeepResearchReportLink = link
+
+        val prev = _uiState.value
+        val nextMap = (prev.reportLinksByMessageId + (assistantMessageId to link)).toMutableMap()
+        // Keep memory bounded: keep only the latest 24 entries.
+        if (nextMap.size > 24) {
+            val keep = prev.messages.takeLast(24).map { it.id }.toSet()
+            nextMap.keys.toList().forEach { k -> if (!keep.contains(k)) nextMap.remove(k) }
+        }
+        _uiState.value = prev.copy(reportLinksByMessageId = nextMap)
+    }
+
     private fun isLikelyPointerOnlyResponse(rawText: String?): Boolean {
         val text = rawText?.trim().orEmpty()
         if (text.isBlank()) return true
@@ -278,6 +380,20 @@ class ChatViewModel(
         if (lower.matches(Regex("^sessions/[a-z0-9_-]+/events\\.jsonl$"))) return true
         if (lower.contains("events.jsonl") && lower.contains("sessions/") && text.length <= 160) return true
         return false
+    }
+
+    private fun normalizeAgentsPathFromReportPath(rawPath: String): String? {
+        val p = rawPath.trim().replace('\\', '/')
+        if (p.isBlank()) return null
+        if (p.startsWith(".agents/") || p == ".agents") return p
+        if (p.startsWith("artifacts/") || p.startsWith("sessions/") || p.startsWith("skills/")) return ".agents/$p"
+        val idx = p.indexOf("/.agents/")
+        if (idx >= 0) {
+            val rel = p.substring(idx + "/.agents/".length).trimStart('/')
+            if (rel.isBlank()) return null
+            return ".agents/$rel"
+        }
+        return null
     }
 
     private fun appendAssistantDelta(

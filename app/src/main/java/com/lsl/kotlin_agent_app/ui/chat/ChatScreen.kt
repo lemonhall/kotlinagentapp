@@ -60,6 +60,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
 import com.lsl.kotlin_agent_app.R
 import com.lsl.kotlin_agent_app.web.WebPreviewFrame
 import android.widget.Toast
@@ -71,6 +72,8 @@ fun ChatScreen(
     onSend: (String) -> Unit,
     onClear: () -> Unit,
     onStop: () -> Unit,
+    onOpenReport: (String) -> Unit = {},
+    onCloseReport: () -> Unit = {},
     webPreviewVisible: Boolean = false,
     webPreviewFrame: WebPreviewFrame = WebPreviewFrame(bitmap = null, url = null),
     onToggleWebPreview: () -> Unit = {},
@@ -163,7 +166,12 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(uiState.messages) { message ->
-                    MessageBubble(message = message)
+                    val reportLink = uiState.reportLinksByMessageId[message.id] ?: extractReportLinkFromText(message.content)
+                    MessageBubble(
+                        message = message,
+                        reportLink = reportLink,
+                        onOpenReport = onOpenReport,
+                    )
                 }
             }
 
@@ -178,6 +186,16 @@ fun ChatScreen(
                             .align(Alignment.TopEnd),
                 )
             }
+        }
+
+        if (uiState.reportViewerPath != null || uiState.reportViewerError != null || uiState.isReportViewerLoading) {
+            ReportViewerDialog(
+                title = uiState.reportViewerPath ?: "Report",
+                markdown = uiState.reportViewerText,
+                isLoading = uiState.isReportViewerLoading,
+                error = uiState.reportViewerError,
+                onClose = onCloseReport,
+            )
         }
 
         Row(
@@ -418,6 +436,8 @@ private fun ToolTracePanel(
 @Composable
 private fun MessageBubble(
     message: ChatMessage,
+    reportLink: ReportLink? = null,
+    onOpenReport: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val isUser = message.role == ChatRole.User
@@ -476,5 +496,111 @@ private fun MessageBubble(
                 )
             }
         }
+
+        if (!isUser && reportLink != null && reportLink.path.isNotBlank()) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth(0.88f)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(
+                    onClick = { onOpenReport(reportLink.path) },
+                ) {
+                    Text("打开报告")
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun ReportViewerDialog(
+    title: String,
+    markdown: String?,
+    isLoading: Boolean,
+    error: String?,
+    onClose: () -> Unit,
+) {
+    Dialog(onDismissRequest = onClose) {
+        Card(
+            modifier = Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                    )
+                    TextButton(onClick = onClose) { Text("关闭") }
+                }
+
+                val body =
+                    when {
+                        isLoading -> "正在加载…"
+                        !error.isNullOrBlank() -> error
+                        markdown.isNullOrBlank() -> "(empty)"
+                        else -> null
+                    }
+
+                if (body != null) {
+                    Text(
+                        modifier = Modifier.padding(top = 8.dp),
+                        text = body,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (!error.isNullOrBlank()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(top = 8.dp),
+                    ) {
+                        MarkdownText(
+                            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(4.dp),
+                            markdown = markdown!!,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textSizeSp = 16f,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun extractReportLinkFromText(text: String): ReportLink? {
+    val t = text.trim()
+    if (t.isEmpty()) return null
+    val m =
+        Regex("(?m)^report_path:\\s*(\\S+)\\s*$").find(t)
+            ?: return null
+    val raw = m.groupValues.getOrNull(1)?.trim().orEmpty()
+    if (raw.isBlank()) return null
+    val normalized = normalizeAgentsPathFromReportPath(raw) ?: return null
+    return ReportLink(path = normalized, summary = null)
+}
+
+private fun normalizeAgentsPathFromReportPath(rawPath: String): String? {
+    val p = rawPath.trim().replace('\\', '/')
+    if (p.isBlank()) return null
+    if (p.startsWith(".agents/") || p == ".agents") return p
+    if (p.startsWith("artifacts/") || p.startsWith("sessions/") || p.startsWith("skills/")) return ".agents/$p"
+    val idx = p.indexOf("/.agents/")
+    if (idx >= 0) {
+        val rel = p.substring(idx + "/.agents/".length).trimStart('/')
+        if (rel.isBlank()) return null
+        return ".agents/$rel"
+    }
+    return null
 }
