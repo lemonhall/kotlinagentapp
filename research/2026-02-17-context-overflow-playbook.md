@@ -168,6 +168,47 @@ fn truncate_items(items, policy):
 
 这个点特别适合拿来做 WebFetch 的改造方向：**历史里只记“我去搜了/打开了/在页面里找了什么”，至于原始结果全文，不要硬塞进上下文。**
 
+#### 3.1 “提示词”到底在哪：Codex 没有单独的 web_search 提示词文件，它用的是「tool schema 本身」
+
+你说得对：工具要好用，“提示词/指令”确实是技巧的一部分。问题在于——**Codex 对 `web_search` 这个内建工具，并没有像我们 SDK 那样配一份 `toolprompts/web_search.txt` 之类的专用提示词**。
+
+它更像是“把方向盘交给 Responses API + 模型内置能力”，Codex 这边提供的“提示词形态”主要是：
+
+1) **把 `web_search` tool 放进 request 的 `tools` 列表里**（这是模型看到的“工具说明”）  
+2) **配置 `external_web_access`** 控制 cached/live（这也是 tool spec 的一部分）  
+3) UI/日志里展示“发生了什么”时，只把 action 参数拼成一行 detail（不展示结果全文）
+
+换句话说，Codex 的“web_search 提示词”不是 Markdown，而是 **发送给模型的 `tools` JSON**。
+
+下面是 Codex 里这份 “tool schema 提示词” 的原样代码（直接决定了最终序列化出来的 JSON 长什么样）：
+
+```text
+Codex: codex-rs/core/src/client_common.rs (tools::ToolSpec::WebSearch)
+  166:     /// When serialized as JSON, this produces a valid "Tool" in the OpenAI
+  167:     /// Responses API.
+  168:     #[derive(Debug, Clone, Serialize, PartialEq)]
+  169:     #[serde(tag = "type")]
+  170:     pub(crate) enum ToolSpec {
+  171:         #[serde(rename = "function")]
+  172:         Function(ResponsesApiTool),
+  173:         #[serde(rename = "local_shell")]
+  174:         LocalShell {},
+  175:         // TODO: Understand why we get an error on web_search although the API docs say it's supported.
+  176:         // https://platform.openai.com/docs/guides/tools-web-search?api-mode=responses#:~:text=%7B%20type%3A%20%22web_search%22%20%7D%2C
+  177:         // The `external_web_access` field determines whether the web search is over cached or live content.
+  178:         // https://platform.openai.com/docs/guides/tools-web-search#live-internet-access
+  179:         #[serde(rename = "web_search")]
+  180:         WebSearch {
+  181:             #[serde(skip_serializing_if = "Option::is_none")]
+  182:             external_web_access: Option<bool>,
+  183:         },
+  184:         #[serde(rename = "custom")]
+  185:         Freeform(FreeformTool),
+  186:     }
+```
+
+你会注意到一个很关键的事实：这里 **没有 description、没有 usage guidelines** ——这就是 Codex 为 web_search 提供给模型的全部“提示词形态”。（真正的语义/用法，靠模型本身 + OpenAI 内建 tool 行为。）
+
 **代码入口（Codex repo）**
 - `web_search_call` 的历史 item 结构：`codex-rs/protocol/src/models.rs:167`（`ResponseItem::WebSearchCall`）
   - 你会发现它只有 `status` 和 `action`，没有“results/body/content”这种大字段。
@@ -200,6 +241,25 @@ WebSearchCall {
 # 重点：没有 results[] / page_text / html 之类的大字段
 ```
 
+上面这段“按配置塞 tool spec”的代码，在 Codex 里对应的原样实现是：
+
+```text
+Codex: codex-rs/core/src/tools/spec.rs (根据 web_search_mode push ToolSpec::WebSearch)
+ 1563:     match config.web_search_mode {
+ 1564:         Some(WebSearchMode::Cached) => {
+ 1565:             builder.push_spec(ToolSpec::WebSearch {
+ 1566:                 external_web_access: Some(false),
+ 1567:             });
+ 1568:         }
+ 1569:         Some(WebSearchMode::Live) => {
+ 1570:             builder.push_spec(ToolSpec::WebSearch {
+ 1571:                 external_web_access: Some(true),
+ 1572:             });
+ 1573:         }
+ 1574:         Some(WebSearchMode::Disabled) | None => {}
+ 1575:     }
+```
+
 **所以，“找到了什么摘要”到底是谁写的？（关键澄清）**
 
 - 在 Codex 的持久化模型里：**没有一个系统自动生成的“结果摘要字段”**。
@@ -208,6 +268,36 @@ WebSearchCall {
   2) 你在产品侧/SDK 侧实现一个**显式的‘结果摘要步骤’**：把原始 results/body（不进历史）→ 生成一个小 JSON 摘要（进历史），并附带 artifacts 指针（文件路径/哈希/来源 URL 等）。
 
 换句话说：Codex 的工程选择是“**历史先轻量化**（动作可追溯），需要结果再让 assistant/产品补一条小摘要”，而不是把 web 搜索的原始材料当成历史正文。
+
+#### 3.2 Codex UI 里“找到了什么”的那行短句是怎么来的：只是把 action 参数拼出来
+
+你如果看到类似“`'foo' in https://bar`”这种“像摘要但又很短”的文案，它来自这个函数：`codex-rs/core/src/web_search.rs:18`。
+
+它做的事非常直白：
+- `Search`：展示 `query`（或取 `queries[0]`，多 query 时用 `"...“` 结尾）
+- `OpenPage`：展示 url
+- `FindInPage`：展示 `"'pattern' in url"`
+
+这就是“找到了什么”的来源——**它描述的是“我搜了什么/我在什么页面里找了什么 pattern”，不是“我找到了哪些结果”。**
+
+原样代码如下（这段就是你要的“技巧”：让 UI 可读，但不把正文塞进历史）：
+
+```text
+Codex: codex-rs/core/src/web_search.rs
+  18: pub fn web_search_action_detail(action: &WebSearchAction) -> String {
+  19:     match action {
+  20:         WebSearchAction::Search { query, queries } => search_action_detail(query, queries),
+  21:         WebSearchAction::OpenPage { url } => url.clone().unwrap_or_default(),
+  22:         WebSearchAction::FindInPage { url, pattern } => match (pattern, url) {
+  23:             (Some(pattern), Some(url)) => format!("'{pattern}' in {url}"),
+  24:             (Some(pattern), None) => format!("'{pattern}'"),
+  25:             (None, Some(url)) => url.clone(),
+  26:             (None, None) => String::new(),
+  27:         },
+  28:         WebSearchAction::Other => String::new(),
+  29:     }
+  30: }
+```
 
 **借鉴到我们 SDK 的落地翻译**  
 WebFetch/WebSearch 这种“外部世界材料”最好走同一条路：
