@@ -189,7 +189,7 @@ class ChatViewModel(
         activeStatusTickerJob = null
         activeAssistantMessageId?.let { id ->
             val elapsed = System.currentTimeMillis() - statusStartedAtMs
-            setAssistantStatusLine(assistantMessageId = id, statusLine = "已取消（${formatElapsedMs(elapsed)}）")
+            setAssistantStatusLine(assistantMessageId = id, statusLine = "已取消\n（${formatElapsedMs(elapsed)}）")
         }
         activeAssistantMessageId = null
         statusBase = null
@@ -366,7 +366,7 @@ class ChatViewModel(
     ): String {
         val elapsed = System.currentTimeMillis() - statusStartedAtMs
         val stepPrefix = if (step > 0) "步骤$step " else ""
-        return "$stepPrefix$base（${formatElapsedMs(elapsed)}）"
+        return "$stepPrefix$base\n（${formatElapsedMs(elapsed)}）"
     }
 
     private fun formatElapsedMs(ms: Long): String {
