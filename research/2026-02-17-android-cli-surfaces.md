@@ -22,7 +22,7 @@
 - 能力：基于 WorkManager/AlarmManager 触发后续自动化（参考 PRD-0009）。
 - 典型命令面：
   - `schedule create --at ... --run <automation_id>`
-- 备注：精确闹钟涉及 `SCHEDULE_EXACT_ALARM`（更敏感），优先走“非精确”。
+- 备注：精确闹钟涉及 `SCHEDULE_EXACT_ALARM`（更敏感；Android 14+ / targetSdk 34+ 默认不授予，通常需要用户在系统设置里手动开启），优先走“非精确”。
 
 ### 1.3 文件与分享（SAF）
 
@@ -45,9 +45,46 @@
   - `device status`
 - 备注：只读，隐私风险较低。
 
+### 1.6 拨号界面（不直接拨出）
+
+- 能力：打开系统拨号界面并填入号码（不直接拨出）。
+- 典型命令面：
+  - `dial open --number <phone>`
+- 备注：可用 `Intent.ACTION_DIAL`；相比直接拨打（`CALL_PHONE`）风险低很多。
+
+### 1.7 快捷方式（ShortcutManager）
+
+- 能力：创建/更新桌面快捷方式（例如“一键打开某个 automation/run”）。
+- 典型命令面：
+  - `shortcut create --id ... --label ... --deep-link ...`
+- 备注：低风险但体验价值高；注意 Android 版本差异与用户桌面支持情况。
+
+### 1.8 下载管理器（DownloadManager）
+
+- 能力：使用系统级下载任务下载文件并落盘到工作区（注意路径受限/SAF）。
+- 典型命令面：
+  - `download create --url ... --to artifacts/...`
+- 备注：需要明确的存储策略（优先落到 App 私有目录/`.agents`）。
+
+### 1.9 壁纸（WallpaperManager，可选）
+
+- 能力：设置壁纸（场景窄，但低风险）。
+- 典型命令面：
+  - `wallpaper set --from <path>`
+
 ---
 
 ## 2) 中风险（需要运行时权限；适合“显式授权 + 可审计 + 默认关”）
+
+### 2.0 剪贴板（Clipboard）
+
+- 能力：写剪贴板、读剪贴板。
+- 典型命令面：
+  - `clipboard set --text ...`
+  - `clipboard get`
+- 风险与限制：
+  - **读剪贴板**在新版本 Android 上限制更严（例如前台限制、系统提示/Toast 等），建议默认禁用或仅在前台显式动作中允许；
+  - 写剪贴板相对低风险，但也应有最小化审计（避免把敏感信息写入日志）。
 
 ### 2.1 日历（Calendar Provider）
 
@@ -158,6 +195,15 @@
 
 ---
 
+## 6) 高危操作确认：BiometricPrompt（不是“命令”，而是网关能力）
+
+- 目标：把“二次确认”从每个命令里抽出来，成为统一能力。
+- 建议：
+  - 对 C 类能力、或 B 类里“可能造成损失/外发”的能力（例如真实发送短信/推送/分享），强制弹窗确认；
+  - 可选使用 `BiometricPrompt` 作为确认方式之一（生物识别/设备凭据），提高安全性与可追溯性。
+
+---
+
 ## 6) 伪 CLI 命令面建议（统一风格）
 
 建议先按命名空间拆：
@@ -169,10 +215,55 @@
 - `sms ...`
 - `share ...`
 - `device ...`
+- `clipboard ...`
+- `download ...`
+- `shortcut ...`
 
 并为每个命令声明：
 
 - `capabilities`：读隐私/写隐私/网络/高风险
 - `resource_limits`：输入/输出/耗时上限
 - `auditing`：哪些字段必须写、哪些必须脱敏或禁止落盘
+
+### 6.1 追加建议命令面（例）
+
+```
+clipboard set/get
+location get
+location fence create/delete
+device info
+device screenshot
+tts speak --text "..."
+download create --url "..." --to "..."
+app list            # 注意：QUERY_ALL_PACKAGES 在新版本 Android/上架场景受限
+```
+
+### 6.2 触发器命名建议（统一前缀）
+
+```
+trigger on-sms-received
+trigger on-notification
+trigger on-location-enter
+trigger on-battery-low
+trigger on-network-change
+trigger on-bluetooth-connect
+```
+
+---
+
+## 7) 架构建议：权限网关（Risk Gate）层
+
+把“风险分级 + 授权 + 确认”集中到一层，避免每个命令各写一套：
+
+```
+用户/Agent 发出命令
+  ↓
+权限网关（检查风险等级 + 用户授权状态）
+  ↓
+A 类 → 直接执行
+B 类 → 检查运行时权限；未授权则引导/请求
+C 类 → 强制二次确认（弹窗/生物识别）+ 可随时停止
+  ↓
+执行 + 写审计日志（敏感字段打码/禁止落盘）
+```
 
