@@ -8,9 +8,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -182,7 +183,19 @@ class OpenAgenticSdkChatAgent(
                     else -> Unit
                 }
             }
-        return merge(progressEvents, sdkFlow)
+        // NOTE: progressEvents is a hot SharedFlow and never completes.
+        // If we merge it directly with sdkFlow, the collector in UI never completes, and the next send will be blocked.
+        // We tie the progress collector lifecycle to sdkFlow completion.
+        return channelFlow {
+            val progressJob = launch {
+                progressEvents.collect { send(it) }
+            }
+            try {
+                sdkFlow.collect { send(it) }
+            } finally {
+                progressJob.cancel()
+            }
+        }
     }
 
     override fun clearSession() {
