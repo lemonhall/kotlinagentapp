@@ -2,11 +2,12 @@
 
 ## Project Overview
 
-这是一个 Android 应用工程（Android Studio Bottom Navigation 模板起步），目标是逐步接入 `openagentic-sdk-kotlin`，实现聊天型 Agent：对话、工具调用、Skill 管理、应用内文件系统管理，并预留 WebView 自动化能力。
+这是一个 Android 端的聊天型 Agent 应用工程（Bottom Navigation 模板起步）。目标是逐步接入 `openagentic-sdk-kotlin` / `agent-browser-kotlin`，实现「对话 + 工具调用 + Skills + App 内工作区（`.agents/*`）」并预留 WebView 自动化能力。
 
 ## Quick Commands (PowerShell)
 
 - 前置：安装 Android SDK Platform 35（当前 `compileSdk=35`）
+- 首次克隆后初始化 submodule：`git submodule update --init --recursive`
 - Install deps / Sync: `.\gradlew.bat --version`（确认 wrapper 可用；依赖会在首次构建自动下载）
 - Build (debug): `.\gradlew.bat :app:assembleDebug`
 - Install to device (debug): `.\gradlew.bat :app:installDebug`（需要 `adb devices` 可看到真机/模拟器）
@@ -24,9 +25,15 @@
   - 入口 Activity：`app/src/main/java/com/lsl/kotlin_agent_app/MainActivity.kt`
   - 导航图：`app/src/main/res/navigation/mobile_navigation.xml`
   - 3 个模板 Fragment：`app/src/main/java/com/lsl/kotlin_agent_app/ui/*`
+- 外部依赖（本地复合构建 + submodule）：`external/`
+  - `external/openagentic-sdk-kotlin/`（见 `settings.gradle.kts` 的 `includeBuild(...)`）
+  - `external/agent-browser-kotlin/`（见 `settings.gradle.kts` 的 `includeBuild(...)`）
 - 构建与版本管理：
   - Gradle wrapper：`gradlew` / `gradlew.bat`（Gradle 8.7）
   - Version Catalog：`gradle/libs.versions.toml`（AGP / Kotlin / Jetpack 版本）
+- 文档：
+  - PRD：`docs/prd/`
+  - 执行计划：`docs/plan/`
 
 ### Data Flow（未来目标，当前多为模板占位）
 
@@ -41,6 +48,12 @@ UI (Chat/Files/Settings)
 
 - 配置与密钥：DataStore（必要时用 Jetpack Security 做加密存储）
 - 文件与 skills：应用私有目录（`context.filesDir` / `context.cacheDir`）
+
+## Runtime Config（本地调试）
+
+- 根目录 `.env`：仅用于 Debug，已在 `.gitignore` 中忽略；Debug 构建会读取其中的默认值并注入到 App 的本地配置（用于本机测试）。
+  - `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `MODEL`
+- 任何密钥不要写进代码/日志，不要提交到 git。
 
 ## Code Style & Conventions
 
@@ -60,6 +73,7 @@ UI (Chat/Files/Settings)
 - **谨慎删除**：涉及 `Remove-Item -Recurse -Force`、批量删除、清空目录前先确认；优先用更小范围删除。
 - **避免改动生成产物**：不要手改 `build/`、`.gradle/` 等生成目录内容；需要清理用 Gradle/IDE 的 clean。
 - **功能改动后默认装机验证**：每一次“成功的功能修改”（行为/界面/交互变化，且本地相关测试通过）后，默认执行 `.\gradlew.bat :app:installDebug` 安装到已连接真机/模拟器进行冒烟验证；不要等用户提醒。
+- **submodule 改动不要混在本仓库提交里**：如需修改 `external/*`，优先在对应仓库提交并更新 submodule 指针；本仓库只提交 submodule 指针变化即可。
 
 ### Proxy（中国大陆网络环境）
 
