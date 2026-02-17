@@ -336,7 +336,8 @@ class FilesViewModel(
                     约束：
                     - 只输出标题本身（不要解释）
                     - 1 行、不要换行、不要加引号
-                    - 尽量短（<= 24 个汉字）
+                    - 必须极短：最多 9 个汉字
+                    - 不要包含空格、标点、英文、数字
                     """.trimIndent()
                 val user =
                     buildString {
@@ -448,8 +449,17 @@ class FilesViewModel(
 
     private fun shrinkForTitle(text: String): String {
         val oneLine = text.replace("\r\n", "\n").lineSequence().firstOrNull().orEmpty().trim()
-        val cleaned = oneLine.replace(Regex("\\s+"), " ").trim()
-        return if (cleaned.length <= 40) cleaned else cleaned.take(40).trimEnd()
+        val noSpace = oneLine.replace(Regex("\\s+"), "").trim()
+        val hanOnly = noSpace.replace(Regex("[^\\p{IsHan}]"), "")
+        val base =
+            if (hanOnly.isNotBlank()) {
+                hanOnly
+            } else {
+                // Fallback for non-Chinese inputs: keep a compact alnum slug.
+                noSpace.replace(Regex("[^\\p{Alnum}]"), "")
+            }
+        val limited = base.take(9)
+        return limited.trim().ifBlank { "" }
     }
 
     private fun persistSessionTitle(
