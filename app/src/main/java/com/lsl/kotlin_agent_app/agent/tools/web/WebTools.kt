@@ -632,18 +632,31 @@ private class WebEvalTool(runtime: WebToolRuntime) :
         if (!runtime.isEvalEnabled()) return error("disabled", "web_eval is disabled")
         if (!runtime.ensureInjected()) return error("not_injected", "agent-browser.js not injected")
         val js = requiredString(input, "js") ?: return error("missing_js", "web_eval requires js")
-        val maxLen = (optionalInt(input, "max_length") ?: 2000).coerceAtLeast(64)
+        val maxLen = (optionalInt(input, "max_length") ?: 8000).coerceAtLeast(64)
         val script = "(function(){ try { return ($js); } catch(e){ return 'ERROR: ' + String(e); } })()"
         val raw = runtime.eval(script)
         val normalized = AgentBrowser.normalizeJsEvalResult(raw)
         val truncated = normalized.length > maxLen
         val value = if (truncated) normalized.take(maxLen) else normalized
+
+        val valueJson =
+            if (!truncated) {
+                val t = value.trim()
+                if (t.startsWith("{") || t.startsWith("[")) {
+                    runCatching { runtime.parseJsonElementFromJsEval(raw) }.getOrNull()
+                } else {
+                    null
+                }
+            } else {
+                null
+            }
         return ToolOutput.Json(
             value =
                 buildJsonObject {
                     put("ok", JsonPrimitive(true))
                     put("value", JsonPrimitive(value))
                     put("truncated", JsonPrimitive(truncated))
+                    if (valueJson != null) put("value_json", valueJson)
                 },
         )
     }

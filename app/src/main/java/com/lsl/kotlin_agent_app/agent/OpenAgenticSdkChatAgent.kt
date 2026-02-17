@@ -2,6 +2,8 @@ package com.lsl.kotlin_agent_app.agent
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.lsl.kotlin_agent_app.BuildConfig
+import com.lsl.kotlin_agent_app.agent.tools.web.OpenAgenticWebTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onEach
@@ -36,7 +38,6 @@ import me.lemonhall.openagentic.sdk.tools.ToolRegistry
 import me.lemonhall.openagentic.sdk.tools.WebFetchTool
 import me.lemonhall.openagentic.sdk.tools.WebSearchTool
 import me.lemonhall.openagentic.sdk.tools.WriteTool
-import com.lsl.kotlin_agent_app.agent.tools.web.OpenAgenticWebTools
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -280,7 +281,8 @@ class OpenAgenticSdkChatAgent(
 
             - **移动端优先**：公共网站优先用移动站（如 `https://m.baidu.com/`）。
             - **先看后做**：操作前先 `web_snapshot`（搜索结果/套娃 DOM 优先 `interactive_only=false`），从快照找 `ref`。
-            - **只用 ref**：所有交互必须使用快照中的 `ref`，不要臆测 selector。
+            - **交互只用 ref**：所有点击/输入/勾选等交互必须使用快照中的 `ref`，不要臆测 selector。
+            - **读取允许 selector**：当需要“批量提取列表/卡片数据”（如机票/酒店/商品列表）且 snapshot 被截断时，允许用 `web_eval` 运行只读 JS（JS 内可用 `document.querySelectorAll(...)`），把结果整理成紧凑 JSON 返回（必要时调大 `max_length`），不要把整页 HTML 打回对话。
             - **必要时等待**：页面动态更新用 `web_wait`（ms/text/url）稳定节奏。
 
             ---
@@ -344,7 +346,7 @@ class OpenAgenticSdkChatAgent(
         }
 
         return if (agent == "webview") {
-            val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = false)
+            val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = BuildConfig.DEBUG)
             val tools = ToolRegistry(webTools)
             val allowedTools = webTools.map { it.name }.toSet()
 
@@ -405,7 +407,7 @@ class OpenAgenticSdkChatAgent(
                 - 研究过程不要塞回主对话；最终在聊天里只输出 report_path（一行即可）
                 """.trimIndent()
 
-            val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = false)
+            val webTools = OpenAgenticWebTools.all(appContext = appContext, allowEval = BuildConfig.DEBUG)
             val tools =
                 ToolRegistry(
                     listOf(
