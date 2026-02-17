@@ -1,0 +1,1501 @@
+# Terminal Command Catalog（目标：5000）
+
+日期：2026-02-18
+用途：汇总本次会话里讨论过的伪 CLI 命令面候选，便于后续逐条挑选入白名单（terminal_exec）。
+
+## 约定
+
+- 每行一条命令：<namespace> <verb>。
+- 允许附带一句说明（— ...），但命令本体不带参数。
+- 本文件里的所有条目均为候选命令面，不代表已实现。
+
+---
+
+## 已实现（v11）
+
+- terminal_exec hello — 输出 HELLO ASCII + lemonhall 签名，并写审计 run。
+
+---
+
+## S0) 240 个基础命令（无参数）
+
+- archive add
+- archive create
+- archive extract
+- archive gz-compress
+- archive list
+- archive remove
+- archive tar-extract
+- archive tar-list
+- archive test
+- archive zip-create
+- archive zip-extract
+- archive zip-list
+- barcode batch-decode
+- barcode decode
+- barcode detect
+- barcode encode
+- barcode to-png
+- barcode to-svg
+- calendar create
+- calendar delete
+- calendar list
+- calendar update
+- clipboard get
+- clipboard set
+- contacts create
+- contacts delete
+- contacts get
+- contacts search
+- crypto aes-decrypt
+- crypto aes-encrypt
+- crypto base64-decode
+- crypto base64-encode
+- crypto hmac
+- crypto jwt-sign
+- crypto jwt-verify
+- crypto md5
+- crypto random-bytes
+- crypto sha1
+- crypto sha256
+- crypto uuid
+- csv drop
+- csv filter
+- csv groupby
+- csv join
+- csv normalize
+- csv sample
+- csv select
+- csv sniff
+- csv sort
+- csv stats
+- csv to-json
+- csv to-md
+- csv to-ndjson
+- csv unique
+- csv validate
+- device battery
+- device network
+- device status
+- dial open
+- diff chars
+- diff lines
+- diff unified
+- diff words
+- doc attachments
+- doc charset
+- doc detect
+- doc extract
+- doc fingerprint
+- doc forms
+- doc language
+- doc links
+- doc metadata
+- doc page-images
+- doc page-text
+- doc pages
+- doc sanitize
+- doc tables
+- doc toc
+- docx comments
+- docx endnotes
+- docx footnotes
+- docx headings
+- docx hyperlinks
+- docx images
+- docx info
+- docx tables
+- docx text
+- docx track-changes
+- download cancel
+- download create
+- download list
+- download status
+- html forms
+- html images
+- html links
+- html meta
+- html minify
+- html normalize
+- html parse
+- html pretty
+- html remove
+- html sanitize
+- html select
+- html tables
+- html text
+- html title
+- html unwrap
+- img blur
+- img brightness
+- img contrast
+- img convert
+- img crop
+- img denoise
+- img flip
+- img grayscale
+- img info
+- img resize
+- img rotate
+- img sharpen
+- img strip-metadata
+- img thumbnail
+- img watermark
+- intent open
+- json diff
+- json merge
+- json minify
+- json normalize
+- json parse
+- json pointer-get
+- json pointer-set
+- json pretty
+- json schema-validate
+- json validate
+- md codeblocks
+- md footnotes
+- md format
+- md frontmatter-get
+- md frontmatter-set
+- md headings
+- md images
+- md links
+- md lint
+- md normalize
+- md parse
+- md tables
+- md to-html
+- md to-text
+- md toc
+- notify cancel
+- notify list-channels
+- notify post
+- notify test
+- patch apply
+- patch normalize
+- patch reverse
+- patch validate
+- pdf annotations
+- pdf bookmarks
+- pdf decrypt
+- pdf encrypt
+- pdf extract-attachments
+- pdf extract-fonts
+- pdf extract-images
+- pdf forms-fill
+- pdf forms-flatten
+- pdf forms-list
+- pdf info
+- pdf links
+- pdf merge
+- pdf metadata
+- pdf outline
+- pdf pages
+- pdf render
+- pdf split
+- pdf text
+- pdf thumbnails
+- pptx animations
+- pptx fonts
+- pptx hyperlinks
+- pptx images
+- pptx info
+- pptx notes
+- pptx shapes
+- pptx slides
+- pptx tables
+- pptx text
+- qr decode
+- qr detect
+- qr encode
+- qr to-png
+- qr to-svg
+- template handlebars-render
+- template mustache-render
+- template replace-vars
+- template validate
+- text casefold
+- text escape-html
+- text escape-json
+- text escape-xml
+- text language-detect
+- text normalize-unicode
+- text normalize-whitespace
+- text remove-diacritics
+- text slugify
+- text strip-bom
+- text transliterate
+- text unescape-html
+- text unescape-json
+- text unescape-xml
+- text wrap
+- tts speak
+- xlsx cells
+- xlsx columns
+- xlsx formulas
+- xlsx hyperlinks
+- xlsx images
+- xlsx info
+- xlsx merged-cells
+- xlsx pivot-tables
+- xlsx rows
+- xlsx sanitize
+- xlsx sheets
+- xlsx styles
+- xlsx to-csv
+- xlsx to-json
+- xlsx to-markdown
+- xml minify
+- xml parse
+- xml pretty
+- xml strip-namespaces
+- xml to-json
+- xml validate-xsd
+- xml xpath
+- yaml diff
+- yaml merge
+- yaml normalize
+- yaml parse
+- yaml pretty
+- yaml to-json
+- yaml validate
+
+---
+
+## S1) 200 个纯命令（会话原样，摘自候选）
+
+- tika detect
+- tika metadata
+- tika text
+- tika html
+- tika xhtml
+- tika json
+- tika language
+- tika embedded-list
+- tika embedded-extract
+- tika mime-map
+- tika charset
+- tika to-markdown
+- tika to-plain
+- tika to-xml
+- tika to-csv
+- tika to-ndjson
+- tika sanitize-text
+- tika sanitize-html
+- tika limits-report
+- tika parse-report
+
+- pdf info
+- pdf metadata
+- pdf text
+- pdf pages
+- pdf split
+- pdf merge
+- pdf render
+- pdf thumbnails
+- pdf extract-images
+- pdf extract-fonts
+- pdf extract-attachments
+- pdf outline
+- pdf bookmarks
+- pdf links
+- pdf annotations
+- pdf forms-list
+- pdf forms-fill
+- pdf forms-flatten
+- pdf encrypt
+- pdf decrypt
+
+- docx info
+- docx text
+- docx headings
+- docx tables
+- docx comments
+- docx footnotes
+- docx endnotes
+- docx hyperlinks
+- docx images
+- docx track-changes
+- pptx info
+- pptx slides
+- pptx text
+- pptx notes
+- pptx shapes
+- pptx tables
+- pptx images
+- pptx hyperlinks
+- pptx animations
+- pptx fonts
+
+- xlsx info
+- xlsx sheets
+- xlsx cells
+- xlsx rows
+- xlsx columns
+- xlsx to-csv
+- xlsx to-json
+- xlsx to-markdown
+- xlsx formulas
+- xlsx styles
+- xlsx merged-cells
+- xlsx hyperlinks
+- xlsx images
+- xlsx data-validation
+- xlsx pivot-tables
+- xlsx named-ranges
+- xlsx freeze-panes
+- xlsx filters
+- xlsx charts
+- xlsx sanitize
+
+- html parse
+- html title
+- html meta
+- html text
+- html links
+- html images
+- html tables
+- html forms
+- html select
+- html remove
+- html unwrap
+- html sanitize
+- html normalize
+- html pretty
+- html minify
+- html readability
+- html boilerpipe
+- html to-markdown
+- html to-json
+- html to-plaintext
+
+- sanitize html-strict
+- sanitize html-basic
+- sanitize html-relaxed
+- sanitize url
+- sanitize css
+- sanitize text
+- sanitize markdown
+- sanitize json
+- sanitize xml
+- sanitize filename
+- sanitize path
+- sanitize email
+- sanitize phone
+- sanitize ipv4
+- sanitize ipv6
+- sanitize hostname
+- sanitize unicode
+- sanitize bidi
+- sanitize control-chars
+- sanitize secrets
+
+- json parse
+- json stringify
+- json pretty
+- json minify
+- json normalize
+- json validate
+- json schema-validate
+- json schema-infer
+- json merge
+- json diff
+- json patch-apply
+- json patch-generate
+- json pointer-get
+- json pointer-set
+- json sort-keys
+- json dedupe-array
+- json flatten
+- json unflatten
+- json to-yaml
+- json to-csv
+
+- yaml parse
+- yaml stringify
+- yaml pretty
+- yaml normalize
+- yaml validate
+- yaml merge
+- yaml to-json
+- yaml diff
+- toml parse
+- toml stringify
+- toml pretty
+- toml validate
+- toml to-json
+- toml merge
+- properties parse
+- properties stringify
+- properties normalize
+- properties to-json
+- dotenv parse
+- dotenv normalize
+
+- md parse
+- md format
+- md lint
+- md toc
+- md headings
+- md links
+- md images
+- md codeblocks
+- md tables
+- md footnotes
+- md frontmatter-get
+- md frontmatter-set
+- md to-html
+- md to-text
+- md to-json
+- md extract-section
+- md remove-section
+- md merge
+- md split
+- md normalize
+
+- text normalize-unicode
+- text normalize-whitespace
+- text strip-bom
+- text wrap
+- text slugify
+- text transliterate
+- text casefold
+- text remove-diacritics
+- text escape-html
+- text unescape-html
+- text escape-json
+- text unescape-json
+- text escape-xml
+- text unescape-xml
+- text smart-quotes
+- text bidi-detect
+- text bidi-fix
+- text grapheme-count
+- text sentence-split
+- text language-detect
+
+---
+
+## S2) 500 个纯命令 + 一句说明（会话原样）
+
+- jgit clone — 用 JGit 克隆仓库到本地工作区
+- jgit fetch — 用 JGit 拉取远端引用（不合并）
+- jgit pull — 用 JGit 拉取并合并（受策略限制）
+- jgit push — 用 JGit 推送本地提交到远端
+- jgit status — 用 JGit 查看工作区/暂存区状态
+- jgit log — 用 JGit 查看提交历史
+- jgit diff — 用 JGit 生成差异输出
+- jgit branch — 用 JGit 列出/管理分支
+- jgit tag — 用 JGit 列出/管理 tag
+- jgit blame — 用 JGit 做逐行追溯（blame）
+
+- semver parse — 解析语义化版本（SemVer）
+- semver compare — 比较两个 SemVer 版本大小
+- semver bump-major — 主版本号 +1（清零次/补）
+- semver bump-minor — 次版本号 +1（清零补丁）
+- semver bump-patch — 补丁版本号 +1
+- semver satisfy — 判断版本是否满足范围表达式
+- semver range-parse — 解析版本范围（^、~、>= 等）
+- semver range-intersect — 计算两个范围的交集
+- semver to-string — 规范化输出 SemVer 字符串
+- semver normalize — 清洗/规范化版本号格式
+
+- otel trace-start — OpenTelemetry 开始一条 trace（观测链路）
+- otel trace-end — OpenTelemetry 结束一条 trace
+- otel span-start — OpenTelemetry 开始一个 span（区间）
+- otel span-end — OpenTelemetry 结束一个 span
+- otel context-inject — 将 OTEL 上下文注入载体（headers 等）
+- otel context-extract — 从载体提取 OTEL 上下文
+- otel baggage-set — 设置 baggage（随链路传递的键值）
+- otel baggage-get — 读取 baggage
+- otel export-otlp — 以 OTLP 导出 trace/metrics
+- otel export-console — 导出到控制台（调试）
+
+- metrics counter-inc — 增加计数器指标
+- metrics counter-get — 读取计数器当前值
+- metrics gauge-set — 设置 gauge 指标值
+- metrics gauge-get — 读取 gauge 指标值
+- metrics timer-start — 开始计时器采样
+- metrics timer-stop — 结束计时器采样
+- metrics histogram-record — 记录直方图样本
+- metrics snapshot — 导出当前指标快照
+- metrics publish — 发布/上报指标
+- metrics reset — 清空指标（测试/调试）
+
+- log logger-list — 列出可用 logger
+- log logger-set-level — 设置 logger 级别（info/debug 等）
+- log logger-get-level — 获取 logger 当前级别
+- log appender-add — 增加 appender（输出目标）
+- log appender-remove — 移除 appender
+- log pattern-set — 设置日志格式模板
+- log pattern-get — 获取日志格式模板
+- log sink-file — 输出到文件
+- log sink-console — 输出到控制台
+- log sink-rotate — 启用轮转策略
+
+- config load — 加载配置（统一入口）
+- config save — 保存配置（统一入口）
+- config validate — 校验配置结构/必填项
+- config diff — 对比两份配置差异
+- config merge — 合并配置（按优先级）
+- config resolve — 解析引用/占位符
+- config override — 覆盖某些配置键
+- config flatten — 将嵌套配置扁平化
+- config unflatten — 将扁平键还原为嵌套结构
+- config redact — 对配置中的敏感字段打码
+
+- ini parse — 解析 INI 为结构化数据
+- ini stringify — 将结构化数据写回 INI
+- ini get — 读取某个 INI 键
+- ini set — 写入某个 INI 键
+- ini delete — 删除某个 INI 键
+- ini sections — 列出 sections
+- ini keys — 列出 keys
+- ini normalize — 规范化 INI（排序/空白等）
+- ini validate — 校验 INI 格式
+- ini merge — 合并多份 INI
+
+- hocon parse — 解析 HOCON（Typesafe Config）
+- hocon render — 将 HOCON 渲染输出
+- hocon resolve — 解析 substitutions（${}）
+- hocon substitutions — 列出 substitutions/引用
+- hocon get — 获取某个配置路径值
+- hocon set — 设置某个配置路径值
+- hocon merge — 合并多份 HOCON
+- hocon validate — 校验 HOCON
+- hocon normalize — 规范化输出
+- hocon diff — 对比差异
+
+- cron parse — 解析 cron 表达式
+- cron next — 计算下一次触发时间
+- cron prev — 计算上一次触发时间
+- cron validate — 校验 cron 表达式合法性
+- cron describe — 生成人类可读描述
+- cron to-quartz — 转换为 Quartz cron（如差异需要）
+- cron to-unix — 转换为传统 cron
+- cron fields — 拆解字段（分/时/日/月/周）
+- cron normalize — 规范化表达式
+- cron diff — 对比两个 cron 是否等价/差异
+
+- quartz schedule-add — Quartz 添加一个调度任务
+- quartz schedule-remove — Quartz 删除一个调度任务
+- quartz trigger-now — Quartz 立即触发一次
+- quartz pause — Quartz 暂停任务/触发器
+- quartz resume — Quartz 恢复任务/触发器
+- quartz list-jobs — Quartz 列出所有 job
+- quartz job-info — Quartz 查看 job 详情
+- quartz trigger-info — Quartz 查看 trigger 详情
+- quartz calendar-add — Quartz 添加日历（排除日等）
+- quartz calendar-remove — Quartz 删除日历
+
+- resilience retry-call — Resilience4j 包装一次带重试的调用
+- resilience retry-config — 查看/设置重试策略
+- resilience circuit-open — 手动打开熔断器
+- resilience circuit-close — 手动关闭熔断器
+- resilience circuit-state — 查看熔断器状态
+- resilience ratelimit-acquire — 申请一次限流许可
+- resilience bulkhead-acquire — 申请一次隔舱许可
+- resilience timeout-call — 对调用施加超时限制
+- resilience fallback-wrap — 为调用加兜底 fallback
+- resilience metrics — 导出 Resilience4j 指标
+
+- cache put — 写入缓存项（如 Caffeine/Guava）
+- cache get — 读取缓存项
+- cache invalidate — 失效/删除缓存项
+- cache stats — 查看缓存命中/驱逐统计
+- cache size — 查看缓存大小
+- cache keys — 列出缓存 key（谨慎）
+- cache values — 列出缓存 value（谨慎）
+- cache cleanup — 触发清理/驱逐
+- cache refresh — 刷新某个 key
+- cache config — 查看/设置缓存配置
+
+- guava bloom-create — 创建 BloomFilter
+- guava bloom-add — 向 BloomFilter 写入元素
+- guava bloom-check — 检测元素是否可能存在
+- guava ratelimiter-create — 创建 RateLimiter
+- guava ratelimiter-acquire — 获取一个速率许可
+- guava stopwatch-start — 启动 Stopwatch
+- guava stopwatch-stop — 停止 Stopwatch
+- guava joiner-join — Joiner 拼接字符串
+- guava splitter-split — Splitter 拆分字符串
+- guava baseencoding — BaseEncoding 编解码（hex/base64 等）
+
+- okio buffer-hex — Okio 以 hex 处理/输出 buffer
+- okio buffer-base64 — Okio 以 base64 处理/输出 buffer
+- okio hash-sha256 — Okio 对流/文件算 sha256
+- okio sink-write — Okio 写入 sink（文件/内存）
+- okio source-read — Okio 读取 source
+- okio gzip-source — Okio 以 gzip 解压读取
+- okio gzip-sink — Okio 以 gzip 压缩写入
+- okio filesystem-list — Okio FileSystem 列目录
+- okio filesystem-read — Okio FileSystem 读文件
+- okio filesystem-write — Okio FileSystem 写文件
+
+- ktor client-get — Ktor Client 发 GET
+- ktor client-post — Ktor Client 发 POST
+- ktor client-put — Ktor Client 发 PUT
+- ktor client-delete — Ktor Client 发 DELETE
+- ktor client-head — Ktor Client 发 HEAD
+- ktor client-download — Ktor Client 下载文件
+- ktor client-upload — Ktor Client 上传文件
+- ktor client-cache — Ktor Client 缓存策略入口
+- ktor client-auth — Ktor Client 认证策略入口
+- ktor client-metrics — Ktor Client 指标/拦截统计
+
+- retrofit build-client — Retrofit 构建 API client
+- retrofit call-execute — Retrofit 同步执行一次调用
+- retrofit call-enqueue — Retrofit 异步执行一次调用
+- retrofit converters-list — 列出 converter（Gson/Moshi 等）
+- retrofit logging-enable — 开启 Retrofit/OkHttp logging
+- retrofit logging-disable — 关闭 logging
+- retrofit baseurl-set — 设置 baseUrl（受控）
+- retrofit headers-add — 添加默认 headers
+- retrofit headers-remove — 移除默认 headers
+- retrofit mock-enable — 启用 mock（测试/离线）
+
+- netty server-start — Netty 启动服务端
+- netty server-stop — Netty 停止服务端
+- netty pipeline-add — Netty pipeline 添加 handler
+- netty pipeline-remove — Netty pipeline 移除 handler
+- netty channel-stats — Netty channel 统计信息
+- netty http2-enable — Netty 启用 HTTP/2（需依赖）
+- netty ssl-enable — Netty 启用 TLS
+- netty ssl-disable — Netty 关闭 TLS
+- netty eventloop-stats — Netty event loop 统计
+- netty leak-detect — Netty 内存泄漏检测开关/报告
+- websocket connect — 建立 WebSocket 连接
+- websocket disconnect — 断开 WebSocket 连接
+- websocket send-text — WebSocket 发送文本帧
+- websocket send-bytes — WebSocket 发送二进制帧
+- websocket ping — 发送 ping
+- websocket pong — 发送 pong
+- websocket subscribe — 订阅某个逻辑频道（实现自定义）
+- websocket unsubscribe — 取消订阅
+- websocket frames — 查看收发帧统计/缓存
+- websocket stats — 导出 WS 连接统计
+
+- mqtt connect — 建立 MQTT 连接
+- mqtt disconnect — 断开 MQTT
+- mqtt publish — 发布消息
+- mqtt subscribe — 订阅 topic
+- mqtt unsubscribe — 取消订阅
+- mqtt lastwill — 配置/查看遗嘱消息
+- mqtt retained — retained 消息策略
+- mqtt qos — QoS 策略入口
+- mqtt session — session/cleanSession 配置
+- mqtt topic-validate — 校验 topic 合法性
+
+- amqp connect — 连接 AMQP broker（如 RabbitMQ）
+- amqp close — 关闭 AMQP 连接
+- amqp queue-declare — 声明队列
+- amqp queue-delete — 删除队列
+- amqp exchange-declare — 声明 exchange
+- amqp exchange-delete — 删除 exchange
+- amqp bind — 绑定 routing
+- amqp unbind — 解绑 routing
+- amqp publish — 发布消息
+- amqp consume — 消费消息
+
+- kafka produce — Kafka 生产消息
+- kafka consume — Kafka 消费消息
+- kafka topics-list — 列出 topics
+- kafka topic-create — 创建 topic
+- kafka topic-delete — 删除 topic
+- kafka group-list — 列出 consumer groups
+- kafka offsets-get — 获取 offsets
+- kafka offsets-reset — 重置 offsets（高风险）
+- kafka admin-config — 管理/查看集群配置
+- kafka metadata — 拉取 metadata
+
+- mail smtp-send — Jakarta Mail 走 SMTP 发邮件
+- mail imap-connect — 连接 IMAP
+- mail imap-fetch — IMAP 拉取邮件
+- mail imap-search — IMAP 搜索
+- mail imap-idle — IMAP idle 监听
+- mail parse — 解析 RFC822 邮件内容
+- mail compose — 组装一封邮件
+- mail attachments — 提取附件
+- mail reply — 生成 reply 草稿
+- mail forward — 生成 forward 草稿
+
+- mime detect — 识别 MIME 类型（或解析）
+- mime parse — 解析 MIME 消息结构
+- mime build — 构建 MIME 消息
+- mime multipart-create — 创建 multipart 容器
+- mime multipart-add — 往 multipart 添加 part
+- mime decode — MIME 解码（quoted-printable/base64）
+- mime encode — MIME 编码
+- mime headers-get — 读取 MIME headers
+- mime headers-set — 写入 MIME headers
+- mime charset-detect — 猜测/识别字符集
+
+- rss fetch — 拉取 RSS/Atom 源
+- rss parse — 解析 RSS/Atom
+- rss list-items — 列出条目
+- rss extract-links — 提取条目链接
+- rss extract-summaries — 提取摘要
+- rss filter — 过滤条目（关键字/日期）
+- rss to-json — 转成 JSON
+- rss to-md — 转成 Markdown
+- rss dedupe — 去重（按 guid/link）
+- rss validate — 校验 feed
+
+- ical parse — 解析 iCalendar(.ics)
+- ical create-event — 创建事件
+- ical update-event — 更新事件
+- ical delete-event — 删除事件
+- ical list-events — 列出事件
+- ical alarms-list — 列出提醒/闹钟
+- ical alarms-add — 添加提醒
+- ical alarms-remove — 移除提醒
+- ical to-json — 事件转 JSON
+- ical validate — 校验 .ics
+
+- vcard parse — 解析 vCard
+- vcard create — 创建 vCard
+- vcard update — 更新 vCard
+- vcard delete — 删除 vCard
+- vcard list — 列出 vCard 条目
+- vcard to-json — vCard 转 JSON
+- vcard to-qr — vCard 转二维码内容
+- vcard validate — 校验 vCard
+- vcard normalize — 规范化字段/编码
+- vcard merge — 合并多个联系人条目
+
+- xmlsec sign — XML 数字签名（XMLSec）
+- xmlsec verify — 校验 XML 签名
+- xmlsec encrypt — XML 加密
+- xmlsec decrypt — XML 解密
+- xmlsec keygen — 生成密钥（受控）
+- xmlsec cert-import — 导入证书
+- xmlsec canonicalize — 规范化（C14N）
+- xmlsec dsig-info — 输出 DSig 信息
+- xmlsec xenc-info — 输出 XEnc 信息
+- xmlsec algorithms — 列出支持的算法
+
+- xslt transform — XSLT 变换 XML
+- xslt compile — 编译/预热 XSLT
+- xslt params-list — 列出 XSLT 参数
+- xslt params-set — 设置 XSLT 参数
+- xslt validate — 校验 XSLT/输入
+- xslt profile — 采样/性能概要
+- xslt serialize — 序列化输出
+- xslt indent — 输出缩进
+- xslt strip-space — 去空白节点
+- xslt output-method — 设置输出方法（xml/html/text）
+
+- xpath eval — 执行 XPath 表达式
+- xpath query — 查询节点集
+- xpath nodeset — 强制输出 nodeset
+- xpath string — 输出 string 值
+- xpath number — 输出 number 值
+- xpath boolean — 输出 boolean 值
+- xpath namespaces — 管理/列出命名空间
+- xpath functions — 列出 XPath 函数（实现相关）
+- xpath variables — 变量注入/列出
+- xpath compile — 预编译 XPath
+
+- xsd validate — XSD 校验 XML
+- xsd compile — 编译/缓存 schema
+- xsd schema-info — 输出 schema 信息
+- xsd element-list — 列出元素定义
+- xsd type-list — 列出类型定义
+- xsd sample-xml — 生成样例 XML（可选）
+- xsd normalize — 规范化 schema 引用
+- xsd import-resolve — 解析 import/include
+- xsd constraints — 输出约束摘要
+- xsd report — 校验/解析报告
+
+- jsonpath query — 用 JsonPath 查询 JSON
+- jsonpath set — 用 JsonPath 设置字段
+- jsonpath delete — 用 JsonPath 删除字段
+- jsonpath exists — 判断路径是否存在
+- jsonpath keys — 列出某节点 keys
+- jsonpath values — 列出某节点 values
+- jsonpath filter — 条件过滤
+- jsonpath map — 映射变换
+- jsonpath merge — 合并节点
+- jsonpath validate — 校验路径/表达式
+
+- jsonschema validate — JSON Schema 校验 JSON
+- jsonschema compile — 编译 schema
+- jsonschema deref — 解引用 $ref
+- jsonschema bundle — 打包 schema（内联 ref）
+- jsonschema diff — 对比两个 schema 差异
+- jsonschema infer — 从样本推断 schema（可选）
+- jsonschema normalize — 规范化 schema
+- jsonschema meta — 校验 meta-schema
+- jsonschema format-check — 检查 format（email/url 等）
+- jsonschema report — 输出校验报告
+
+- cbor encode — CBOR 编码
+- cbor decode — CBOR 解码
+- cbor pretty — CBOR 人类可读格式
+- cbor validate — 校验 CBOR 结构
+- cbor to-json — CBOR 转 JSON
+- cbor from-json — JSON 转 CBOR
+- cbor streaming-encode — 流式编码
+- cbor streaming-decode — 流式解码
+- cbor diag — 诊断输出
+- cbor canonicalize — 规范化/确定性编码
+
+- msgpack encode — MessagePack 编码
+- msgpack decode — MessagePack 解码
+- msgpack pretty — MessagePack 可读输出
+- msgpack validate — 校验结构
+- msgpack to-json — MessagePack 转 JSON
+- msgpack from-json — JSON 转 MessagePack
+- msgpack extension-list — 列出扩展类型
+- msgpack extension-register — 注册扩展类型
+- msgpack streaming-encode — 流式编码
+- msgpack streaming-decode — 流式解码
+
+- protobuf compile — 编译 .proto（生成 descriptor）
+- protobuf encode — JSON/结构化到 protobuf 二进制
+- protobuf decode — protobuf 二进制转 JSON/结构化
+- protobuf json-to-proto — JSON 转 proto
+- protobuf proto-to-json — proto 转 JSON
+- protobuf descriptors — 输出 descriptors 信息
+- protobuf lint — proto 规范检查
+- protobuf upgrade — 升级/兼容性检查入口
+- protobuf diff — 对比 proto 版本差异
+- protobuf validate — 校验消息是否满足约束
+
+- avro compile — 编译/加载 Avro schema
+- avro encode — 按 schema 编码数据
+- avro decode — 按 schema 解码数据
+- avro schema-validate — 校验 schema
+- avro schema-evolve — 做 schema 演进兼容性检查
+- avro to-json — Avro 转 JSON
+- avro from-json — JSON 转 Avro
+- avro fingerprints — schema 指纹
+- avro container-read — 读取 Avro container file
+- avro container-write — 写入 Avro container file
+
+- flatbuffers compile — 编译 FlatBuffers schema
+- flatbuffers encode — 编码 FlatBuffers 数据
+- flatbuffers decode — 解码 FlatBuffers 数据
+- flatbuffers verify — 校验 buffer 合法性
+- flatbuffers to-json — FlatBuffers 转 JSON
+- flatbuffers from-json — JSON 转 FlatBuffers
+- flatbuffers schema-info — 输出 schema 摘要
+- flatbuffers size — 估算/输出大小
+- flatbuffers diff — 对比两份数据差异
+- flatbuffers validate — 校验输入与 schema 匹配
+
+- bson encode — BSON 编码
+- bson decode — BSON 解码
+- bson to-json — BSON 转 JSON
+- bson from-json — JSON 转 BSON
+- bson validate — 校验 BSON
+- bson pretty — 可读格式输出
+- bson objectid-new — 生成 ObjectId
+- bson objectid-parse — 解析 ObjectId
+- bson types — 列出 BSON 类型映射
+- bson canonicalize — 规范化/确定性输出
+
+- sqlparse parse — SQL 解析成 AST
+- sqlparse ast — 输出 SQL AST
+- sqlparse tables — 提取表名
+- sqlparse columns — 提取列名
+- sqlparse parameters — 提取参数占位
+- sqlparse rewrite — SQL 重写（受控）
+- sqlparse validate — SQL 语法校验
+- sqlparse explain — 生成解释/结构说明
+- sqlparse lineage — 数据血缘分析（粗粒度）
+- sqlparse normalize — SQL 规范化（空白/大小写）
+
+- sqlite open — 打开 SQLite 数据库
+- sqlite query — 执行查询并输出结果
+- sqlite exec — 执行非查询语句
+- sqlite schema — 导出 schema
+- sqlite tables — 列出表
+- sqlite pragma — 读取/设置 pragma
+- sqlite backup — 备份数据库
+- sqlite restore — 从备份恢复
+- sqlite vacuum — vacuum 压缩
+- sqlite analyze — analyze 统计
+
+- jena rdf-parse — Apache Jena 解析 RDF
+- jena rdf-serialize — Apache Jena 序列化 RDF
+- jena rdf-validate — 校验 RDF 结构/语法
+- jena model-stats — 输出模型统计
+- jena infer — 进行推理（inference）
+- jena reason — 运行 reasoner
+- jena skolemize — blank node skolemize
+- jena deskolemize — skolemize 逆操作
+- jena prefixes — 管理/输出 prefixes
+- jena format — 规范化/格式化输出
+
+- sparql query — 执行 SPARQL 查询
+- sparql update — 执行 SPARQL 更新
+- sparql explain — 输出执行计划/解释（实现相关）
+- sparql optimize — 优化/重写查询
+- sparql validate — 校验 SPARQL
+- sparql endpoints-list — 列出 endpoint 配置
+- sparql endpoint-add — 添加 endpoint
+- sparql endpoint-remove — 移除 endpoint
+- sparql results-to-json — 结果转 JSON
+- sparql results-to-csv — 结果转 CSV
+
+- jgrapht graph-parse — JGraphT 解析图数据
+- jgrapht graph-serialize — JGraphT 序列化图
+- jgrapht shortest-path — 最短路径
+- jgrapht mst — 最小生成树
+- jgrapht topo-sort — 拓扑排序
+- jgrapht strongly-connected — 强连通分量
+- jgrapht maxflow — 最大流
+- jgrapht mincut — 最小割
+- jgrapht centrality — 中心性指标
+- jgrapht isomorphism — 图同构检测
+
+- geotools wkt-parse — GeoTools 解析 WKT
+- geotools wkt-serialize — GeoTools 输出 WKT
+- geotools geojson-parse — 解析 GeoJSON
+- geotools geojson-serialize — 输出 GeoJSON
+- geotools reproject — 坐标系重投影
+- geotools buffer — 缓冲区（buffer）
+- geotools simplify — 线/面简化
+- geotools intersection — 求交集
+- geotools union — 求并集
+- geotools bbox — 计算边界框
+
+- opencv img-read — OpenCV 读图
+- opencv img-write — OpenCV 写图
+- opencv edges — 边缘检测
+- opencv contours — 轮廓提取
+- opencv threshold — 阈值二值化
+- opencv blur — 模糊
+- opencv sharpen — 锐化
+- opencv resize — 缩放
+- opencv crop — 裁剪
+- opencv histogram — 直方图统计
+
+- tesseract ocr-run — Tesseract OCR 识别
+- tesseract ocr-lang-list — 列出可用语言包
+- tesseract ocr-detect-orientation — 检测方向
+- tesseract ocr-detect-script — 检测文字脚本
+- tesseract ocr-hocr — 输出 hOCR
+- tesseract ocr-tsv — 输出 TSV
+- tesseract ocr-pdf — 输出可搜索 PDF
+- tesseract ocr-train — 训练入口（高级）
+- tesseract ocr-binarize — 预处理二值化
+- tesseract ocr-denoise — 预处理去噪
+
+---
+
+## S3) 新增 500 个（append）：新库域命令面（20×25，带一句说明）
+
+- bc pem-read — BouncyCastle：pem-read
+- bc pem-write — BouncyCastle：pem-write
+- bc pkcs8-parse — BouncyCastle：pkcs8-parse
+- bc pkcs8-encode — BouncyCastle：pkcs8-encode
+- bc pkcs12-create — BouncyCastle：pkcs12-create
+- bc pkcs12-parse — BouncyCastle：pkcs12-parse
+- bc csr-generate — BouncyCastle：csr-generate
+- bc csr-parse — BouncyCastle：csr-parse
+- bc cert-generate — BouncyCastle：cert-generate
+- bc cert-parse — BouncyCastle：cert-parse
+- bc cert-chain-validate — BouncyCastle：cert-chain-validate
+- bc keystore-create — BouncyCastle：keystore-create
+- bc keystore-load — BouncyCastle：keystore-load
+- bc keystore-list — BouncyCastle：keystore-list
+- bc keystore-export — BouncyCastle：keystore-export
+- bc keystore-import — BouncyCastle：keystore-import
+- bc cms-sign — BouncyCastle：cms-sign
+- bc cms-verify — BouncyCastle：cms-verify
+- bc cms-encrypt — BouncyCastle：cms-encrypt
+- bc cms-decrypt — BouncyCastle：cms-decrypt
+- bc ocsp-request — BouncyCastle：ocsp-request
+- bc crl-generate — BouncyCastle：crl-generate
+- bc crl-parse — BouncyCastle：crl-parse
+- bc tls-fingerprint — BouncyCastle：tls-fingerprint
+- bc random-seed — BouncyCastle：random-seed
+- tink keyset-generate — Google Tink：keyset-generate
+- tink keyset-rotate — Google Tink：keyset-rotate
+- tink keyset-list — Google Tink：keyset-list
+- tink keyset-export — Google Tink：keyset-export
+- tink keyset-import — Google Tink：keyset-import
+- tink aead-encrypt — Google Tink：aead-encrypt
+- tink aead-decrypt — Google Tink：aead-decrypt
+- tink mac-compute — Google Tink：mac-compute
+- tink mac-verify — Google Tink：mac-verify
+- tink signature-sign — Google Tink：signature-sign
+- tink signature-verify — Google Tink：signature-verify
+- tink hybrid-encrypt — Google Tink：hybrid-encrypt
+- tink hybrid-decrypt — Google Tink：hybrid-decrypt
+- tink deterministic-encrypt — Google Tink：deterministic-encrypt
+- tink deterministic-decrypt — Google Tink：deterministic-decrypt
+- tink jwt-sign — Google Tink：jwt-sign
+- tink jwt-verify — Google Tink：jwt-verify
+- tink kms-envelope-encrypt — Google Tink：kms-envelope-encrypt
+- tink kms-envelope-decrypt — Google Tink：kms-envelope-decrypt
+- tink prf-compute — Google Tink：prf-compute
+- tink streaming-encrypt — Google Tink：streaming-encrypt
+- tink streaming-decrypt — Google Tink：streaming-decrypt
+- tink key-template-list — Google Tink：key-template-list
+- tink config-register — Google Tink：config-register
+- tink self-test — Google Tink：self-test
+- jose jwk-generate — Nimbus/jose4j：jwk-generate
+- jose jwk-parse — Nimbus/jose4j：jwk-parse
+- jose jwks-parse — Nimbus/jose4j：jwks-parse
+- jose jws-sign — Nimbus/jose4j：jws-sign
+- jose jws-verify — Nimbus/jose4j：jws-verify
+- jose jwe-encrypt — Nimbus/jose4j：jwe-encrypt
+- jose jwe-decrypt — Nimbus/jose4j：jwe-decrypt
+- jose jwt-sign — Nimbus/jose4j：jwt-sign
+- jose jwt-verify — Nimbus/jose4j：jwt-verify
+- jose jwt-decode — Nimbus/jose4j：jwt-decode
+- jose header-inspect — Nimbus/jose4j：header-inspect
+- jose alg-list — Nimbus/jose4j：alg-list
+- jose kid-select — Nimbus/jose4j：kid-select
+- jose thumbprint — Nimbus/jose4j：thumbprint
+- jose claims-redact — Nimbus/jose4j：claims-redact
+- jose time-skew-check — Nimbus/jose4j：time-skew-check
+- jose audience-check — Nimbus/jose4j：audience-check
+- jose issuer-check — Nimbus/jose4j：issuer-check
+- jose subject-check — Nimbus/jose4j：subject-check
+- jose replay-detect — Nimbus/jose4j：replay-detect
+- jose x5c-parse — Nimbus/jose4j：x5c-parse
+- jose x5t-check — Nimbus/jose4j：x5t-check
+- jose detached-jws — Nimbus/jose4j：detached-jws
+- jose serialize-compact — Nimbus/jose4j：serialize-compact
+- jose serialize-json — Nimbus/jose4j：serialize-json
+- plantuml render — PlantUML：render
+- plantuml render-png — PlantUML：render-png
+- plantuml render-svg — PlantUML：render-svg
+- plantuml render-txt — PlantUML：render-txt
+- plantuml syntax-check — PlantUML：syntax-check
+- plantuml includes-list — PlantUML：includes-list
+- plantuml preprocess — PlantUML：preprocess
+- plantuml theme-list — PlantUML：theme-list
+- plantuml theme-set — PlantUML：theme-set
+- plantuml sequence — PlantUML：sequence
+- plantuml class — PlantUML：class
+- plantuml activity — PlantUML：activity
+- plantuml state — PlantUML：state
+- plantuml component — PlantUML：component
+- plantuml deployment — PlantUML：deployment
+- plantuml mindmap — PlantUML：mindmap
+- plantuml gantt — PlantUML：gantt
+- plantuml timing — PlantUML：timing
+- plantuml json-export — PlantUML：json-export
+- plantuml extract-refs — PlantUML：extract-refs
+- plantuml annotate — PlantUML：annotate
+- plantuml batch-render — PlantUML：batch-render
+- plantuml cache-enable — PlantUML：cache-enable
+- plantuml cache-disable — PlantUML：cache-disable
+- plantuml version — PlantUML：version
+- graphviz dot-parse — graphviz-java：dot-parse
+- graphviz dot-render — graphviz-java：dot-render
+- graphviz dot-render-png — graphviz-java：dot-render-png
+- graphviz dot-render-svg — graphviz-java：dot-render-svg
+- graphviz dot-layout — graphviz-java：dot-layout
+- graphviz dot-pretty — graphviz-java：dot-pretty
+- graphviz dot-minify — graphviz-java：dot-minify
+- graphviz dot-validate — graphviz-java：dot-validate
+- graphviz dot-nodes — graphviz-java：dot-nodes
+- graphviz dot-edges — graphviz-java：dot-edges
+- graphviz dot-subgraphs — graphviz-java：dot-subgraphs
+- graphviz dot-attrs — graphviz-java：dot-attrs
+- graphviz dot-set-attr — graphviz-java：dot-set-attr
+- graphviz dot-remove-attr — graphviz-java：dot-remove-attr
+- graphviz dot-to-json — graphviz-java：dot-to-json
+- graphviz dot-from-json — graphviz-java：dot-from-json
+- graphviz dot-diff — graphviz-java：dot-diff
+- graphviz dot-merge — graphviz-java：dot-merge
+- graphviz dot-prune — graphviz-java：dot-prune
+- graphviz dot-cluster — graphviz-java：dot-cluster
+- graphviz dot-rank — graphviz-java：dot-rank
+- graphviz dot-style — graphviz-java：dot-style
+- graphviz dot-batch — graphviz-java：dot-batch
+- graphviz version — graphviz-java：version
+- graphviz engines-list — graphviz-java：engines-list
+- antlr grammar-parse — ANTLR：grammar-parse
+- antlr grammar-validate — ANTLR：grammar-validate
+- antlr generate-parser — ANTLR：generate-parser
+- antlr generate-lexer — ANTLR：generate-lexer
+- antlr tokenize — ANTLR：tokenize
+- antlr parse-tree — ANTLR：parse-tree
+- antlr ast — ANTLR：ast
+- antlr listener-generate — ANTLR：listener-generate
+- antlr visitor-generate — ANTLR：visitor-generate
+- antlr atn-dump — ANTLR：atn-dump
+- antlr dfa-dump — ANTLR：dfa-dump
+- antlr profile — ANTLR：profile
+- antlr errors — ANTLR：errors
+- antlr recover — ANTLR：recover
+- antlr format-tree — ANTLR：format-tree
+- antlr find-rules — ANTLR：find-rules
+- antlr first-follow — ANTLR：first-follow
+- antlr left-recursion-detect — ANTLR：left-recursion-detect
+- antlr ambiguity-detect — ANTLR：ambiguity-detect
+- antlr test-input — ANTLR：test-input
+- antlr examples — ANTLR：examples
+- antlr rewrite — ANTLR：rewrite
+- antlr serialize-tree — ANTLR：serialize-tree
+- antlr deserialize-tree — ANTLR：deserialize-tree
+- antlr version — ANTLR：version
+- openapi parse — swagger-parser/openapi-generator：parse
+- openapi validate — swagger-parser/openapi-generator：validate
+- openapi bundle — swagger-parser/openapi-generator：bundle
+- openapi deref — swagger-parser/openapi-generator：deref
+- openapi diff — swagger-parser/openapi-generator：diff
+- openapi lint — swagger-parser/openapi-generator：lint
+- openapi normalize — swagger-parser/openapi-generator：normalize
+- openapi to-json — swagger-parser/openapi-generator：to-json
+- openapi to-yaml — swagger-parser/openapi-generator：to-yaml
+- openapi to-md — swagger-parser/openapi-generator：to-md
+- openapi endpoints — swagger-parser/openapi-generator：endpoints
+- openapi models — swagger-parser/openapi-generator：models
+- openapi security — swagger-parser/openapi-generator：security
+- openapi examples — swagger-parser/openapi-generator：examples
+- openapi mock — swagger-parser/openapi-generator：mock
+- openapi client-generate — swagger-parser/openapi-generator：client-generate
+- openapi server-stub-generate — swagger-parser/openapi-generator：server-stub-generate
+- openapi changelog — swagger-parser/openapi-generator：changelog
+- openapi filter — swagger-parser/openapi-generator：filter
+- openapi merge — swagger-parser/openapi-generator：merge
+- openapi split — swagger-parser/openapi-generator：split
+- openapi resolve-servers — swagger-parser/openapi-generator：resolve-servers
+- openapi sanitize — swagger-parser/openapi-generator：sanitize
+- openapi stats — swagger-parser/openapi-generator：stats
+- openapi version — swagger-parser/openapi-generator：version
+- graphql parse — GraphQL Java：parse
+- graphql validate — GraphQL Java：validate
+- graphql schema-build — GraphQL Java：schema-build
+- graphql schema-print — GraphQL Java：schema-print
+- graphql schema-diff — GraphQL Java：schema-diff
+- graphql query-plan — GraphQL Java：query-plan
+- graphql introspect — GraphQL Java：introspect
+- graphql persist-hash — GraphQL Java：persist-hash
+- graphql cost-estimate — GraphQL Java：cost-estimate
+- graphql depth-estimate — GraphQL Java：depth-estimate
+- graphql directives-list — GraphQL Java：directives-list
+- graphql types-list — GraphQL Java：types-list
+- graphql fields-list — GraphQL Java：fields-list
+- graphql operations-list — GraphQL Java：operations-list
+- graphql fragment-expand — GraphQL Java：fragment-expand
+- graphql normalize — GraphQL Java：normalize
+- graphql format — GraphQL Java：format
+- graphql minify — GraphQL Java：minify
+- graphql variables-validate — GraphQL Java：variables-validate
+- graphql mask-secrets — GraphQL Java：mask-secrets
+- graphql to-json — GraphQL Java：to-json
+- graphql from-json — GraphQL Java：from-json
+- graphql lint — GraphQL Java：lint
+- graphql version — GraphQL Java：version
+- graphql report — GraphQL Java：report
+- camel route-parse — Apache Camel：route-parse
+- camel route-validate — Apache Camel：route-validate
+- camel route-start — Apache Camel：route-start
+- camel route-stop — Apache Camel：route-stop
+- camel route-list — Apache Camel：route-list
+- camel route-info — Apache Camel：route-info
+- camel route-dump — Apache Camel：route-dump
+- camel route-import — Apache Camel：route-import
+- camel endpoint-list — Apache Camel：endpoint-list
+- camel component-list — Apache Camel：component-list
+- camel component-info — Apache Camel：component-info
+- camel exchange-simulate — Apache Camel：exchange-simulate
+- camel message-transform — Apache Camel：message-transform
+- camel headers-set — Apache Camel：headers-set
+- camel headers-remove — Apache Camel：headers-remove
+- camel properties-resolve — Apache Camel：properties-resolve
+- camel yaml-parse — Apache Camel：yaml-parse
+- camel xml-parse — Apache Camel：xml-parse
+- camel json-parse — Apache Camel：json-parse
+- camel metrics — Apache Camel：metrics
+- camel trace-enable — Apache Camel：trace-enable
+- camel trace-disable — Apache Camel：trace-disable
+- camel debug — Apache Camel：debug
+- camel health-check — Apache Camel：health-check
+- camel version — Apache Camel：version
+- k8s config-load — Fabric8 Kubernetes client：config-load
+- k8s context-list — Fabric8 Kubernetes client：context-list
+- k8s context-set — Fabric8 Kubernetes client：context-set
+- k8s namespace-list — Fabric8 Kubernetes client：namespace-list
+- k8s namespace-set — Fabric8 Kubernetes client：namespace-set
+- k8s get-pods — Fabric8 Kubernetes client：get-pods
+- k8s get-services — Fabric8 Kubernetes client：get-services
+- k8s get-deployments — Fabric8 Kubernetes client：get-deployments
+- k8s describe — Fabric8 Kubernetes client：describe
+- k8s logs — Fabric8 Kubernetes client：logs
+- k8s exec — Fabric8 Kubernetes client：exec
+- k8s apply — Fabric8 Kubernetes client：apply
+- k8s delete — Fabric8 Kubernetes client：delete
+- k8s rollout-status — Fabric8 Kubernetes client：rollout-status
+- k8s rollout-restart — Fabric8 Kubernetes client：rollout-restart
+- k8s scale — Fabric8 Kubernetes client：scale
+- k8s port-forward — Fabric8 Kubernetes client：port-forward
+- k8s events — Fabric8 Kubernetes client：events
+- k8s resource-validate — Fabric8 Kubernetes client：resource-validate
+- k8s resource-diff — Fabric8 Kubernetes client：resource-diff
+- k8s crd-list — Fabric8 Kubernetes client：crd-list
+- k8s crd-apply — Fabric8 Kubernetes client：crd-apply
+- k8s auth-can-i — Fabric8 Kubernetes client：auth-can-i
+- k8s cluster-info — Fabric8 Kubernetes client：cluster-info
+- k8s version — Fabric8 Kubernetes client：version
+- docker ping — docker-java：ping
+- docker info — docker-java：info
+- docker version — docker-java：version
+- docker images — docker-java：images
+- docker image-pull — docker-java：image-pull
+- docker image-push — docker-java：image-push
+- docker image-build — docker-java：image-build
+- docker image-remove — docker-java：image-remove
+- docker containers — docker-java：containers
+- docker container-run — docker-java：container-run
+- docker container-stop — docker-java：container-stop
+- docker container-start — docker-java：container-start
+- docker container-remove — docker-java：container-remove
+- docker logs — docker-java：logs
+- docker exec — docker-java：exec
+- docker cp — docker-java：cp
+- docker network-list — docker-java：network-list
+- docker network-create — docker-java：network-create
+- docker network-remove — docker-java：network-remove
+- docker volume-list — docker-java：volume-list
+- docker volume-create — docker-java：volume-create
+- docker volume-remove — docker-java：volume-remove
+- docker prune — docker-java：prune
+- docker events — docker-java：events
+- docker stats — docker-java：stats
+- s3 list-buckets — AWS SDK v2：list-buckets
+- s3 list-objects — AWS SDK v2：list-objects
+- s3 get-object — AWS SDK v2：get-object
+- s3 put-object — AWS SDK v2：put-object
+- s3 head-object — AWS SDK v2：head-object
+- s3 delete-object — AWS SDK v2：delete-object
+- s3 presign-get — AWS SDK v2：presign-get
+- s3 presign-put — AWS SDK v2：presign-put
+- s3 multipart-init — AWS SDK v2：multipart-init
+- s3 multipart-upload — AWS SDK v2：multipart-upload
+- s3 multipart-complete — AWS SDK v2：multipart-complete
+- s3 multipart-abort — AWS SDK v2：multipart-abort
+- s3 copy-object — AWS SDK v2：copy-object
+- s3 sync — AWS SDK v2：sync
+- s3 encrypt-client-side — AWS SDK v2：encrypt-client-side
+- s3 decrypt-client-side — AWS SDK v2：decrypt-client-side
+- s3 policies-get — AWS SDK v2：policies-get
+- s3 policies-set — AWS SDK v2：policies-set
+- s3 acl-get — AWS SDK v2：acl-get
+- s3 acl-set — AWS SDK v2：acl-set
+- s3 tags-get — AWS SDK v2：tags-get
+- s3 tags-set — AWS SDK v2：tags-set
+- s3 lifecycle-get — AWS SDK v2：lifecycle-get
+- s3 lifecycle-set — AWS SDK v2：lifecycle-set
+- s3 metrics — AWS SDK v2：metrics
+- minio buckets-list — MinIO Java SDK：buckets-list
+- minio bucket-create — MinIO Java SDK：bucket-create
+- minio bucket-delete — MinIO Java SDK：bucket-delete
+- minio objects-list — MinIO Java SDK：objects-list
+- minio object-get — MinIO Java SDK：object-get
+- minio object-put — MinIO Java SDK：object-put
+- minio object-stat — MinIO Java SDK：object-stat
+- minio object-delete — MinIO Java SDK：object-delete
+- minio presign-get — MinIO Java SDK：presign-get
+- minio presign-put — MinIO Java SDK：presign-put
+- minio multipart-init — MinIO Java SDK：multipart-init
+- minio multipart-upload — MinIO Java SDK：multipart-upload
+- minio multipart-complete — MinIO Java SDK：multipart-complete
+- minio multipart-abort — MinIO Java SDK：multipart-abort
+- minio copy-object — MinIO Java SDK：copy-object
+- minio compose-object — MinIO Java SDK：compose-object
+- minio tags-get — MinIO Java SDK：tags-get
+- minio tags-set — MinIO Java SDK：tags-set
+- minio retention-get — MinIO Java SDK：retention-get
+- minio retention-set — MinIO Java SDK：retention-set
+- minio legalhold-get — MinIO Java SDK：legalhold-get
+- minio legalhold-set — MinIO Java SDK：legalhold-set
+- minio encryption-get — MinIO Java SDK：encryption-get
+- minio encryption-set — MinIO Java SDK：encryption-set
+- minio health — MinIO Java SDK：health
+- grpc proto-compile — gRPC Java：proto-compile
+- grpc server-start — gRPC Java：server-start
+- grpc server-stop — gRPC Java：server-stop
+- grpc client-call — gRPC Java：client-call
+- grpc client-stream — gRPC Java：client-stream
+- grpc server-stream — gRPC Java：server-stream
+- grpc bidi-stream — gRPC Java：bidi-stream
+- grpc reflection-query — gRPC Java：reflection-query
+- grpc health-check — gRPC Java：health-check
+- grpc interceptors-list — gRPC Java：interceptors-list
+- grpc interceptors-add — gRPC Java：interceptors-add
+- grpc interceptors-remove — gRPC Java：interceptors-remove
+- grpc tls-enable — gRPC Java：tls-enable
+- grpc tls-disable — gRPC Java：tls-disable
+- grpc channel-stats — gRPC Java：channel-stats
+- grpc retry-enable — gRPC Java：retry-enable
+- grpc retry-disable — gRPC Java：retry-disable
+- grpc deadline-set — gRPC Java：deadline-set
+- grpc metadata-set — gRPC Java：metadata-set
+- grpc metadata-strip — gRPC Java：metadata-strip
+- grpc status-parse — gRPC Java：status-parse
+- grpc error-map — gRPC Java：error-map
+- grpc loadbalance — gRPC Java：loadbalance
+- grpc compression — gRPC Java：compression
+- grpc version — gRPC Java：version
+- sshd keygen — Apache Mina SSHD：keygen
+- sshd key-read — Apache Mina SSHD：key-read
+- sshd key-write — Apache Mina SSHD：key-write
+- sshd knownhosts-parse — Apache Mina SSHD：knownhosts-parse
+- sshd knownhosts-add — Apache Mina SSHD：knownhosts-add
+- sshd config-parse — Apache Mina SSHD：config-parse
+- sshd client-connect — Apache Mina SSHD：client-connect
+- sshd client-exec — Apache Mina SSHD：client-exec
+- sshd client-scp-get — Apache Mina SSHD：client-scp-get
+- sshd client-scp-put — Apache Mina SSHD：client-scp-put
+- sshd client-sftp-list — Apache Mina SSHD：client-sftp-list
+- sshd client-sftp-get — Apache Mina SSHD：client-sftp-get
+- sshd client-sftp-put — Apache Mina SSHD：client-sftp-put
+- sshd client-sftp-delete — Apache Mina SSHD：client-sftp-delete
+- sshd server-start — Apache Mina SSHD：server-start
+- sshd server-stop — Apache Mina SSHD：server-stop
+- sshd auth-publickey — Apache Mina SSHD：auth-publickey
+- sshd auth-password — Apache Mina SSHD：auth-password
+- sshd hostkey-set — Apache Mina SSHD：hostkey-set
+- sshd ciphers-list — Apache Mina SSHD：ciphers-list
+- sshd macs-list — Apache Mina SSHD：macs-list
+- sshd kex-list — Apache Mina SSHD：kex-list
+- sshd fingerprints — Apache Mina SSHD：fingerprints
+- sshd tunnel-local — Apache Mina SSHD：tunnel-local
+- sshd tunnel-remote — Apache Mina SSHD：tunnel-remote
+- asm class-read — ASM bytecode：class-read
+- asm class-write — ASM bytecode：class-write
+- asm class-diff — ASM bytecode：class-diff
+- asm class-verify — ASM bytecode：class-verify
+- asm methods-list — ASM bytecode：methods-list
+- asm fields-list — ASM bytecode：fields-list
+- asm annotations-list — ASM bytecode：annotations-list
+- asm constants-list — ASM bytecode：constants-list
+- asm bytecode-print — ASM bytecode：bytecode-print
+- asm bytecode-size — ASM bytecode：bytecode-size
+- asm rename-class — ASM bytecode：rename-class
+- asm rename-method — ASM bytecode：rename-method
+- asm rename-field — ASM bytecode：rename-field
+- asm strip-debug — ASM bytecode：strip-debug
+- asm strip-annotations — ASM bytecode：strip-annotations
+- asm add-annotation — ASM bytecode：add-annotation
+- asm add-method — ASM bytecode：add-method
+- asm remove-method — ASM bytecode：remove-method
+- asm remove-field — ASM bytecode：remove-field
+- asm compute-frames — ASM bytecode：compute-frames
+- asm compute-maxs — ASM bytecode：compute-maxs
+- asm obfuscate-lite — ASM bytecode：obfuscate-lite
+- asm deobfuscate-lite — ASM bytecode：deobfuscate-lite
+- asm jar-scan — ASM bytecode：jar-scan
+- asm version — ASM bytecode：version
+- bytebuddy agent-install — Byte Buddy：agent-install
+- bytebuddy redefine — Byte Buddy：redefine
+- bytebuddy rebase — Byte Buddy：rebase
+- bytebuddy subclass — Byte Buddy：subclass
+- bytebuddy intercept — Byte Buddy：intercept
+- bytebuddy advice — Byte Buddy：advice
+- bytebuddy mock — Byte Buddy：mock
+- bytebuddy proxy — Byte Buddy：proxy
+- bytebuddy typepool — Byte Buddy：typepool
+- bytebuddy annotate — Byte Buddy：annotate
+- bytebuddy field-add — Byte Buddy：field-add
+- bytebuddy method-add — Byte Buddy：method-add
+- bytebuddy method-remove — Byte Buddy：method-remove
+- bytebuddy field-remove — Byte Buddy：field-remove
+- bytebuddy jar-transform — Byte Buddy：jar-transform
+- bytebuddy class-dump — Byte Buddy：class-dump
+- bytebuddy verify — Byte Buddy：verify
+- bytebuddy cache — Byte Buddy：cache
+- bytebuddy naming — Byte Buddy：naming
+- bytebuddy listener — Byte Buddy：listener
+- bytebuddy strategy — Byte Buddy：strategy
+- bytebuddy instrumentation — Byte Buddy：instrumentation
+- bytebuddy module-support — Byte Buddy：module-support
+- bytebuddy version — Byte Buddy：version
+- bytebuddy report — Byte Buddy：report
+- jmh benchmark-list — JMH：benchmark-list
+- jmh benchmark-run — JMH：benchmark-run
+- jmh benchmark-profile — JMH：benchmark-profile
+- jmh warmup-config — JMH：warmup-config
+- jmh measurement-config — JMH：measurement-config
+- jmh forks-config — JMH：forks-config
+- jmh threads-config — JMH：threads-config
+- jmh params-config — JMH：params-config
+- jmh result-json — JMH：result-json
+- jmh result-csv — JMH：result-csv
+- jmh compare — JMH：compare
+- jmh regressions — JMH：regressions
+- jmh gc-profiler — JMH：gc-profiler
+- jmh perf-profiler — JMH：perf-profiler
+- jmh stack-profiler — JMH：stack-profiler
+- jmh asm-profiler — JMH：asm-profiler
+- jmh flamegraph — JMH：flamegraph
+- jmh report — JMH：report
+- jmh tune — JMH：tune
+- jmh sanity — JMH：sanity
+- jmh export — JMH：export
+- jmh import — JMH：import
+- jmh env — JMH：env
+- jmh version — JMH：version
+- jmh help — JMH：help
+- micrometer registry-list — Micrometer：registry-list
+- micrometer counter-create — Micrometer：counter-create
+- micrometer counter-inc — Micrometer：counter-inc
+- micrometer counter-get — Micrometer：counter-get
+- micrometer gauge-create — Micrometer：gauge-create
+- micrometer gauge-set — Micrometer：gauge-set
+- micrometer timer-create — Micrometer：timer-create
+- micrometer timer-record — Micrometer：timer-record
+- micrometer timer-snapshot — Micrometer：timer-snapshot
+- micrometer distribution-create — Micrometer：distribution-create
+- micrometer distribution-record — Micrometer：distribution-record
+- micrometer tags-set — Micrometer：tags-set
+- micrometer tags-clear — Micrometer：tags-clear
+- micrometer export-prometheus — Micrometer：export-prometheus
+- micrometer export-json — Micrometer：export-json
+- micrometer export-otlp — Micrometer：export-otlp
+- micrometer bind-jvm — Micrometer：bind-jvm
+- micrometer bind-okhttp — Micrometer：bind-okhttp
+- micrometer bind-ktor — Micrometer：bind-ktor
+- micrometer bind-cache — Micrometer：bind-cache
+- micrometer bind-resilience — Micrometer：bind-resilience
+- micrometer snapshot — Micrometer：snapshot
+- micrometer reset — Micrometer：reset
+- micrometer config — Micrometer：config
+- micrometer version — Micrometer：version
+- sentry init — Sentry Java：init
+- sentry config — Sentry Java：config
+- sentry capture-message — Sentry Java：capture-message
+- sentry capture-exception — Sentry Java：capture-exception
+- sentry capture-event — Sentry Java：capture-event
+- sentry breadcrumbs-add — Sentry Java：breadcrumbs-add
+- sentry breadcrumbs-clear — Sentry Java：breadcrumbs-clear
+- sentry tags-set — Sentry Java：tags-set
+- sentry tags-remove — Sentry Java：tags-remove
+- sentry user-set — Sentry Java：user-set
+- sentry user-clear — Sentry Java：user-clear
+- sentry context-set — Sentry Java：context-set
+- sentry context-remove — Sentry Java：context-remove
+- sentry transaction-start — Sentry Java：transaction-start
+- sentry transaction-finish — Sentry Java：transaction-finish
+- sentry span-start — Sentry Java：span-start
+- sentry span-finish — Sentry Java：span-finish
+- sentry sampling-set — Sentry Java：sampling-set
+- sentry transport-test — Sentry Java：transport-test
+- sentry offline-cache — Sentry Java：offline-cache
+- sentry flush — Sentry Java：flush
+- sentry close — Sentry Java：close
+- sentry sdk-version — Sentry Java：sdk-version
+- sentry last-event — Sentry Java：last-event
+- sentry self-test — Sentry Java：self-test
+
+---
+
+## 统计（当前落盘）
+
+- S0：240 条
+- S1：200 条（原样清单）
+- S2：会话原样（部分命令域覆盖）
+- S3：500 条（append）
+
+目标：持续 append 到 5000 条后，再按白名单策略逐一入库。
+
