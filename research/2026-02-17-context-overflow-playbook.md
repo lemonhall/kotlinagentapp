@@ -42,34 +42,192 @@ compaction 是“救急车”，不是“消防栓”。真正稳定的是：**�
 
 ## Codex 是怎么“稳住不炸”的（我们能直接抄作业的部分）
 
-### 1) 全局的 `tool_output_token_limit`：先预算、后入库
+这一节我写得更“能照着抄”的版本：**每个点都给 Codex 的代码入口 + 伪代码**。以后我们改 SDK 的时候，不用靠记忆，更不用靠猜。
 
-Codex 里有一个很关键的配置：`tool_output_token_limit`。它的意义不是“工具自己别输出太大”，而是：
+> 说明：下面的行号来自我本机 `E:\development\codex` 当前代码；未来 Codex 上游变动后行号可能漂移。为了稳妥，我在每个小节都附了一个 `rg` 的定位关键词。
 
-> **无论工具实际返回多大，写入对话历史/再次发回模型时，统一按预算截断。**
+### 1) 全局的 `tool_output_token_limit`：先预算、后入库（而不是“相信每个 Tool 都自律”）
 
-实现上，Codex 会在记录历史时对 `FunctionCallOutput` / `CustomToolCallOutput` 做截断（还预留序列化开销），保证历史不会因为某一次工具输出失控而雪崩。
+Codex 真正狠的地方在于：它**不信任任何 tool 的“自觉”**。哪怕 tool 输出 1MB，它也会在“写入历史/回喂模型”的入口统一按预算砍一刀。
 
-这对我们 SDK 的启发是：  
-**“工具输出限制”不是分散在每个 Tool 里，而应该在“会话历史入口”再兜一次底。**
+**代码入口（Codex repo）**
+- 配置字段：`codex-rs/core/src/config/mod.rs:295`（`tool_output_token_limit`）
+  - 快速定位：`rg -n "tool_output_token_limit" codex-rs/core/src/config/mod.rs`
+- 把 `tool_output_token_limit` 映射到模型的 `truncation_policy`：`codex-rs/core/src/models_manager/model_info.rs:22`（`with_config_overrides`）
+  - 快速定位：`rg -n "config.tool_output_token_limit" codex-rs/core/src/models_manager/model_info.rs`
 
-### 2) 截断策略是“头+尾” + marker，而不是简单 `take(n)`
+**它在做什么（伪代码）**
 
-Codex 的截断不是硬切前 N 个字符，而是保留前后片段，中间插一个 marker（例如“省略了多少 tokens/chars”），并且对多段 content items 也会尽量保住结构、补“omitted N items”的摘要。
+```text
+# 目标：把“工具输出预算”变成 TurnContext 的统一截断策略
 
-这个细节看起来“讲究”，但实际非常救命：  
-日志/报错/最终输出往往在尾部，**保尾巴=保真相**。
+modelInfo = loadModelInfo(slug)
 
-### 3) WebSearch 只记“动作”，不把“结果全文”写进历史
+if config.tool_output_token_limit != null:
+  if modelInfo.truncation_policy.mode == BYTES:
+    modelInfo.truncation_policy = bytes(approxBytesForTokens(config.tool_output_token_limit))
+  else if mode == TOKENS:
+    modelInfo.truncation_policy = tokens(config.tool_output_token_limit)
 
-Codex 对 `web_search` 的持久化非常克制：历史里只保留 `status + action（search/open_page/find_in_page）` 这种“发生了什么”，而不是把一整页网页/一堆搜索结果塞进去。
+turnContext.truncation_policy = modelInfo.truncation_policy
+```
 
-这背后的思路很值得抄：  
-**“把外部世界的原始材料”当成 artifacts/附件，而不是当成对话历史正文。**
+**为什么这招能救命**  
+因为它把“爆炸风险”从“每个 tool 的实现质量”转移到了“一个统一入口的强约束”。这就是工程上最靠谱的做法：**你可以写烂 tool，但别把系统炸了**。
 
-### 4) 源头硬上限：例如 exec 输出缓冲上限（1 MiB）
+### 2) 截断不是简单 `take(n)`：而是“头+尾”保命 + marker 交代省略（并且对多段 item 友好）
 
-即便上层做了预算，Codex 还会在某些高风险工具（类似 exec）上加“源头缓冲上限”，防止内存/IO/序列化被拖死。
+Codex 的截断策略很像一个老练的运维同事：你给他一坨超长日志，他不会只留开头让你抓瞎，而是**留住开头和结尾**，中间用 marker 告诉你省略了多少。
+
+**代码入口（Codex repo）**
+- 历史入库时统一处理 tool outputs：`codex-rs/core/src/context_manager/history.rs:327`（`process_item`）
+  - 快速定位：`rg -n "fn process_item" codex-rs/core/src/context_manager/history.rs`
+- 截断实现：`codex-rs/core/src/truncate.rs:79`（`formatted_truncate_text` / `truncate_text`）
+  - 快速定位：`rg -n "pub\\(crate\\) fn truncate_text\\(" codex-rs/core/src/truncate.rs`
+- 多段 content items 的预算截断 + 省略摘要：`codex-rs/core/src/truncate.rs:100`（`truncate_function_output_items_with_policy`）
+  - 快速定位：`rg -n "truncate_function_output_items_with_policy" codex-rs/core/src/truncate.rs`
+
+**它在做什么（伪代码）**
+
+```text
+# 入口：ContextManager 记录历史时，对 tool outputs 统一截断
+
+fn process_item(item, policy):
+  policy2 = policy * 1.2            # 预留序列化开销
+
+  match item.type:
+    FunctionCallOutput:
+      if output.body is Text:
+        output.body.text = truncate_text(output.body.text, policy2)
+      else if output.body is ContentItems[]:
+        output.body.items = truncate_items(output.body.items, policy2)
+      return item
+
+    CustomToolCallOutput:
+      item.output = truncate_text(item.output, policy2)
+      return item
+
+    else:
+      return item
+```
+
+```text
+# 核心：truncate_text 走“头+尾”
+
+fn truncate_text(s, policy):
+  if s fits in budget(policy): return s
+
+  maxBytes = policy.byte_budget()   # tokens 模式会先估算成 bytes
+  if maxBytes == 0:
+    return "…N tokens/chars truncated…"
+
+  (leftBudget, rightBudget) = split_budget(maxBytes)
+  (left, right, removedUnits) = split_string_on_utf8_boundary(s, leftBudget, rightBudget)
+  marker = "…{removedUnits} tokens/chars truncated…"
+  return left + marker + right
+```
+
+```text
+# 多段 items：尽量保留结构；预算不够时“截断一个 + 省略若干个”
+
+fn truncate_items(items, policy):
+  remaining = policy.budget()
+  omitted = 0
+  out = []
+
+  for item in items:
+    if item is image:
+      out.push(item)                # image 不吃文本预算（或按固定成本）
+      continue
+
+    cost = estimate_cost(item.text, policy)  # bytes 或 tokens 的近似
+    if cost <= remaining:
+      out.push(item)
+      remaining -= cost
+    else:
+      snippet = truncate_text(item.text, policy.with_budget(remaining))
+      if snippet empty: omitted += 1 else out.push(text(snippet))
+      remaining = 0
+
+  if omitted > 0:
+    out.push(text("[omitted {omitted} text items ...]"))
+
+  return out
+```
+
+**这里有个很“工程味”的小细节**：`policy * 1.2`  
+这意味着 Codex 不是在理想世界里做预算，而是在真实世界里考虑“JSON 序列化也要花钱”。我们 SDK 里也该学这一点，别预算得太死，死了就会在最尴尬的时候溢出。
+
+### 3) WebSearch 只记“动作”，不把“结果全文”写进历史（把“原始材料”留在系统外）
+
+这个点特别适合拿来做 WebFetch 的改造方向：**历史里只记“我去搜了/打开了/找到了什么”，至于原始结果全文，不要硬塞进上下文。**
+
+**代码入口（Codex repo）**
+- `web_search_call` 的历史 item 结构：`codex-rs/protocol/src/models.rs:167`（`ResponseItem::WebSearchCall`）
+  - 你会发现它只有 `status` 和 `action`，没有“results/body/content”这种大字段。
+  - 快速定位：`rg -n "WebSearchCall" codex-rs/protocol/src/models.rs`
+- 什么时候把 web_search 工具暴露给模型：`codex-rs/core/src/tools/spec.rs:1563`（`match config.web_search_mode`）
+  - 快速定位：`rg -n "match config.web_search_mode" codex-rs/core/src/tools/spec.rs`
+
+**它在做什么（伪代码）**
+
+```text
+# tools/spec.rs：根据配置决定要不要给模型 web_search 工具
+if config.web_search_mode == CACHED:
+  tools += web_search(external_web_access=false)
+else if mode == LIVE:
+  tools += web_search(external_web_access=true)
+else:
+  tools 不包含 web_search
+```
+
+```text
+# protocol/models.rs：历史里只记录一个轻量 item
+WebSearchCall {
+  status: "completed" | ...,
+  action: { type: "search"|"open_page"|"find_in_page", ... }
+}
+
+# 重点：没有 results[] / page_text / html 之类的大字段
+```
+
+**借鉴到我们 SDK 的落地翻译**  
+WebFetch/WebSearch 这种“外部世界材料”最好走同一条路：
+1) 历史里留下“小 JSON（动作+摘要+指针）”  
+2) 原始内容落到 session artifacts（文件）  
+3) 需要继续看 → 用 Read/Grep 去“精读/检索”文件，而不是反复把全文塞回上下文
+
+### 4) 源头硬上限：即使你忘了截断，也别让系统被拖死（例如 exec 输出缓冲 1 MiB）
+
+这属于“安全带”：你可以不系（不推荐），但它能在你犯错时保命。
+
+**代码入口（Codex repo）**
+- unified exec 输出缓冲上限：`codex-rs/core/src/unified_exec/mod.rs:58`（`UNIFIED_EXEC_OUTPUT_MAX_BYTES = 1 MiB`）
+  - 快速定位：`rg -n "UNIFIED_EXEC_OUTPUT_MAX_BYTES" codex-rs/core/src/unified_exec/mod.rs`
+
+**它在做什么（伪代码）**
+
+```text
+MAX_BYTES = 1MiB
+buffer.append(chunk)
+if buffer.size > MAX_BYTES:
+  drop_middle_or_oldest_until_fit()   # 保留可用信息，避免内存爆炸
+```
+
+### 5)（加餐）Codex 的 subagent 机制：它确实有，但不是“所有 web 都丢给 subagent”
+
+你之前问“是不是把搜索请求都交给 subagent 省 context？”——Codex 的答案更务实：**subagent 主要用于特定任务（review/compact 等），不是默认拿来替 web_search 收拾烂摊子**。
+
+**代码入口（Codex repo）**
+- 启动 subagent（示例：review 子线程）：`codex-rs/core/src/codex_delegate.rs:51`（`SessionSource::SubAgent(SubAgentSource::Review)`）
+  - 快速定位：`rg -n "SubAgentSource::Review" codex-rs/core/src/codex_delegate.rs`
+- 把 subagent 标记写进请求头：`codex-rs/codex-api/src/endpoint/responses.rs:79`（`x-openai-subagent`）
+  - 快速定位：`rg -n "x-openai-subagent" codex-rs/codex-api/src/endpoint/responses.rs`
+- 甚至 review subagent 会显式禁用 web search：`codex-rs/core/src/tasks/review.rs:91`
+  - 快速定位：`rg -n "web_search_mode" codex-rs/core/src/tasks/review.rs`
+
+**对我们意味着什么**  
+如果我们要“研究子会话/子 agent”，那是一个额外能力（很强但工程量大）；而“先把上下文稳定住”，最该学 Codex 的仍然是：**统一预算化 + artifacts 化**。
 
 ---
 
@@ -166,4 +324,3 @@ Codex 对 `web_search` 的持久化非常克制：历史里只保留 `status + a
 - `Read/Grep/List` 等工具已经具备“围绕文件做精确读取/搜索”的能力
 
 下一步不是从 0 到 1，而是把这些能力串起来，形成一个统一的“预算化 + artifact 化”的闭环。
-
