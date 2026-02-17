@@ -490,20 +490,41 @@ private fun MessageBubble(
                             textSizeSp = fontSize,
                         )
                     }
-                    val status = message.statusLine?.trim().orEmpty()
-                    if (status.isNotBlank()) {
-                        Text(
+                     val status = message.statusLine?.trim().orEmpty()
+                     if (status.isNotBlank()) {
+                        val (statusText, statusTimer) =
+                            run {
+                                val parts = status.split('\n', limit = 2)
+                                val a = parts.getOrNull(0).orEmpty().trim()
+                                val b = parts.getOrNull(1).orEmpty().trim()
+                                a to b
+                            }
+                        Column(
                             modifier = Modifier.padding(top = if (message.content.isNotBlank()) 8.dp else 0.dp),
-                            text = status,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            } else {
-                Text(
+                        ) {
+                            if (statusText.isNotBlank()) {
+                                Text(
+                                    text = statusText,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (statusTimer.isNotBlank()) {
+                                Text(
+                                    text = statusTimer,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                     }
+                 }
+             } else {
+                 Text(
                     modifier = pad,
                     text = message.content,
                     color = fg,
