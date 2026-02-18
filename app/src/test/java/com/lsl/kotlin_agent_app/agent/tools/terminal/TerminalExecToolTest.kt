@@ -1,14 +1,21 @@
 package com.lsl.kotlin_agent_app.agent.tools.terminal
 
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import me.lemonhall.openagentic.sdk.tools.ToolContext
 import me.lemonhall.openagentic.sdk.tools.ToolOutput
 import okio.FileSystem
 import okio.Path.Companion.toPath
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -213,12 +220,150 @@ class TerminalExecToolTest {
         assertTrue(log.stdout.contains("c2"))
     }
 
+    @Test
+    fun zip_create_requiresConfirm() = runTest { tool ->
+        val srcRel = "workspace/zip-src-" + UUID.randomUUID().toString().replace("-", "").take(8)
+        val srcDir = File(tool.filesDir, ".agents/$srcRel")
+        srcDir.mkdirs()
+        File(srcDir, "a.txt").writeText("hello", Charsets.UTF_8)
+
+        val out = tool.exec("zip create --src $srcRel --out workspace/out.zip")
+        assertTrue(out.exitCode != 0)
+        assertEquals("ConfirmRequired", out.errorCode)
+    }
+
+    @Test
+    fun zip_extract_blocksPathTraversalEntry() = runTest { tool ->
+        val zipRel = "workspace/bad-" + UUID.randomUUID().toString().replace("-", "").take(8) + ".zip"
+        val zipFile = File(tool.filesDir, ".agents/$zipRel")
+        zipFile.parentFile?.mkdirs()
+        ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
+            zos.putNextEntry(ZipEntry("../evil.txt"))
+            zos.write("nope".toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+            zos.putNextEntry(ZipEntry("ok.txt"))
+            zos.write("ok".toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+        }
+
+        val destRel = "workspace/unpack-" + UUID.randomUUID().toString().replace("-", "").take(8)
+        val out = tool.exec("zip extract --in $zipRel --dest $destRel --confirm")
+        assertEquals(0, out.exitCode)
+
+        val escaped = File(tool.filesDir, ".agents/workspace/evil.txt")
+        assertTrue("zip slip must not create escaped file: $escaped", !escaped.exists())
+
+        val skipped = out.result?.get("skipped")?.jsonObject
+        val unsafe = skipped?.get("unsafe_path") as? JsonPrimitive
+        assertTrue("expected skipped.unsafe_path >= 1", (unsafe?.content?.toLongOrNull() ?: 0L) >= 1L)
+    }
+
+    @Test
+    fun zip_list_supportsOutArtifact() = runTest { tool ->
+        val zipRel = "workspace/many-" + UUID.randomUUID().toString().replace("-", "").take(8) + ".zip"
+        val zipFile = File(tool.filesDir, ".agents/$zipRel")
+        zipFile.parentFile?.mkdirs()
+        ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
+            for (i in 0 until 250) {
+                zos.putNextEntry(ZipEntry("f/$i.txt"))
+                zos.write("x".toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+        }
+
+        val outRel = "artifacts/archive/zip-list-" + UUID.randomUUID().toString().replace("-", "").take(8) + ".json"
+        val out = tool.exec("zip list --in $zipRel --max 5 --out $outRel")
+        assertEquals(0, out.exitCode)
+        assertTrue(out.artifacts.any { it.endsWith("/$outRel") })
+
+        val outFile = File(tool.filesDir, ".agents/$outRel")
+        assertTrue("list --out file should exist: $outFile", outFile.exists())
+        val text = outFile.readText(Charsets.UTF_8)
+        assertTrue(text.contains("\"count_total\""))
+        assertTrue(text.contains("\"entries\""))
+    }
+
+    @Test
+    fun tar_create_requiresConfirm() = runTest { tool ->
+        val srcRel = "workspace/tar-src-" + UUID.randomUUID().toString().replace("-", "").take(8)
+        val srcDir = File(tool.filesDir, ".agents/$srcRel")
+        srcDir.mkdirs()
+        File(srcDir, "a.txt").writeText("hello", Charsets.UTF_8)
+
+        val out = tool.exec("tar create --src $srcRel --out workspace/out.tar")
+        assertTrue(out.exitCode != 0)
+        assertEquals("ConfirmRequired", out.errorCode)
+    }
+
+    @Test
+    fun tar_extract_blocksPathTraversalEntry() = runTest { tool ->
+        val tarRel = "workspace/bad-" + UUID.randomUUID().toString().replace("-", "").take(8) + ".tar"
+        val tarFile = File(tool.filesDir, ".agents/$tarRel")
+        tarFile.parentFile?.mkdirs()
+
+        TarArchiveOutputStream(FileOutputStream(tarFile)).use { tout ->
+            tout.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)
+            tout.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX)
+
+            val evil = TarArchiveEntry("../evil.txt")
+            val evilBytes = "nope".toByteArray(Charsets.UTF_8)
+            evil.size = evilBytes.size.toLong()
+            tout.putArchiveEntry(evil)
+            tout.write(evilBytes)
+            tout.closeArchiveEntry()
+
+            val ok = TarArchiveEntry("ok.txt")
+            val okBytes = "ok".toByteArray(Charsets.UTF_8)
+            ok.size = okBytes.size.toLong()
+            tout.putArchiveEntry(ok)
+            tout.write(okBytes)
+            tout.closeArchiveEntry()
+
+            tout.finish()
+        }
+
+        val destRel = "workspace/unpack-" + UUID.randomUUID().toString().replace("-", "").take(8)
+        val out = tool.exec("tar extract --in $tarRel --dest $destRel --confirm")
+        assertEquals(0, out.exitCode)
+
+        val escaped = File(tool.filesDir, ".agents/workspace/evil.txt")
+        assertTrue("tar slip must not create escaped file: $escaped", !escaped.exists())
+
+        val skipped = out.result?.get("skipped")?.jsonObject
+        val unsafe = skipped?.get("unsafe_path") as? JsonPrimitive
+        assertTrue("expected skipped.unsafe_path >= 1", (unsafe?.content?.toLongOrNull() ?: 0L) >= 1L)
+    }
+
+    @Test
+    fun tar_create_extract_roundtrip() = runTest { tool ->
+        val id = UUID.randomUUID().toString().replace("-", "").take(8)
+        val srcRel = "workspace/tar-roundtrip-src-$id"
+        val outRel = "workspace/tar-roundtrip-$id.tar"
+        val destRel = "workspace/tar-roundtrip-dest-$id"
+
+        val srcDir = File(tool.filesDir, ".agents/$srcRel")
+        srcDir.mkdirs()
+        File(srcDir, "a.txt").writeText("hello-tar", Charsets.UTF_8)
+
+        val create = tool.exec("tar create --src $srcRel --out $outRel --confirm")
+        assertEquals(0, create.exitCode)
+        assertTrue(File(tool.filesDir, ".agents/$outRel").exists())
+
+        val extract = tool.exec("tar extract --in $outRel --dest $destRel --confirm")
+        assertEquals(0, extract.exitCode)
+        val extracted = File(tool.filesDir, ".agents/$destRel/a.txt")
+        assertTrue(extracted.exists())
+        assertEquals("hello-tar", extracted.readText(Charsets.UTF_8))
+    }
+
     private data class ExecOut(
         val exitCode: Int,
         val stdout: String,
         val stderr: String,
         val runId: String,
         val errorCode: String?,
+        val result: JsonObject?,
+        val artifacts: List<String>,
         val filesDir: File,
     )
 
@@ -249,12 +394,25 @@ class TerminalExecToolTest {
             val json = (out0 as ToolOutput.Json).value
             assertNotNull(json)
             val obj = json!!.jsonObject
+            val resultObj =
+                when (val r = obj["result"]) {
+                    null, is JsonNull -> null
+                    else -> r.jsonObject
+                }
+            val artifacts =
+                obj["artifacts"]?.jsonArray?.mapNotNull { el ->
+                    (el as? JsonObject)?.get("path")?.let { p ->
+                        (p as? JsonPrimitive)?.content
+                    }
+                }.orEmpty()
             return ExecOut(
                 exitCode = (obj["exit_code"] as? JsonPrimitive)?.content?.toIntOrNull() ?: -1,
                 stdout = (obj["stdout"] as? JsonPrimitive)?.content ?: "",
                 stderr = (obj["stderr"] as? JsonPrimitive)?.content ?: "",
                 runId = (obj["run_id"] as? JsonPrimitive)?.content ?: "",
                 errorCode = (obj["error_code"] as? JsonPrimitive)?.content,
+                result = resultObj,
+                artifacts = artifacts,
                 filesDir = filesDir,
             )
         }
