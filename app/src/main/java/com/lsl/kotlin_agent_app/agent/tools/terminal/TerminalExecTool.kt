@@ -27,12 +27,7 @@ class TerminalExecTool(
 ) : Tool, OpenAiSchemaTool {
     private val ctx = appContext.applicationContext
 
-    private val registry =
-        TerminalCommandRegistry(
-            listOf(
-                HelloCommand,
-            ),
-        )
+    private val registry = TerminalCommands.defaultRegistry(appContext = ctx)
 
     override val name: String = "terminal_exec"
     override val description: String = "Execute a whitelisted pseudo-terminal command (no shell, no external processes)."
@@ -277,8 +272,12 @@ class TerminalExecTool(
                 put("argv", buildJsonArray { argv.forEach { add(JsonPrimitive(it)) } })
                 put("exit_code", JsonPrimitive(out.exitCode))
                 put("duration_ms", JsonPrimitive(durationMs))
+                // Never write stdin to audit logs.
+                put("stdout", JsonPrimitive(out.stdout))
+                put("stderr", JsonPrimitive(out.stderr))
                 if (!out.errorCode.isNullOrBlank()) put("error_code", JsonPrimitive(out.errorCode))
                 if (!out.errorMessage.isNullOrBlank()) put("error_message", JsonPrimitive(out.errorMessage))
+                if (out.result != null) put("result", out.result) else put("result", JsonNull)
                 put("artifacts", buildJsonArray {
                     for (a in out.artifacts) {
                         add(
@@ -339,4 +338,3 @@ private fun JsonPrimitive.contentOrNullSafe(): String? =
     } catch (_: Throwable) {
         null
     }
-

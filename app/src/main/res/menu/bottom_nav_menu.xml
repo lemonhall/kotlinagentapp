@@ -21,4 +21,9 @@
         android:icon="@drawable/ic_web_black_24dp"
         android:title="@string/title_web" />
 
+    <item
+        android:id="@+id/navigation_terminal"
+        android:icon="@drawable/ic_terminal_24"
+        android:title="@string/title_terminal" />
+
 </menu>

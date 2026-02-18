@@ -38,6 +38,8 @@ class AgentsWorkspace(
         installBundledSkillDir(name = "brainstorming", assetDir = "builtin_skills/brainstorming", overwrite = overwrite)
         installBundledSkillDir(name = "find-skills", assetDir = "builtin_skills/find-skills", overwrite = overwrite)
         installBundledSkillDir(name = "deep-research", assetDir = "builtin_skills/deep-research", overwrite = overwrite)
+        installBundledSkillDir(name = "jgit-cli", assetDir = "builtin_skills/jgit-cli", overwrite = overwrite)
+        installBundledSkillDir(name = "jgit-remote", assetDir = "builtin_skills/jgit-remote", overwrite = overwrite)
 
         installBundledFile(targetPath = ".agents/sessions/README.md", assetPath = "builtin_sessions/README.md", overwrite = overwrite)
     }

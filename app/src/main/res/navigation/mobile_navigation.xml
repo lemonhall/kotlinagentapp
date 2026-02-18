@@ -28,4 +28,10 @@
         android:name="com.lsl.kotlin_agent_app.ui.web.WebFragment"
         android:label="@string/title_web"
         tools:layout="@layout/fragment_web" />
+
+    <fragment
+        android:id="@+id/navigation_terminal"
+        android:name="com.lsl.kotlin_agent_app.ui.terminal.TerminalFragment"
+        android:label="@string/title_terminal"
+        tools:layout="@layout/fragment_terminal" />
 </navigation>
