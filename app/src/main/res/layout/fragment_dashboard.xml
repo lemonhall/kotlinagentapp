@@ -55,6 +55,27 @@
             android:tint="?attr/colorOnSurface" />
 
         <ImageButton
+            android:id="@+id/button_import"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="导入文件到 inbox"
+            android:src="@drawable/ic_insert_drive_file_24"
+            android:tint="?attr/colorOnSurface" />
+
+        <ImageButton
+            android:id="@+id/button_paste"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="粘贴（移动到当前目录）"
+            android:src="@drawable/ic_arrow_forward_24"
+            android:tint="?attr/colorOnSurface"
+            android:visibility="gone" />
+
+        <ImageButton
             android:id="@+id/button_clear_sessions"
             android:layout_width="40dp"
             android:layout_height="40dp"

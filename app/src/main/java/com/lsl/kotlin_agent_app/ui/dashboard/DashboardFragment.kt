@@ -12,11 +12,15 @@ import android.content.Context
 import androidx.core.content.FileProvider
 import android.webkit.MimeTypeMap
 import android.content.ClipData
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.appcompat.app.AlertDialog
 import com.lsl.kotlin_agent_app.agent.AgentsDirEntryType
+import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.databinding.FragmentDashboardBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
@@ -30,6 +34,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.net.URLConnection
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.FileOutputStream
 
 class DashboardFragment : Fragment() {
 
@@ -45,6 +54,14 @@ class DashboardFragment : Fragment() {
     private var suppressCloseOnDismissOnce: Boolean = false
     private val sidRx = Regex("^[a-f0-9]{32}$", RegexOption.IGNORE_CASE)
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+    private var filesViewModel: FilesViewModel? = null
+
+    private val importLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                importExternalUriToInbox(uri)
+            }
+        }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -54,6 +71,7 @@ class DashboardFragment : Fragment() {
         val filesViewModel =
             ViewModelProvider(this, FilesViewModel.Factory(requireContext()))
                 .get(FilesViewModel::class.java)
+        this.filesViewModel = filesViewModel
 
         _binding = FragmentDashboardBinding.inflate(inflater, container, false)
         val root: View = binding.root
@@ -85,9 +103,9 @@ class DashboardFragment : Fragment() {
                     val actions =
                         if (isDir) {
                             val isSessionDir = (cwd == ".agents/sessions" && sidRx.matches(entry.name))
-                            if (isSessionDir) arrayOf("进入目录", "删除") else arrayOf("删除")
+                            if (isSessionDir) arrayOf("进入目录", "剪切", "删除") else arrayOf("剪切", "删除")
                         } else {
-                            arrayOf("分享", "删除")
+                            arrayOf("分享", "剪切", "删除")
                         }
 
                     MaterialAlertDialogBuilder(requireContext())
@@ -97,6 +115,10 @@ class DashboardFragment : Fragment() {
                             when (action) {
                                 "进入目录" -> filesViewModel.goInto(entry)
                                 "分享" -> shareAgentsFile(relativePath)
+                                "剪切" -> {
+                                    filesViewModel.cutEntry(entry)
+                                    Toast.makeText(requireContext(), "已剪切：${entry.name}（到目标目录点“粘贴”）", Toast.LENGTH_SHORT).show()
+                                }
                                 "删除" ->
                                     MaterialAlertDialogBuilder(requireContext())
                                         .setTitle("删除确认")
@@ -114,6 +136,15 @@ class DashboardFragment : Fragment() {
 
         binding.recyclerEntries.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerEntries.adapter = adapter
+        binding.recyclerEntries.setOnLongClickListener {
+            val st = filesViewModel.state.value
+            if (st?.clipboardCutPath.isNullOrBlank()) {
+                Toast.makeText(requireContext(), "剪切板为空", Toast.LENGTH_SHORT).show()
+            } else {
+                filesViewModel.pasteCutIntoCwd()
+            }
+            true
+        }
 
         binding.buttonRefresh.setOnClickListener { filesViewModel.refresh() }
         binding.buttonUp.setOnClickListener { filesViewModel.goUp() }
@@ -123,6 +154,17 @@ class DashboardFragment : Fragment() {
         }
         binding.buttonNewFile.setOnClickListener { promptNew("新建文件") { filesViewModel.createFile(it) } }
         binding.buttonNewFolder.setOnClickListener { promptNew("新建目录") { filesViewModel.createFolder(it) } }
+        binding.buttonImport.setOnClickListener {
+            importLauncher.launch(arrayOf("*/*"))
+        }
+        binding.buttonPaste.setOnClickListener {
+            val st = filesViewModel.state.value
+            if (st?.clipboardCutPath.isNullOrBlank()) {
+                Toast.makeText(requireContext(), "剪切板为空", Toast.LENGTH_SHORT).show()
+            } else {
+                filesViewModel.pasteCutIntoCwd()
+            }
+        }
         binding.buttonClearSessions.setOnClickListener {
             val cwd = filesViewModel.state.value?.cwd ?: ".agents"
             if (cwd != ".agents/sessions") {
@@ -142,14 +184,15 @@ class DashboardFragment : Fragment() {
         filesViewModel.state.observe(viewLifecycleOwner) { st ->
             binding.textCwd.text = displayCwd(st.cwd)
             binding.textError.visibility = if (st.errorMessage.isNullOrBlank()) View.GONE else View.VISIBLE
-            binding.textError.text = st.errorMessage.orEmpty()
-            adapter.submitList(st.entries)
-            binding.buttonClearSessions.visibility = if (st.cwd == ".agents/sessions") View.VISIBLE else View.GONE
+             binding.textError.text = st.errorMessage.orEmpty()
+             adapter.submitList(st.entries)
+             binding.buttonClearSessions.visibility = if (st.cwd == ".agents/sessions") View.VISIBLE else View.GONE
+             binding.buttonPaste.visibility = if (!st.clipboardCutPath.isNullOrBlank()) View.VISIBLE else View.GONE
 
-            val openPath = st.openFilePath
-            val openText = st.openFileText
-            if (!openPath.isNullOrBlank() && openText != null) {
-                val desiredKind =
+             val openPath = st.openFilePath
+             val openText = st.openFileText
+             if (!openPath.isNullOrBlank() && openText != null) {
+                 val desiredKind =
                     when {
                         isMarkdownPath(openPath) -> EditorDialogKind.MarkdownPreview
                         isJsonPath(openPath) -> EditorDialogKind.PlainPreview
@@ -402,6 +445,91 @@ class DashboardFragment : Fragment() {
         if (p == ".agents") return "根目录"
         if (p.startsWith(".agents/")) return "根目录/" + p.removePrefix(".agents/").trimStart('/')
         return p
+    }
+
+    private fun importExternalUriToInbox(uri: Uri) {
+        val vm = filesViewModel ?: return
+        val appContext = requireContext().applicationContext
+        val resolver = appContext.contentResolver
+        val ws = AgentsWorkspace(appContext)
+        val inboxDir = ".agents/workspace/inbox"
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val (_, destName) =
+                    withContext(Dispatchers.IO) {
+                        ws.ensureInitialized()
+                        ws.mkdir(inboxDir)
+
+                        val displayName = queryDisplayName(resolver, uri) ?: ("import_" + System.currentTimeMillis())
+                        val safeName = sanitizeFileName(displayName)
+                        val finalName = allocateNonConflictingName(ws, dir = inboxDir, fileName = safeName)
+                        val destPath0 = ws.joinPath(inboxDir, finalName)
+
+                        resolver.openInputStream(uri)?.use { input ->
+                            val destFile = File(appContext.filesDir, destPath0)
+                            destFile.parentFile?.mkdirs()
+                            FileOutputStream(destFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        } ?: error("无法读取来源文件")
+
+                        destPath0 to finalName
+                    }
+
+                Toast.makeText(requireContext(), "已导入：$destName", Toast.LENGTH_SHORT).show()
+                vm.goTo(inboxDir)
+            } catch (t: Throwable) {
+                Toast.makeText(requireContext(), "导入失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun queryDisplayName(
+        resolver: android.content.ContentResolver,
+        uri: Uri,
+    ): String? {
+        return try {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (!c.moveToFirst()) return null
+                val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx < 0) return null
+                c.getString(idx)?.trim()?.ifBlank { null }
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun sanitizeFileName(name: String): String {
+        val cleaned =
+            name
+                .trim()
+                .replace('\u0000', ' ')
+                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        return cleaned.ifBlank { "imported" }
+    }
+
+    private fun allocateNonConflictingName(
+        ws: AgentsWorkspace,
+        dir: String,
+        fileName: String,
+    ): String {
+        val base = fileName.trim().ifBlank { "imported" }
+        val dot = base.lastIndexOf('.').takeIf { it > 0 && it < base.length - 1 }
+        val stem = dot?.let { base.substring(0, it) } ?: base
+        val ext = dot?.let { base.substring(it) } ?: ""
+
+        var n = 0
+        while (true) {
+            val candidate = if (n == 0) base else "${stem}_$n$ext"
+            val path = ws.joinPath(dir, candidate)
+            if (!ws.exists(path)) return candidate
+            n++
+            if (n >= 1000) error("同名文件过多")
+        }
     }
 
     private fun resumeChatSession(sessionId: String) {

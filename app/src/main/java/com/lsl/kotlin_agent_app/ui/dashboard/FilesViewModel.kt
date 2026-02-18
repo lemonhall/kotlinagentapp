@@ -95,6 +95,16 @@ class FilesViewModel(
         refresh()
     }
 
+    fun goTo(path: String) {
+        val prev = _state.value ?: FilesUiState()
+        _state.value = prev.copy(cwd = path.trim().ifBlank { ".agents" })
+        if ((_state.value ?: prev).cwd != ".agents/sessions") {
+            sessionTitleJob?.cancel()
+            sessionTitleJob = null
+        }
+        refresh()
+    }
+
     fun openFile(entry: AgentsDirEntry) {
         if (entry.type != AgentsDirEntryType.File) return
         val prev = _state.value ?: FilesUiState()
@@ -171,12 +181,80 @@ class FilesViewModel(
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { workspace.deletePath(path, recursive = recursive) }
+                val now = _state.value ?: prev
+                if (now.clipboardCutPath == path) {
+                    _state.postValue(now.copy(clipboardCutPath = null, clipboardCutIsDir = false))
+                }
                 refresh()
             } catch (t: Throwable) {
                 val now = _state.value ?: prev
                 _state.value = now.copy(isLoading = false, errorMessage = t.message ?: "Delete failed")
             }
         }
+    }
+
+    fun cutEntry(entry: AgentsDirEntry) {
+        val prev = _state.value ?: FilesUiState()
+        val path = workspace.joinPath(prev.cwd, entry.name)
+        _state.value =
+            prev.copy(
+                clipboardCutPath = path,
+                clipboardCutIsDir = (entry.type == AgentsDirEntryType.Dir),
+                errorMessage = null,
+            )
+    }
+
+    fun clearClipboard() {
+        val prev = _state.value ?: FilesUiState()
+        _state.value = prev.copy(clipboardCutPath = null, clipboardCutIsDir = false)
+    }
+
+    fun pasteCutIntoCwd() {
+        val prev = _state.value ?: FilesUiState()
+        val src = prev.clipboardCutPath ?: run {
+            _state.value = prev.copy(errorMessage = "剪切板为空")
+            return
+        }
+        val cwd = prev.cwd
+        _state.value = prev.copy(isLoading = true, errorMessage = null)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    workspace.ensureInitialized()
+                    val baseName = src.replace('\\', '/').trimEnd('/').substringAfterLast('/')
+                    if (baseName.isBlank()) error("Invalid source name")
+
+                    var destName = baseName
+                    var destPath = workspace.joinPath(cwd, destName)
+                    if (destPath == src) return@withContext
+
+                    var n = 0
+                    while (workspace.exists(destPath)) {
+                        n++
+                        if (n >= 1000) error("同名文件/目录过多")
+                        val (stem, ext) = splitName(destName = baseName)
+                        destName = "${stem}_$n$ext"
+                        destPath = workspace.joinPath(cwd, destName)
+                    }
+
+                    workspace.movePath(from = src, to = destPath, overwrite = false)
+                }
+                val now = _state.value ?: prev
+                _state.value = now.copy(clipboardCutPath = null, clipboardCutIsDir = false, isLoading = false)
+                refresh()
+            } catch (t: Throwable) {
+                val now = _state.value ?: prev
+                _state.value = now.copy(isLoading = false, errorMessage = t.message ?: "Paste failed")
+            }
+        }
+    }
+
+    private fun splitName(destName: String): Pair<String, String> {
+        val base = destName.trim()
+        val dot = base.lastIndexOf('.').takeIf { it > 0 && it < base.length - 1 }
+        val stem = dot?.let { base.substring(0, it) } ?: base
+        val ext = dot?.let { base.substring(it) } ?: ""
+        return stem to ext
     }
 
     fun clearSessions() {

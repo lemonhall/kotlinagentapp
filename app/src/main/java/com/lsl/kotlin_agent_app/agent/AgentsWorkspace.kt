@@ -4,6 +4,7 @@ import android.content.Context
 import com.lsl.kotlin_agent_app.BuildConfig
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 
 data class AgentsDirEntry(
     val name: String,
@@ -148,6 +149,44 @@ class AgentsWorkspace(
         }
         if (!recursive) error("Refusing to delete directory without recursive=true")
         f.deleteRecursively()
+    }
+
+    fun movePath(
+        from: String,
+        to: String,
+        overwrite: Boolean,
+    ) {
+        val src = resolveAgentsPath(from)
+        val dst = resolveAgentsPath(to)
+        if (!src.exists()) error("Not found: $from")
+
+        if (dst.exists()) {
+            if (!overwrite) error("Target exists: $to")
+            deletePath(to, recursive = dst.isDirectory)
+        }
+
+        if (src.isDirectory) {
+            val srcPath = src.canonicalFile.path.trimEnd(File.separatorChar) + File.separator
+            val dstPath = dst.canonicalFile.path
+            if (dstPath.startsWith(srcPath)) error("Refusing to move directory into itself: $to")
+        }
+
+        val parent = dst.parentFile ?: error("Invalid target path: $to")
+        if (!parent.exists()) parent.mkdirs()
+
+        if (src.renameTo(dst)) return
+
+        if (src.isFile) {
+            FileInputStream(src).use { input ->
+                FileOutputStream(dst).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            if (!src.delete()) error("Move failed: unable to delete source: $from")
+            return
+        }
+
+        error("Move failed: $from -> $to")
     }
 
     fun parentDir(path: String): String? {

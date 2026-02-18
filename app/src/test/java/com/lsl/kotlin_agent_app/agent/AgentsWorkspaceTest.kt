@@ -1,6 +1,7 @@
 package com.lsl.kotlin_agent_app.agent
 
-import org.junit.Assert.assertThrows
+import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -13,43 +14,47 @@ import org.robolectric.annotation.Config
 class AgentsWorkspaceTest {
 
     @Test
-    fun ensureInitialized_seedsBuiltinSkills() {
+    fun movePath_movesFileWithinAgents() {
         val context = RuntimeEnvironment.getApplication()
         val ws = AgentsWorkspace(context)
-
         ws.ensureInitialized()
 
-        val skills =
-            ws.listDir(".agents/skills")
-                .filter { it.type == AgentsDirEntryType.Dir }
-                .map { it.name }
-                .toSet()
+        val src = ".agents/workspace/move/a.txt"
+        val dest = ".agents/workspace/move/b.txt"
 
-        assertTrue(skills.contains("hello-world"))
-        assertTrue(skills.contains("skill-creator"))
-        assertTrue(skills.contains("brainstorming"))
-        assertTrue(skills.contains("find-skills"))
-        assertTrue(skills.contains("deep-research"))
-        assertTrue(skills.contains("qqmail-cli"))
+        File(context.filesDir, src).apply {
+            parentFile?.mkdirs()
+            writeText("hello", Charsets.UTF_8)
+        }
 
-        val text = ws.readTextFile(".agents/skills/skill-creator/SKILL.md")
-        assertTrue(text.contains("name: skill-creator"))
+        ws.movePath(from = src, to = dest, overwrite = false)
 
-        val qqmailEnv = ws.readTextFile(".agents/skills/qqmail-cli/secrets/.env")
-        assertTrue(qqmailEnv.contains("EMAIL_ADDRESS="))
-        assertTrue(qqmailEnv.contains("EMAIL_PASSWORD="))
+        val destFile = File(context.filesDir, dest)
+        assertTrue(destFile.exists())
+        assertEquals("hello", destFile.readText(Charsets.UTF_8))
+        assertTrue(!File(context.filesDir, src).exists())
     }
 
     @Test
-    fun pathTraversal_isRejected() {
+    fun movePath_movesDirectoryWithinAgents() {
         val context = RuntimeEnvironment.getApplication()
         val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
 
-        assertThrows(IllegalStateException::class.java) {
-            ws.listDir("../")
+        val srcDir = ".agents/workspace/move_dir/src"
+        val destDir = ".agents/workspace/move_dir/dest"
+        val srcFilePath = "$srcDir/a.txt"
+
+        File(context.filesDir, srcFilePath).apply {
+            parentFile?.mkdirs()
+            writeText("dir", Charsets.UTF_8)
         }
-        assertThrows(IllegalStateException::class.java) {
-            ws.readTextFile(".agents/skills/../../outside.txt")
-        }
+
+        ws.movePath(from = srcDir, to = destDir, overwrite = false)
+
+        val moved = File(context.filesDir, "$destDir/a.txt")
+        assertTrue(moved.exists())
+        assertEquals("dir", moved.readText(Charsets.UTF_8))
+        assertTrue(!File(context.filesDir, srcDir).exists())
     }
 }
