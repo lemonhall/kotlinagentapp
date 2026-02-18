@@ -38,3 +38,8 @@
 ## ECN Index
 
 - （本轮无）
+
+## Review（Evidence）
+
+- Unit tests：`.\gradlew.bat :app:testDebugUnitTest` ✅（2026-02-18）
+- Device QA（华为 Nova 9）：⏳ 待你手动验收并回填（锁屏 5 分钟/后台 5 分钟不断播 + 通知可控播）

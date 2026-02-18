@@ -30,6 +30,9 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents")
         mkdirsIfMissing(".agents/skills")
         mkdirsIfMissing(".agents/sessions")
+        mkdirsIfMissing(".agents/workspace")
+        mkdirsIfMissing(".agents/workspace/inbox")
+        mkdirsIfMissing(".agents/workspace/musics")
 
         // Best-effort: missing asset must not break the rest.
         // In Debug builds, keep bundled skills synced to avoid stale/partial copies across app reinstalls.
@@ -71,6 +74,10 @@ class AgentsWorkspace(
         )
 
         installBundledFile(targetPath = ".agents/sessions/README.md", assetPath = "builtin_sessions/README.md", overwrite = overwrite)
+    }
+
+    fun toFile(path: String): File {
+        return resolveAgentsPath(path)
     }
 
     private fun ensureBundledSecretEnvFileIfMissing(

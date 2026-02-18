@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -87,6 +88,17 @@
             android:visibility="gone" />
 
         <ImageButton
+            android:id="@+id/button_music_help"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="后台播放排障"
+            android:src="@drawable/ic_help_24"
+            android:tint="?attr/colorOnSurface"
+            android:visibility="gone" />
+
+        <ImageButton
             android:id="@+id/button_refresh"
             android:layout_width="40dp"
             android:layout_height="40dp"
@@ -107,6 +119,16 @@
         android:visibility="gone"
         tools:text="Error message" />
 
+    <TextView
+        android:id="@+id/text_music_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="12dp"
+        android:paddingBottom="8dp"
+        android:textAppearance="?attr/textAppearanceBody2"
+        android:visibility="gone"
+        tools:text="仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler_entries"
         android:layout_width="match_parent"
@@ -115,4 +137,76 @@
         android:clipToPadding="false"
         android:paddingBottom="12dp"
         tools:listitem="@layout/item_agents_entry" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/music_mini_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="12dp"
+        android:visibility="gone"
+        app:cardElevation="2dp"
+        app:cardUseCompatPadding="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/text_music_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBody1"
+                    tools:text="Title" />
+
+                <TextView
+                    android:id="@+id/text_music_subtitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBody2"
+                    tools:text="Artist · 0:12 / 3:45" />
+
+                <ProgressBar
+                    android:id="@+id/progress_music"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="6dp"
+                    android:max="1000"
+                    android:progress="0" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/button_music_play_pause"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="播放/暂停"
+                android:src="@drawable/ic_play_arrow_24"
+                android:tint="?attr/colorOnSurface" />
+
+            <ImageButton
+                android:id="@+id/button_music_stop"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="停止"
+                android:src="@drawable/ic_stop"
+                android:tint="?attr/colorOnSurface" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 </LinearLayout>

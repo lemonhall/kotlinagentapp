@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.widget.Toast
 import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
+import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 
 class MainActivity : AppCompatActivity() {
 
@@ -41,6 +42,7 @@ class MainActivity : AppCompatActivity() {
         val proxyConfig = SharedPreferencesProxyConfigRepository(prefs).get()
         ProxyManager.apply(applicationContext, proxyConfig)
         IrcSessionRuntimeStore.installAppContext(applicationContext)
+        MusicPlayerControllerProvider.installAppContext(applicationContext)
 
         val navView: BottomNavigationView = binding.navView
 

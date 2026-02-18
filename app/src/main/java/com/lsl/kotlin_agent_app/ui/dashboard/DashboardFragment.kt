@@ -9,6 +9,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.content.Intent
 import android.content.Context
+import android.content.ClipboardManager
 import androidx.core.content.FileProvider
 import android.webkit.MimeTypeMap
 import android.content.ClipData
@@ -17,6 +18,8 @@ import android.provider.OpenableColumns
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.appcompat.app.AlertDialog
 import com.lsl.kotlin_agent_app.agent.AgentsDirEntryType
@@ -39,6 +42,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.FileOutputStream
+import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 
 class DashboardFragment : Fragment() {
 
@@ -68,6 +72,9 @@ class DashboardFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
+        MusicPlayerControllerProvider.installAppContext(requireContext().applicationContext)
+        val musicController = MusicPlayerControllerProvider.get()
+
         val filesViewModel =
             ViewModelProvider(this, FilesViewModel.Factory(requireContext()))
                 .get(FilesViewModel::class.java)
@@ -92,16 +99,24 @@ class DashboardFragment : Fragment() {
                             filesViewModel.goInto(entry)
                         }
                     } else {
-                        filesViewModel.openFile(entry)
+                        val path = joinAgentsPath(cwd, entry.name)
+                        if (isMp3Name(entry.name) && isInMusicsTree(path)) {
+                            musicController.playAgentsMp3(path)
+                        } else {
+                            filesViewModel.openFile(entry)
+                        }
                     }
                 },
                 onLongClick = { entry ->
                     val isDir = entry.type == AgentsDirEntryType.Dir
                     val cwd = filesViewModel.state.value?.cwd ?: ".agents"
                     val relativePath = joinAgentsPath(cwd, entry.name)
+                    val isMp3InMusics = (!isDir && isMp3Name(entry.name) && isInMusicsTree(relativePath))
 
                     val actions =
-                        if (isDir) {
+                        if (isMp3InMusics) {
+                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "删除", "复制路径")
+                        } else if (isDir) {
                             val isSessionDir = (cwd == ".agents/sessions" && sidRx.matches(entry.name))
                             if (isSessionDir) arrayOf("进入目录", "剪切", "删除") else arrayOf("剪切", "删除")
                         } else {
@@ -114,11 +129,15 @@ class DashboardFragment : Fragment() {
                             val action = actions.getOrNull(which) ?: return@setItems
                             when (action) {
                                 "进入目录" -> filesViewModel.goInto(entry)
+                                "播放" -> musicController.playAgentsMp3(relativePath)
+                                "播放/暂停" -> musicController.togglePlayPause()
+                                "停止" -> musicController.stop()
                                 "分享" -> shareAgentsFile(relativePath)
                                 "剪切" -> {
                                     filesViewModel.cutEntry(entry)
                                     Toast.makeText(requireContext(), "已剪切：${entry.name}（到目标目录点“粘贴”）", Toast.LENGTH_SHORT).show()
                                 }
+                                "复制路径" -> copyTextToClipboard("path", relativePath)
                                 "删除" ->
                                     MaterialAlertDialogBuilder(requireContext())
                                         .setTitle("删除确认")
@@ -181,6 +200,16 @@ class DashboardFragment : Fragment() {
                 .show()
         }
 
+        binding.buttonMusicHelp.setOnClickListener {
+            showMusicTroubleshootingDialog()
+        }
+        binding.buttonMusicPlayPause.setOnClickListener {
+            musicController.togglePlayPause()
+        }
+        binding.buttonMusicStop.setOnClickListener {
+            musicController.stop()
+        }
+
         filesViewModel.state.observe(viewLifecycleOwner) { st ->
             binding.textCwd.text = displayCwd(st.cwd)
             binding.textError.visibility = if (st.errorMessage.isNullOrBlank()) View.GONE else View.VISIBLE
@@ -188,6 +217,12 @@ class DashboardFragment : Fragment() {
              adapter.submitList(st.entries)
              binding.buttonClearSessions.visibility = if (st.cwd == ".agents/sessions") View.VISIBLE else View.GONE
              binding.buttonPaste.visibility = if (!st.clipboardCutPath.isNullOrBlank()) View.VISIBLE else View.GONE
+             val inMusics = isInMusicsTree(st.cwd)
+             binding.buttonMusicHelp.visibility = if (inMusics) View.VISIBLE else View.GONE
+             binding.textMusicHint.visibility = if (inMusics) View.VISIBLE else View.GONE
+             if (inMusics) {
+                 binding.textMusicHint.text = "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
+             }
 
              val openPath = st.openFilePath
              val openText = st.openFileText
@@ -250,8 +285,91 @@ class DashboardFragment : Fragment() {
             }
         }
 
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                musicController.state.collect { st ->
+                    updateMiniBar(st)
+                    val cwd = filesViewModel.state.value?.cwd.orEmpty()
+                    if (isInMusicsTree(cwd)) {
+                        val base = "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
+                        val warn = st.warningMessage?.trim()?.ifBlank { null }
+                        binding.textMusicHint.text = if (warn != null) "$base\n$warn" else base
+                    }
+                }
+            }
+        }
+
         filesViewModel.refresh()
         return root
+    }
+
+    private fun updateMiniBar(st: com.lsl.kotlin_agent_app.media.MusicNowPlayingState) {
+        val has = !st.agentsPath.isNullOrBlank()
+        binding.musicMiniBar.visibility = if (has) View.VISIBLE else View.GONE
+        if (!has) return
+
+        fun fmt(ms: Long): String {
+            val totalSec = (ms.coerceAtLeast(0L) / 1000L).toInt()
+            val m = totalSec / 60
+            val s = totalSec % 60
+            return "%d:%02d".format(m, s)
+        }
+
+        binding.textMusicTitle.text = st.title?.trim()?.ifBlank { null } ?: "unknown"
+
+        val pos = fmt(st.positionMs)
+        val dur = st.durationMs?.let { fmt(it) }
+        val timeLabel = if (dur != null) "$pos / $dur" else pos
+        val artist = st.artist?.trim()?.ifBlank { null }
+        binding.textMusicSubtitle.text =
+            listOfNotNull(artist, timeLabel).joinToString(" · ").ifBlank { timeLabel }
+
+        val progress =
+            if (st.durationMs != null && st.durationMs > 0L) {
+                ((st.positionMs.coerceIn(0L, st.durationMs) * 1000L) / st.durationMs).toInt().coerceIn(0, 1000)
+            } else {
+                0
+            }
+        binding.progressMusic.progress = progress
+
+        binding.buttonMusicPlayPause.setImageResource(
+            if (st.isPlaying) com.lsl.kotlin_agent_app.R.drawable.ic_pause_24 else com.lsl.kotlin_agent_app.R.drawable.ic_play_arrow_24
+        )
+    }
+
+    private fun isMp3Name(name: String): Boolean {
+        return name.trim().lowercase().endsWith(".mp3")
+    }
+
+    private fun isInMusicsTree(agentsPath: String): Boolean {
+        val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
+        return p == ".agents/workspace/musics" || p.startsWith(".agents/workspace/musics/")
+    }
+
+    private fun copyTextToClipboard(label: String, text: String) {
+        val cm = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        cm.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(requireContext(), "已复制", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showMusicTroubleshootingDialog() {
+        val msg =
+            """
+            如果后台/锁屏不断播，常见原因是系统电量/后台限制。
+
+            华为 Nova 9（EMUI/Harmony）建议检查：
+            1) 设置 → 电池 → 应用启动管理：允许本应用自启动/关联启动/后台活动
+            2) 设置 → 电池 → 更多电池设置：关闭/放宽“休眠时始终保持网络连接”（如有）
+            3) 设置 → 应用和服务 → 应用管理 → 本应用 → 电池：允许后台活动；将“电池优化”设为“不优化”（如有）
+            4) Android 13+：通知权限需要开启，否则媒体通知可能无法显示，影响后台保活与控播
+
+            说明：不同 ROM 行为可能不同；若仍会被系统杀，请记录触发条件并进入下一轮处理。
+            """.trimIndent()
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("后台播放排障")
+            .setMessage(msg)
+            .setPositiveButton("知道了", null)
+            .show()
     }
 
     private fun promptNew(title: String, onOk: (String) -> Unit) {

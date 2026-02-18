@@ -12,6 +12,7 @@ import com.lsl.kotlin_agent_app.agent.AgentsDirEntryType
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.config.LlmConfigRepository
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
+import com.lsl.kotlin_agent_app.media.Mp3MetadataReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -286,7 +287,9 @@ class FilesViewModel(
         cwd: String,
         entries: List<AgentsDirEntry>,
     ): Pair<List<AgentsDirEntry>, List<String>> {
-        if (cwd != ".agents/sessions") return entries to emptyList()
+        if (cwd != ".agents/sessions") {
+            return decorateMusicEntries(cwd = cwd, entries = entries) to emptyList()
+        }
 
         data class Decorated(
             val entry: AgentsDirEntry,
@@ -341,6 +344,62 @@ class FilesViewModel(
             others.sortedWith(compareBy<AgentsDirEntry>({ it.type != AgentsDirEntryType.Dir }, { it.name.lowercase() }))
 
         return (sortedSessions + sortedOthers) to missingTitles
+    }
+
+    private fun decorateMusicEntries(
+        cwd: String,
+        entries: List<AgentsDirEntry>,
+    ): List<AgentsDirEntry> {
+        val normalized = cwd.replace('\\', '/').trim().trimEnd('/')
+        val inMusics =
+            normalized == ".agents/workspace/musics" || normalized.startsWith(".agents/workspace/musics/")
+        val inWorkspace = normalized == ".agents/workspace"
+        if (!inMusics && !inWorkspace) return entries
+
+        val reader = Mp3MetadataReader()
+
+        fun formatDuration(ms: Long?): String {
+            val v = ms?.takeIf { it > 0L } ?: return ""
+            val totalSec = (v / 1000L).toInt().coerceAtLeast(0)
+            val m = totalSec / 60
+            val s = totalSec % 60
+            return "%d:%02d".format(m, s)
+        }
+
+        return entries.map { e ->
+            if (inWorkspace && e.type == AgentsDirEntryType.Dir && e.name == "musics") {
+                return@map e.copy(
+                    displayName = "musics（音乐库）",
+                    subtitle = "仅该目录启用 mp3 播放与 metadata",
+                )
+            }
+
+            if (!inMusics) return@map e
+            if (e.type != AgentsDirEntryType.File) return@map e
+            if (!e.name.lowercase(Locale.ROOT).endsWith(".mp3")) return@map e
+
+            val path = workspace.joinPath(cwd, e.name)
+            val file = workspace.toFile(path)
+            val md =
+                try {
+                    reader.readBestEffort(file)
+                } catch (_: Throwable) {
+                    null
+                }
+            if (md == null) return@map e
+
+            val dur = formatDuration(md.durationMs)
+            val subtitle =
+                listOfNotNull(md.artist?.trim()?.ifBlank { null }, dur.ifBlank { null })
+                    .joinToString(" · ")
+                    .trim()
+                    .ifBlank { null }
+
+            e.copy(
+                displayName = md.title,
+                subtitle = subtitle,
+            )
+        }
     }
 
     private data class SessionIdentity(
