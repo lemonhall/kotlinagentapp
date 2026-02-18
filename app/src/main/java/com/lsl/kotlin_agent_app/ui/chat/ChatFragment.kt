@@ -20,6 +20,8 @@ import androidx.navigation.fragment.findNavController
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.lsl.kotlin_agent_app.agent.OpenAgenticSdkChatAgent
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
+import com.lsl.kotlin_agent_app.agent.tools.irc.IrcConnectionState
+import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 import com.lsl.kotlin_agent_app.web.WebPreviewCoordinator
@@ -53,6 +55,18 @@ class ChatFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         viewModel.syncSessionHistoryIfNeeded()
+
+        val prefs = requireContext().getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
+        val sessionKey = prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null } ?: return
+        val stateNow = IrcSessionRuntimeStore.statusFlow(sessionKey).value.state
+        if (stateNow == IrcConnectionState.Joined) return
+        if (stateNow == IrcConnectionState.Connecting || stateNow == IrcConnectionState.Reconnecting) return
+        val agentsRoot = File(requireContext().filesDir, ".agents").canonicalFile
+        IrcSessionRuntimeStore.requestConnect(
+            agentsRoot = agentsRoot,
+            sessionKey = sessionKey,
+            force = false,
+        )
     }
 
     override fun onCreateView(

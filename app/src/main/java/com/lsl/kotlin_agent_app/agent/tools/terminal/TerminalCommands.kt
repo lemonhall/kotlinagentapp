@@ -4,6 +4,7 @@ import android.content.Context
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.HelloCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.cal.CalCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.git.GitCommand
+import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.irc.IrcCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.ledger.LedgerCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.qqmail.QqMailCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.rss.RssCommand
@@ -26,6 +27,7 @@ internal object TerminalCommands {
                 StockCommand(appContext),
                 RssCommand(appContext),
                 SshCommand(appContext),
+                IrcCommand(appContext),
             ),
         )
     }

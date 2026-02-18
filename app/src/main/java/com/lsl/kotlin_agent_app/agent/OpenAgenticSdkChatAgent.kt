@@ -60,6 +60,7 @@ import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.security.MessageDigest
+import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
 
 class OpenAgenticSdkChatAgent(
     context: Context,
@@ -240,6 +241,10 @@ class OpenAgenticSdkChatAgent(
     }
 
     override fun clearSession() {
+        val existing = prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null }
+        if (existing != null) {
+            IrcSessionRuntimeStore.closeSession(existing)
+        }
         prefs.edit().remove(AppPrefsKeys.CHAT_SESSION_ID).apply()
     }
 

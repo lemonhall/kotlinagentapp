@@ -38,7 +38,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,8 +65,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import com.lsl.kotlin_agent_app.R
+import com.lsl.kotlin_agent_app.agent.tools.irc.IrcConnectionState
+import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
+import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.web.WebPreviewFrame
 import android.widget.Toast
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import java.io.File
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -360,6 +370,32 @@ private fun ToolTracePanel(
     var expanded by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<ToolTraceEvent?>(null) }
     val clipboard = LocalClipboardManager.current
+    val appContext = LocalContext.current.applicationContext
+    val prefs = remember { appContext.getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE) }
+    var sessionId by remember {
+        mutableStateOf(prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null })
+    }
+    DisposableEffect(prefs) {
+        val listener =
+            SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+                if (key == AppPrefsKeys.CHAT_SESSION_ID) {
+                    sessionId = p.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null }
+                }
+            }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    val sessionKey = sessionId ?: "__no_session__"
+    val ircStatus by IrcSessionRuntimeStore.statusFlow(sessionKey).collectAsState()
+    val ircLogs by IrcSessionRuntimeStore.logsFlow(sessionKey).collectAsState()
+    var showIrcDialog by remember { mutableStateOf(false) }
+    val ircColor =
+        when (ircStatus.state) {
+            IrcConnectionState.Joined -> Color(0xFF2E7D32)
+            IrcConnectionState.Connecting, IrcConnectionState.Reconnecting, IrcConnectionState.Connected -> Color(0xFFFFC107)
+            IrcConnectionState.NotInitialized, IrcConnectionState.Disconnected, IrcConnectionState.Error -> MaterialTheme.colorScheme.error
+        }
 
     Card(
         modifier = modifier,
@@ -376,10 +412,43 @@ private fun ToolTracePanel(
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier =
+                                Modifier
+                                    .clickable {
+                                        showIrcDialog = true
+                                        val agentsRoot = File(appContext.filesDir, ".agents").canonicalFile
+                                        IrcSessionRuntimeStore.requestConnect(
+                                            agentsRoot = agentsRoot,
+                                            sessionKey = sessionKey,
+                                            force = true,
+                                        )
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "IRC",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .padding(start = 4.dp)
+                                        .size(10.dp)
+                                        .background(ircColor, CircleShape),
+                            )
+                        }
+                    }
                     if (traces.isNotEmpty()) {
                         TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Less" else "More") }
                     }
-                    TextButton(onClick = onToggleWebPreview) { Text(if (webPreviewVisible) "PreviewWeb:On" else "PreviewWeb:Off") }
+                    TextButton(onClick = onToggleWebPreview) { Text(if (webPreviewVisible) "PiP:On" else "PiP:Off") }
                     TextButton(onClick = onClear) { Text("Clear") }
                 }
             }
@@ -406,6 +475,36 @@ private fun ToolTracePanel(
                 }
             }
         }
+    }
+
+    if (showIrcDialog) {
+        val details =
+            buildString {
+                appendLine("state=${ircStatus.state}")
+                val le = ircStatus.lastError
+                if (le != null) appendLine("last_error=${le.errorCode}: ${le.message}")
+                appendLine("")
+                val lines = ircLogs.takeLast(80)
+                if (lines.isEmpty()) {
+                    appendLine("(no logs yet)")
+                } else {
+                    lines.forEach { appendLine(it) }
+                }
+            }.trimEnd()
+
+        AlertDialog(
+            onDismissRequest = { showIrcDialog = false },
+            title = { Text("IRC") },
+            text = {
+                SelectionContainer {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        Text(text = details, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showIrcDialog = false }) { Text("Close") } },
+            dismissButton = { TextButton(onClick = { clipboard.setText(AnnotatedString(details)) }) { Text("Copy") } },
+        )
     }
 
     val toShow = selected
