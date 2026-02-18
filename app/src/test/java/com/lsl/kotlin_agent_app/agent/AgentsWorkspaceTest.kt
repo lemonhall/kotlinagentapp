@@ -30,9 +30,14 @@ class AgentsWorkspaceTest {
         assertTrue(skills.contains("brainstorming"))
         assertTrue(skills.contains("find-skills"))
         assertTrue(skills.contains("deep-research"))
+        assertTrue(skills.contains("qqmail-cli"))
 
         val text = ws.readTextFile(".agents/skills/skill-creator/SKILL.md")
         assertTrue(text.contains("name: skill-creator"))
+
+        val qqmailEnv = ws.readTextFile(".agents/skills/qqmail-cli/secrets/.env")
+        assertTrue(qqmailEnv.contains("EMAIL_ADDRESS="))
+        assertTrue(qqmailEnv.contains("EMAIL_PASSWORD="))
     }
 
     @Test

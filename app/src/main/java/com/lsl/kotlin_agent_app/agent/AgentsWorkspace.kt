@@ -48,7 +48,7 @@ class AgentsWorkspace(
         // Create secret template file once (never overwrite user's local secrets).
         ensureBundledSecretEnvFileIfMissing(
             skillName = "qqmail-cli",
-            assetEnvExamplePath = "builtin_skills/qqmail-cli/secrets/.env.example",
+            assetEnvExamplePath = "builtin_skills/qqmail-cli/secrets/env.example",
         )
 
         installBundledFile(targetPath = ".agents/sessions/README.md", assetPath = "builtin_sessions/README.md", overwrite = overwrite)
@@ -64,6 +64,7 @@ class AgentsWorkspace(
         val env = resolveAgentsPath(envPath)
         if (env.exists() && env.isFile) return
         // Best-effort: if missing, seed .env from bundled example (so the user can edit in Files tab).
+        // Note: avoid dot-files in assets (aapt may ignore them), so we use env.example and copy it to .env.
         installBundledFile(targetPath = envPath, assetPath = assetEnvExamplePath, overwrite = true)
     }
 

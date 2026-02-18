@@ -491,7 +491,22 @@ class TerminalExecToolTest {
     }
 
     @Test
-    fun qqmail_fetch_missingCredentials_isRejected() = runTest { tool ->
+    fun qqmail_fetch_missingCredentials_isRejected() = runTest(
+        setup = { context ->
+            val agentsRoot = File(context.filesDir, ".agents")
+            val env = File(agentsRoot, "skills/qqmail-cli/secrets/.env")
+            env.parentFile?.mkdirs()
+            env.writeText(
+                """
+                EMAIL_ADDRESS=
+                EMAIL_PASSWORD=
+                """.trimIndent() + "\n",
+                Charsets.UTF_8,
+            )
+            val teardown = { }
+            teardown
+        },
+    ) { tool ->
         val out = tool.exec("qqmail fetch")
         assertTrue(out.exitCode != 0)
         assertEquals("MissingCredentials", out.errorCode)

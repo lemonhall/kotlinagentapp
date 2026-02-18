@@ -21,6 +21,7 @@ description: 通过 `terminal_exec` 提供 QQ 邮箱 IMAP/SMTP 的 `qqmail fetch
 初始化规则：
 
 - App 启动时如果发现 `.agents/skills/qqmail-cli/secrets/.env` 不存在，会从内置模板自动生成一份（便于你在 Files 页签直接编辑）。
+- 模板文件位于同目录：`.agents/skills/qqmail-cli/secrets/env.example`（只读参考，不要改它；请改 `.env`）。
 
 `.env` 示例（不要提交真实授权码）：
 
