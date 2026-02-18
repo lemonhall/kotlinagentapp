@@ -71,7 +71,7 @@
             android:layout_marginStart="4dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="粘贴（移动到当前目录）"
-            android:src="@drawable/ic_arrow_forward_24"
+            android:src="@drawable/ic_content_paste_24"
             android:tint="?attr/colorOnSurface"
             android:visibility="gone" />
 
