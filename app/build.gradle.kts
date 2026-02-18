@@ -126,6 +126,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.jgit)
+    implementation(libs.okhttp)
     implementation("org.apache.commons:commons-compress:1.26.2")
     implementation("org.tukaani:xz:1.10")
     implementation("com.squareup.okio:okio:3.8.0")
