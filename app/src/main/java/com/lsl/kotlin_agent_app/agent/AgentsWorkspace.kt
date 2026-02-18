@@ -42,6 +42,7 @@ class AgentsWorkspace(
         installBundledSkillDir(name = "jgit-remote", assetDir = "builtin_skills/jgit-remote", overwrite = overwrite)
         installBundledSkillDir(name = "archive-zip", assetDir = "builtin_skills/archive-zip", overwrite = overwrite)
         installBundledSkillDir(name = "archive-tar", assetDir = "builtin_skills/archive-tar", overwrite = overwrite)
+        installBundledSkillDir(name = "calendar-cli", assetDir = "builtin_skills/calendar-cli", overwrite = overwrite)
 
         installBundledFile(targetPath = ".agents/sessions/README.md", assetPath = "builtin_sessions/README.md", overwrite = overwrite)
     }
