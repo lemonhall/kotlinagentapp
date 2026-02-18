@@ -103,6 +103,7 @@ android {
             excludes += setOf(
                 "META-INF/LICENSE.md",
                 "META-INF/NOTICE.md",
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
             )
         }
     }
