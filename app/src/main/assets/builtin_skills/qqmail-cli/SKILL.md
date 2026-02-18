@@ -18,6 +18,10 @@ description: 通过 `terminal_exec` 提供 QQ 邮箱 IMAP/SMTP 的 `qqmail fetch
 
 - `.agents/skills/qqmail-cli/secrets/.env`
 
+初始化规则：
+
+- App 启动时如果发现 `.agents/skills/qqmail-cli/secrets/.env` 不存在，会从内置模板自动生成一份（便于你在 Files 页签直接编辑）。
+
 `.env` 示例（不要提交真实授权码）：
 
 ```dotenv
@@ -70,4 +74,3 @@ IMAP_PORT=993
 - 必须实际调用 `terminal_exec`，不要臆造 stdout/result/artifacts。
 - `terminal_exec` 不支持 `;` / `&&` / `|` / 重定向；所有命令必须单行。
 - 若工具返回 `exit_code!=0` 或包含 `error_code`，直接把错误信息说明给用户并停止。
-
