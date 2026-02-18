@@ -7,6 +7,7 @@ import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.git.GitCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.ledger.LedgerCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.qqmail.QqMailCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.rss.RssCommand
+import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.ssh.SshCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.stock.StockCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.tar.TarCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.zip.ZipCommand
@@ -24,6 +25,7 @@ internal object TerminalCommands {
                 TarCommand(appContext),
                 StockCommand(appContext),
                 RssCommand(appContext),
+                SshCommand(appContext),
             ),
         )
     }

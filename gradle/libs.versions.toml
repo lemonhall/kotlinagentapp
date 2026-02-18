@@ -20,6 +20,7 @@ desugarJdkLibs = "2.0.4"
 serializationJson = "1.6.3"
 jgit = "5.13.5.202508271544-r"
 okhttp = "4.12.0"
+jsch = "0.2.17"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -50,6 +51,7 @@ android-desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_li
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
 jgit = { group = "org.eclipse.jgit", name = "org.eclipse.jgit", version.ref = "jgit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+jsch = { group = "com.github.mwiede", name = "jsch", version.ref = "jsch" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

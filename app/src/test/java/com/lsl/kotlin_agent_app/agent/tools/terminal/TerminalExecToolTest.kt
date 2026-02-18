@@ -43,6 +43,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.File
 import java.util.UUID
+import java.lang.reflect.Proxy
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -1079,6 +1080,135 @@ class TerminalExecToolTest {
         val extracted = File(tool.filesDir, ".agents/$destRel/a.txt")
         assertTrue(extracted.exists())
         assertEquals("hello-tar", extracted.readText(Charsets.UTF_8))
+    }
+
+    @Test
+    fun ssh_exec_requires_stdin() = runTest { tool ->
+        seedSshEnv(tool.filesDir, "SSH_PASSWORD=dummy")
+        installFakeSshClientIfAvailable(stdout = "ok", stderr = "", remoteExitStatus = 0, hostKeyFingerprint = "fp-test")
+
+        val out = tool.exec("ssh exec --host example.com --port 22 --user root")
+        assertTrue(out.exitCode != 0)
+        assertEquals("InvalidArgs", out.errorCode)
+    }
+
+    @Test
+    fun ssh_exec_unknownHost_withoutTrust_isRejected() = runTest { tool ->
+        seedSshEnv(tool.filesDir, "SSH_PASSWORD=dummy")
+        installFakeSshClientIfAvailable(stdout = "ok", stderr = "", remoteExitStatus = 0, hostKeyFingerprint = "fp-test")
+
+        val out = tool.exec("ssh exec --host example.com --port 22 --user root", stdin = "id")
+        assertTrue(out.exitCode != 0)
+        assertEquals("HostKeyUntrusted", out.errorCode)
+    }
+
+    @Test
+    fun ssh_exec_rejectsSensitiveArgv() = runTest { tool ->
+        seedSshEnv(tool.filesDir, "SSH_PASSWORD=dummy")
+        installFakeSshClientIfAvailable(stdout = "ok", stderr = "", remoteExitStatus = 0, hostKeyFingerprint = "fp-test")
+
+        val out =
+            tool.exec(
+                "ssh exec --host example.com --port 22 --user root --password secret",
+                stdin = "id",
+            )
+        assertTrue(out.exitCode != 0)
+        assertEquals("SensitiveArgv", out.errorCode)
+    }
+
+    @Test
+    fun ssh_exec_rejectsOutPathTraversal() = runTest { tool ->
+        seedSshEnv(tool.filesDir, "SSH_PASSWORD=dummy")
+        installFakeSshClientIfAvailable(stdout = "ok", stderr = "", remoteExitStatus = 0, hostKeyFingerprint = "fp-test")
+
+        val out =
+            tool.exec(
+                "ssh exec --host example.com --port 22 --user root --trust-host-key --out ../oops.json",
+                stdin = "id",
+            )
+        assertTrue(out.exitCode != 0)
+        assertEquals("PathEscapesAgentsRoot", out.errorCode)
+    }
+
+    @Test
+    fun ssh_exec_trustHostKey_writesKnownHosts_andOutArtifact() = runTest { tool ->
+        seedSshEnv(tool.filesDir, "SSH_PASSWORD=dummy")
+        installFakeSshClientIfAvailable(stdout = "hello", stderr = "", remoteExitStatus = 0, hostKeyFingerprint = "fp-1")
+
+        val outRel = "artifacts/ssh/exec/test.json"
+        val out =
+            tool.exec(
+                "ssh exec --host example.com --port 22 --user root --trust-host-key --out $outRel",
+                stdin = "echo hi ; whoami",
+            )
+        assertEquals(0, out.exitCode)
+        assertEquals("ssh exec", (out.result?.get("command") as? JsonPrimitive)?.content)
+        assertTrue(out.artifacts.contains(".agents/$outRel"))
+        assertTrue(File(tool.filesDir, ".agents/$outRel").exists())
+        assertTrue(File(tool.filesDir, ".agents/workspace/ssh/known_hosts").exists())
+    }
+
+    @Test
+    fun ssh_exec_remoteNonZeroExit_isStableErrorCode() = runTest { tool ->
+        seedSshEnv(tool.filesDir, "SSH_PASSWORD=dummy")
+        installFakeSshClientIfAvailable(stdout = "", stderr = "boom", remoteExitStatus = 7, hostKeyFingerprint = "fp-1")
+
+        val outRel = "artifacts/ssh/exec/nonzero.json"
+        val out =
+            tool.exec(
+                "ssh exec --host example.com --port 22 --user root --trust-host-key --out $outRel",
+                stdin = "false",
+            )
+        assertTrue(out.exitCode != 0)
+        assertEquals("RemoteNonZeroExit", out.errorCode)
+        assertEquals(7, (out.result?.get("remote_exit_status") as? JsonPrimitive)?.content?.toInt())
+    }
+
+    private fun seedSshEnv(
+        filesDir: File,
+        content: String,
+    ) {
+        val env = File(filesDir, ".agents/skills/ssh-cli/secrets/.env")
+        env.parentFile?.mkdirs()
+        env.writeText(content.trimEnd() + "\n", Charsets.UTF_8)
+    }
+
+    private fun installFakeSshClientIfAvailable(
+        stdout: String,
+        stderr: String,
+        remoteExitStatus: Int,
+        hostKeyFingerprint: String,
+    ) {
+        try {
+            val hooksClass = Class.forName("com.lsl.kotlin_agent_app.agent.tools.ssh.SshClientTestHooks")
+            val clientInterface = Class.forName("com.lsl.kotlin_agent_app.agent.tools.ssh.SshClient")
+            val responseClass = Class.forName("com.lsl.kotlin_agent_app.agent.tools.ssh.SshExecResponse")
+
+            val response =
+                responseClass.declaredConstructors.first { it.parameterTypes.size == 5 }.newInstance(
+                    stdout,
+                    stderr,
+                    remoteExitStatus,
+                    hostKeyFingerprint,
+                    1L,
+                )
+
+            val proxy =
+                Proxy.newProxyInstance(
+                    clientInterface.classLoader,
+                    arrayOf(clientInterface),
+                ) { _, method, _ ->
+                    when (method.name) {
+                        "exec" -> response
+                        else -> null
+                    }
+                }
+
+            val hooks = hooksClass.getField("INSTANCE").get(null)
+            hooksClass.getMethod("install", clientInterface).invoke(hooks, proxy)
+        } catch (_: ClassNotFoundException) {
+            // ssh tool not implemented yet (red stage)
+        }
     }
 
     private data class ExecOut(
