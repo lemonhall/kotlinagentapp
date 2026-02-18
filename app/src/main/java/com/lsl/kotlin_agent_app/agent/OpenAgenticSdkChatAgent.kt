@@ -296,6 +296,8 @@ class OpenAgenticSdkChatAgent(
             $marker
             你是一个运行在 Android App 内部的“本地 Agent”（仅在应用内部工作区内行动）。
             
+            ${TimeContextInfo.build()}
+
             工作区根目录（project root）：$root
             你只能通过工具读写该根目录下的文件；任何试图访问根目录之外的路径都会失败。
             
@@ -335,6 +337,8 @@ class OpenAgenticSdkChatAgent(
             $marker
             你是一个在 Android WebView 中操作网页的子 Agent。只能使用 `web_*` 工具浏览与交互网页。
             
+            ${TimeContextInfo.build()}
+
             工作区根目录（project root）：$root
             你只能通过工具读写该根目录下的文件；任何试图访问根目录之外的路径都会失败。
             
@@ -710,6 +714,8 @@ class OpenAgenticSdkChatAgent(
             $marker
             你是一个“深度研究（deep-research）”子 Agent。你的目标是产出一个可阅读的研究交付报告 Markdown 文件，并只把报告路径返回给主会话。
             
+            ${TimeContextInfo.build()}
+
             工作区根目录（project root）：$root
             你只能通过工具读写该根目录下的文件；任何试图访问根目录之外的路径都会失败。
             
