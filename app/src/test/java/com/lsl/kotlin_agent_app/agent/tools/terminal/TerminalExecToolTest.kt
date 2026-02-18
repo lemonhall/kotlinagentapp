@@ -8,6 +8,9 @@ import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailMessage
 import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailSendRequest
 import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailSendResult
 import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailSmtpClient
+import com.lsl.kotlin_agent_app.agent.tools.rss.RssClientTestHooks
+import com.lsl.kotlin_agent_app.agent.tools.rss.RssHttpResponse
+import com.lsl.kotlin_agent_app.agent.tools.rss.RssTransport
 import com.lsl.kotlin_agent_app.agent.tools.stock.FinnhubClientTestHooks
 import com.lsl.kotlin_agent_app.agent.tools.stock.FinnhubHttpResponse
 import com.lsl.kotlin_agent_app.agent.tools.stock.FinnhubTransport
@@ -76,6 +79,131 @@ class TerminalExecToolTest {
         val out = tool.exec("hello\nworld")
         assertTrue(out.exitCode != 0)
         assertEquals("InvalidCommand", out.errorCode)
+    }
+
+    @Test
+    fun rss_add_writesSubscriptions_and_list_readsBack() = runTest { tool ->
+        val add = tool.exec("rss add --name test-feed --url https://example.com/feed.xml")
+        assertEquals(0, add.exitCode)
+        assertEquals("rss add", add.result?.get("command")?.let { (it as JsonPrimitive).content })
+
+        val subsPath = File(tool.filesDir, ".agents/workspace/rss/subscriptions.json")
+        assertTrue("subscriptions should exist: $subsPath", subsPath.exists())
+        val subsText = subsPath.readText(Charsets.UTF_8)
+        assertTrue(subsText.contains("test-feed"))
+        assertTrue(subsText.contains("https://example.com/feed.xml"))
+
+        val list = tool.exec("rss list --max 10")
+        assertEquals(0, list.exitCode)
+        assertEquals("rss list", list.result?.get("command")?.let { (it as JsonPrimitive).content })
+        val items = list.result?.get("items")?.jsonArray
+        assertNotNull(items)
+        assertTrue(items!!.isNotEmpty())
+        val first = items.first().jsonObject
+        assertEquals("test-feed", (first["name"] as? JsonPrimitive)?.content)
+        assertEquals("https://example.com/feed.xml", (first["url"] as? JsonPrimitive)?.content)
+    }
+
+    @Test
+    fun rss_remove_missing_isNotFound() = runTest { tool ->
+        val out = tool.exec("rss remove --name no_such_feed")
+        assertTrue(out.exitCode != 0)
+        assertEquals("NotFound", out.errorCode)
+    }
+
+    @Test
+    fun rss_fetch_fileScheme_isRejected() = runTest { tool ->
+        val out = tool.exec("rss fetch --url file:///etc/passwd --max-items 5")
+        assertTrue(out.exitCode != 0)
+        assertEquals("InvalidArgs", out.errorCode)
+    }
+
+    @Test
+    fun rss_fetch_429_isRateLimited_andReturnsRetryAfterMs() {
+        var transport: CapturingRssTransport? = null
+        runTest(
+            setup = {
+                transport =
+                    CapturingRssTransport(
+                        statusCode = 429,
+                        bodyText = "rate limited",
+                        headers = mapOf("Retry-After" to "5"),
+                    )
+                RssClientTestHooks.install(transport!!)
+                val teardown = { RssClientTestHooks.clear() }
+                teardown
+            },
+        ) { tool ->
+            val out = tool.exec("rss fetch --url https://example.com/feed.xml --max-items 5")
+            assertTrue(out.exitCode != 0)
+            assertEquals("RateLimited", out.errorCode)
+            assertEquals("5000", (out.result?.get("retry_after_ms") as? JsonPrimitive)?.content)
+        }
+    }
+
+    @Test
+    fun rss_fetch_withOut_writesItems_andUpdatesFetchState_andUsesEtagOnSecondFetch() {
+        var transport: CapturingRssTransport? = null
+        val rssXml =
+            """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0">
+              <channel>
+                <title>Test Feed</title>
+                <item>
+                  <title>Item 1</title>
+                  <link>https://example.com/1</link>
+                  <guid>1</guid>
+                  <pubDate>Wed, 18 Feb 2026 01:30:32 +0000</pubDate>
+                  <description>Summary 1</description>
+                </item>
+                <item>
+                  <title>Item 2</title>
+                  <link>https://example.com/2</link>
+                  <guid>2</guid>
+                  <pubDate>Wed, 18 Feb 2026 02:30:32 +0000</pubDate>
+                  <description>Summary 2</description>
+                </item>
+              </channel>
+            </rss>
+            """.trimIndent()
+
+        runTest(
+            setup = {
+                transport =
+                    CapturingRssTransport(
+                        statusCode = 200,
+                        bodyText = rssXml,
+                        headers = mapOf("ETag" to "W/\"abc\"", "Last-Modified" to "Wed, 18 Feb 2026 01:30:32 GMT"),
+                    )
+                RssClientTestHooks.install(transport!!)
+                val teardown = { RssClientTestHooks.clear() }
+                teardown
+            },
+        ) { tool ->
+            val add = tool.exec("rss add --name test-feed --url https://example.com/feed.xml")
+            assertEquals(0, add.exitCode)
+
+            val fetch1 = tool.exec("rss fetch --name test-feed --max-items 2 --out artifacts/rss/test-items.json")
+            assertEquals(0, fetch1.exitCode)
+            assertTrue(fetch1.artifacts.contains(".agents/artifacts/rss/test-items.json"))
+
+            val outFile = File(tool.filesDir, ".agents/artifacts/rss/test-items.json")
+            assertTrue(outFile.exists())
+            val outText = outFile.readText(Charsets.UTF_8)
+            assertTrue(outText.contains("Item 1"))
+            assertTrue(outText.contains("https://example.com/1"))
+
+            val stateFile = File(tool.filesDir, ".agents/workspace/rss/fetch_state.json")
+            assertTrue(stateFile.exists())
+            val stateText = stateFile.readText(Charsets.UTF_8)
+            assertTrue(stateText.contains("W/\\\"abc\\\"") || stateText.contains("W/\"abc\""))
+
+            // Second fetch should include If-None-Match based on stored etag (transport captures lastHeaders).
+            tool.exec("rss fetch --name test-feed --max-items 1")
+            val lastHeaders = transport?.lastHeaders.orEmpty()
+            assertTrue("If-None-Match should be set", lastHeaders.keys.any { it.equals("If-None-Match", ignoreCase = true) })
+        }
     }
 
     @Test
@@ -1042,6 +1170,24 @@ class TerminalExecToolTest {
             lastUrl = url
             lastHeaders = headers.toMap()
             return FinnhubHttpResponse(statusCode = statusCode, bodyText = bodyText, headers = this.headers)
+        }
+    }
+
+    private class CapturingRssTransport(
+        private val statusCode: Int,
+        private val bodyText: String,
+        private val headers: Map<String, String>,
+    ) : RssTransport {
+        @Volatile var lastUrl: HttpUrl? = null
+        @Volatile var lastHeaders: Map<String, String>? = null
+
+        override suspend fun get(
+            url: HttpUrl,
+            headers: Map<String, String>,
+        ): RssHttpResponse {
+            lastUrl = url
+            lastHeaders = headers.toMap()
+            return RssHttpResponse(statusCode = statusCode, bodyText = bodyText, headers = this.headers)
         }
     }
 }

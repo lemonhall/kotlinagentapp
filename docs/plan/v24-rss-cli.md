@@ -2,7 +2,7 @@
 
 ## Goal
 
-把“RSS/Atom 订阅与抓取”能力用 `terminal_exec` 的白名单命令 `rss` 表达出来，并把落盘结构、输出契约与安全护栏写死在验收口径里；v24 **只落文档，不写实现**。
+把“RSS/Atom 订阅与抓取”能力用 `terminal_exec` 的白名单命令 `rss` 表达出来，并把落盘结构、输出契约与安全护栏写死在验收口径里；按 `paw-cli-add-workflow` 以 TDD 落地最小闭环实现（命令 + 单测 + builtin skill）。
 
 ## PRD Trace
 
@@ -11,7 +11,7 @@
 
 ## Scope
 
-做（v24：文档阶段）：
+做（v24）：
 - 锁定命令集合与 argv 约定（`rss add/list/remove/fetch`）
 - 锁定工作区落盘结构（`.agents/workspace/rss/*`）
 - 锁定输出契约（stdout/result/artifacts/exit_code/error_code）
@@ -20,9 +20,10 @@
   - 大输出必须 `--out` 落盘 + artifacts 引用
   - `--out` 路径必须受 `.agents` 根目录约束（拒绝绝对路径与 `..`）
   - 429 输出 `RateLimited`；若响应包含 `Retry-After` 且可解析为秒数，则必须返回 `retry_after_ms`，否则允许省略
+ - 实现 `rss` 命令最小闭环（add/list/remove/fetch）+ Robolectric 单测
+ - 新增 builtin skill：`rss-cli`
 
 不做（v24）：
-- 任何代码实现（命令、单测、builtin skill 安装）
 - 网页全文抓取/readability 抽取
 - 批量抓取调度与并行（后续另开版本）
 
@@ -40,9 +41,7 @@
 反作弊条款（必须）：
 - 禁止“只注册命令但返回假数据”就宣称完成：后续单测必须断言真实落盘文件存在、条目字段可解析，并用 fake HTTP 断言请求确实被发出且响应被解析（覆盖 ParseError/HttpError/RateLimited）。
 
-## Files（规划：遵守 paw-cli-add-workflow；v24 不落地代码）
-
-> 下列为后续实现阶段预计会改动/新增的路径清单（v24 只写计划，不实际创建）。
+## Files（实现路径：遵守 paw-cli-add-workflow）
 
 - 注册表（只注册，不写实现）：
   - `app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/terminal/TerminalCommands.kt`
@@ -59,14 +58,15 @@
 
 ## Steps（Strict）
 
-> v24 只做文档闭环，因此步骤只覆盖 Analysis/Design/Plan + Gate，不进入实现。
-
 1) Analysis：确定 RSS/Atom 覆盖范围、常见字段、失败场景与 guardrails  
 2) Design：锁定命令协议、错误码与输出契约（何时必须 `--out`）  
-3) Plan：写清 Files / 验收口径 / 未来测试点（InvalidArgs/NotFound/HttpError/RateLimited/ParseError/路径越界）  
+3) Plan：写清 Files / 验收口径 / 测试点（InvalidArgs/NotFound/HttpError/RateLimited/ParseError/路径越界）  
 4) DoD Gate：检查 Acceptance 全部可二元判定且有明确验证命令/断言口径  
 5) Doc QA Gate：术语一致（rss/atom/feed/subscription/out/artifacts/workspace），Req IDs 追溯不断链  
-6) Ship（文档）：`git add -A ; git commit -m "v24: doc: rss cli spec" ; git push`  
+6) TDD Red：在 `TerminalExecToolTest.kt` 补 `rss add/list/remove/fetch` 的失败/成功用例（含 fake HTTP / 429 / 禁用 scheme / ETag）  
+7) TDD Green：实现 `rss` 命令与 `.agents/workspace/rss/*` 落盘；补 builtin skill `rss-cli` 并在 `AgentsWorkspace` 安装  
+8) Verify：`.\gradlew.bat :app:testDebugUnitTest` 全绿；`.\gradlew.bat :app:installDebug` 可装机冒烟  
+9) Ship：`git add -A ; git commit -m "v24: feat: rss cli" ; git push`  
 
 ## Risks
 

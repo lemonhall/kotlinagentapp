@@ -5,9 +5,7 @@
 ## Vision（引用）
 
 - PRD：`docs/prd/PRD-0024-rss-cli.md`
-- 本轮目标（v24）：先把 RSS/Atom 订阅与抓取能力的 `rss` 命令协议、落盘结构、输出契约与安全护栏写硬（PRD + Plan），为后续按 `paw-cli-add-workflow` 做 TDD 落地提供可追溯锚点。
-
-> 说明：v24 先不实现代码，只把协议与验收写死，避免“想到哪写到哪”。
+- 本轮目标（v24）：在锁定协议/护栏（PRD + Plan）的前提下，按 `paw-cli-add-workflow` 以 TDD 落地 `rss` CLI（add/list/remove/fetch）最小闭环：可落盘、可审计、可回归、可通过 builtin skill 驱动。
 
 ## Milestones
 
@@ -26,6 +24,20 @@
 - Plan：
   - `docs/plan/v24-rss-cli.md`
 
+### M1：RSS CLI 最小闭环（实现 + 单测 + builtin skill）
+
+- PRD Trace：
+  - PRD-0024：REQ-0024-001 / REQ-0024-002 / REQ-0024-003 / REQ-0024-004 / REQ-0024-005
+  - PRD-0024：REQ-0024-010 / REQ-0024-011 / REQ-0024-012 / REQ-0024-013
+- DoD（硬口径）：
+  - `terminal_exec` 新增白名单命令 `rss`（add/list/remove/fetch），且不引入外部进程；
+  - 订阅落盘：`.agents/workspace/rss/subscriptions.json`；
+  - 抓取状态落盘：`.agents/workspace/rss/fetch_state.json`；
+  - `--out` 产物在 `.agents/` 内，且 tool output 的 `artifacts[]` 返回 `.agents/<out_path>`；
+  - 429：`error_code="RateLimited"`，并尽可能返回 `retry_after_ms`；
+  - 单测：`.\gradlew.bat :app:testDebugUnitTest` exit code=0；
+  - 冒烟装机：`.\gradlew.bat :app:installDebug` 成功安装到已连接设备。
+
 ## Plan Index
 
 - `docs/plan/v24-rss-cli.md`
@@ -33,4 +45,3 @@
 ## ECN Index
 
 - （本轮无）
-
