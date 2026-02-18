@@ -37,7 +37,7 @@ description: 通过 `terminal_exec` 提供 zip list/extract/create（纯 Java）
 
 使用工具 `terminal_exec` 执行：
 
-- `zip list --in workspace/archive-zip-demo/out.zip --max 10 --out artifacts/archive/archive-zip-demo-list.json`
+- `zip list --in workspace/archive-zip-demo/out.zip --max 10 --out artifacts/archive/archive-zip-demo-list.json --encoding auto`
 
 期望：
 - `exit_code=0`
@@ -47,12 +47,25 @@ description: 通过 `terminal_exec` 提供 zip list/extract/create（纯 Java）
 
 使用工具 `terminal_exec` 执行：
 
-- `zip extract --in workspace/archive-zip-demo/out.zip --dest workspace/archive-zip-demo/dest --confirm`
+- `zip extract --in workspace/archive-zip-demo/out.zip --dest workspace/archive-zip-demo/dest --confirm --encoding auto`
 
 期望：
 - `exit_code=0`
 - `result.ok=true`
 - `workspace/archive-zip-demo/dest/a.txt` 存在，内容为 `hello zip`
+
+## Encoding（文件名乱码 / MALFORMED）
+
+当 zip 内文件名是日文/中文且不是 UTF-8（常见于 Windows 工具打包，CP932/GBK 等）时，可能出现：
+
+- `error_message: MALFORMED[1]`（解码失败）
+- 解压后文件名乱码
+
+处理方式（优先级从高到低）：
+
+- 先用 `--encoding auto`（默认会尝试常见编码回退）
+- 日本语文件名：`--encoding cp932`（别名：`windows-31j` / `shift-jis`）
+- 简体中文文件名：`--encoding gbk`（别名：`cp936`）
 
 ## Rules
 
@@ -60,4 +73,3 @@ description: 通过 `terminal_exec` 提供 zip list/extract/create（纯 Java）
 - `zip extract/create` 缺失 `--confirm` 必须视为错误并停止。
 - `terminal_exec` 不支持 `;` / `&&` / `|` / 重定向；命令必须单行。
 - 若工具返回 `exit_code!=0` 或包含 `error_code`，直接把错误信息说明给用户并停止。
-

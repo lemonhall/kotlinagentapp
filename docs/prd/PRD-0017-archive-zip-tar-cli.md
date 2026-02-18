@@ -56,7 +56,7 @@ v17 推荐依赖策略：
 
 #### `zip list`
 
-- 命令：`zip list --in <zip_path> [--max <n>] [--out <path>]`
+- 命令：`zip list --in <zip_path> [--max <n>] [--out <path>] [--encoding <auto|utf-8|cp932|gbk>]`
 - 行为：
   - 默认输出前 `--max`（缺省 200）个条目的摘要到 stdout
   - 若提供 `--out`：写入完整清单（建议 JSONL/JSON）并返回 artifact 引用
@@ -71,7 +71,7 @@ v17 推荐依赖策略：
 
 #### `zip extract`
 
-- 命令：`zip extract --in <zip_path> --dest <dir> --confirm [--overwrite] [--max-files <n>] [--max-bytes <n>]`
+- 命令：`zip extract --in <zip_path> --dest <dir> --confirm [--overwrite] [--max-files <n>] [--max-bytes <n>] [--encoding <auto|utf-8|cp932|gbk>]`
 - 行为（安全默认）：
   - 拒绝任何会写出 `--dest` 目录之外的 entry（ZipSlip 防护）
   - 默认不覆盖已有文件（除非 `--overwrite`）
@@ -176,4 +176,3 @@ v17 推荐依赖策略：
 ### C. 工程规矩
 
 - REQ-0017-020：命令实现必须放在独立文件/目录（`commands/zip/*`、`commands/tar/*`）；`TerminalCommands.kt` 只做注册表。
-

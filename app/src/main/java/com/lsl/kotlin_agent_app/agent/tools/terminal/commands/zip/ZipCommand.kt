@@ -18,14 +18,17 @@ import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.archive.resolveExt
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.archive.resolveWithinAgents
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
+import java.nio.channels.SeekableByteChannel
+import java.nio.charset.Charset
 import java.util.UUID
 import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import org.apache.commons.compress.archivers.zip.ZipFile as CommonsZipFile
 
 internal class ZipCommand(
     appContext: Context,
@@ -64,7 +67,22 @@ internal class ZipCommand(
                 errorMessage = t.message,
             )
         } catch (t: IllegalArgumentException) {
-            invalidArgs(t.message ?: "invalid args")
+            val msg = t.message.orEmpty()
+            if (
+                msg.contains("MALFORMED", ignoreCase = true) ||
+                    msg.contains("malformed", ignoreCase = true) ||
+                    msg.contains("unmappable", ignoreCase = true)
+            ) {
+                TerminalCommandOutput(
+                    exitCode = 2,
+                    stdout = "",
+                    stderr = msg.ifBlank { "zip entry name decode error" },
+                    errorCode = "ZipBadEncoding",
+                    errorMessage = t.message,
+                )
+            } else {
+                invalidArgs(t.message ?: "invalid args")
+            }
         } catch (t: Throwable) {
             TerminalCommandOutput(
                 exitCode = 2,
@@ -82,6 +100,7 @@ internal class ZipCommand(
         if (!zipFile.exists() || !zipFile.isFile) return invalidArgs("zip not found: $inRel")
 
         val max = parseIntFlag(argv, "--max", defaultValue = 200).coerceAtLeast(0)
+        val encodingRaw = optionalFlagValue(argv, "--encoding")?.trim()?.takeIf { it.isNotBlank() }
         val outRel = optionalFlagValue(argv, "--out")?.trim()?.takeIf { it.isNotBlank() }
         val outFile = outRel?.let { resolveWithinAgents(agentsRoot, it) }
 
@@ -89,12 +108,19 @@ internal class ZipCommand(
         val entriesAll = mutableListOf<JsonElement>()
         var total = 0
 
-        ZipFile(zipFile).use { zf ->
-            val it = zf.entries()
+        val open = openZipForRead(zipFile, encodingRaw)
+        open.zip.use { zf ->
+            val it = zf.entries
             while (it.hasMoreElements()) {
                 val e = it.nextElement()
                 total += 1
-                val el = zipEntryJson(e)
+                val el = zipEntryJson(
+                    name = e.name.orEmpty(),
+                    size = e.size,
+                    csize = e.compressedSize,
+                    isDir = e.isDirectory,
+                    time = e.lastModifiedDate?.time ?: 0L,
+                )
                 if (entries.size < max) entries.add(el)
                 if (outFile != null) entriesAll.add(el)
             }
@@ -106,6 +132,8 @@ internal class ZipCommand(
                 put("ok", JsonPrimitive(true))
                 put("command", JsonPrimitive("zip list"))
                 put("in", JsonPrimitive(inRel))
+                put("encoding_requested", JsonPrimitive(open.encodingRequested))
+                put("encoding_used", JsonPrimitive(open.encodingUsed))
                 put("count_total", JsonPrimitive(total))
                 put("count_emitted", JsonPrimitive(entries.size))
                 put("truncated", JsonPrimitive(truncated))
@@ -122,6 +150,8 @@ internal class ZipCommand(
                         put("ok", JsonPrimitive(true))
                         put("command", JsonPrimitive("zip list"))
                         put("in", JsonPrimitive(inRel))
+                        put("encoding_requested", JsonPrimitive(open.encodingRequested))
+                        put("encoding_used", JsonPrimitive(open.encodingUsed))
                         put("count_total", JsonPrimitive(total))
                         put("entries", buildJsonArray { entriesAll.forEach { add(it) } })
                     }
@@ -140,6 +170,9 @@ internal class ZipCommand(
         val stdout =
             buildString {
                 appendLine("zip list: $total entries" + if (truncated) " (showing ${entries.size})" else "")
+                if (open.encodingRequested != "auto" || open.encodingUsed != "UTF-8") {
+                    appendLine("encoding: ${open.encodingUsed} (requested: ${open.encodingRequested})")
+                }
                 if (outRel != null) appendLine("full list written: $outRel")
                 for (el in entries) {
                     val obj = el as? kotlinx.serialization.json.JsonObject ?: continue
@@ -173,6 +206,7 @@ internal class ZipCommand(
         if (!destDir.exists()) destDir.mkdirs()
         if (!destDir.exists() || !destDir.isDirectory) return invalidArgs("--dest must be a directory: $destRel")
 
+        val encodingRaw = optionalFlagValue(argv, "--encoding")?.trim()?.takeIf { it.isNotBlank() }
         val maxFiles = parseIntFlag(argv, "--max-files", defaultValue = 2000).coerceAtLeast(0)
         val maxBytes = parseLongFlag(argv, "--max-bytes", defaultValue = 512L * 1024L * 1024L).coerceAtLeast(0L)
 
@@ -183,8 +217,9 @@ internal class ZipCommand(
         var skippedUnsafePath = 0
         var skippedTooLarge = 0
 
-        ZipFile(zipFile).use { zf ->
-            val it = zf.entries()
+        val open = openZipForRead(zipFile, encodingRaw)
+        open.zip.use { zf ->
+            val it = zf.entries
             val buf = ByteArray(64 * 1024)
             while (it.hasMoreElements()) {
                 val e = it.nextElement()
@@ -273,6 +308,8 @@ internal class ZipCommand(
                 put("command", JsonPrimitive("zip extract"))
                 put("in", JsonPrimitive(inRel))
                 put("dest", JsonPrimitive(destRel))
+                put("encoding_requested", JsonPrimitive(open.encodingRequested))
+                put("encoding_used", JsonPrimitive(open.encodingUsed))
                 put("files_written", JsonPrimitive(filesWritten))
                 put("dirs_created", JsonPrimitive(dirsCreated))
                 put("bytes_written", JsonPrimitive(bytesWritten))
@@ -289,6 +326,9 @@ internal class ZipCommand(
         val stdout =
             buildString {
                 appendLine("zip extract: wrote $filesWritten files to $destRel ($bytesWritten bytes)")
+                if (open.encodingRequested != "auto" || open.encodingUsed != "UTF-8") {
+                    appendLine("encoding: ${open.encodingUsed} (requested: ${open.encodingRequested})")
+                }
                 if (skippedExisting > 0) appendLine("skipped existing: $skippedExisting")
                 if (skippedUnsafePath > 0) appendLine("skipped unsafe paths: $skippedUnsafePath")
                 if (skippedTooLarge > 0) appendLine("skipped too large: $skippedTooLarge")
@@ -410,16 +450,215 @@ internal class ZipCommand(
         return TerminalCommandOutput(exitCode = 0, stdout = stdout, result = result)
     }
 
-    private fun zipEntryJson(e: ZipEntry): JsonElement {
-        val n = e.name.orEmpty()
-        val size = e.size
-        val csize = e.compressedSize
-        val time = e.time
+    private data class OpenZipResult(
+        val zip: CommonsZipFile,
+        val encodingRequested: String,
+        val encodingUsed: String,
+    )
+
+    private fun openZipForRead(
+        zipFile: File,
+        encodingRaw: String?,
+    ): OpenZipResult {
+        val requested = normalizeEncodingSpec(encodingRaw)
+        if (requested != "auto") {
+            val candidates =
+                when (requested) {
+                    "windows-31j" -> listOf("windows-31j", "Shift_JIS")
+                    "GBK" -> listOf("GBK", "GB18030")
+                    else -> listOf(requested)
+                }.filter { Charset.isSupported(it) }.distinct()
+            if (candidates.isEmpty()) throw IllegalArgumentException("unsupported --encoding: $requested")
+            var last: Throwable? = null
+            for (enc in candidates) {
+                try {
+                    val zip = openCommonsZip(zipFile, enc)
+                    // Force a scan to surface any decoding issues early.
+                    validateZipEntries(zip)
+                    return OpenZipResult(zip = zip, encodingRequested = requested, encodingUsed = enc)
+                } catch (t: Throwable) {
+                    last = t
+                }
+            }
+            val msg = last?.message?.takeIf { it.isNotBlank() } ?: "zip entry name decode error"
+            throw IllegalArgumentException(msg, last)
+        }
+
+        val candidates =
+            listOf("UTF-8", "windows-31j", "Shift_JIS", "GBK", "GB18030")
+                .filter { Charset.isSupported(it) }
+                .distinct()
+
+        // Phase 1: sample-score to pick a likely encoding (stable tie-break by candidate order).
+        val scoredCandidates = mutableListOf<Pair<String, Int>>()
+        for (enc in candidates) {
+            try {
+                openCommonsZip(zipFile, enc).use { zip ->
+                    val score = scoreZipEntryNames(zip, maxEntries = 200)
+                    scoredCandidates.add(enc to score)
+                }
+            } catch (_: Throwable) {
+                // Ignore; phase 2 will try to open+validate anyway.
+            }
+        }
+        val preferred =
+            if (scoredCandidates.isEmpty()) {
+                candidates
+            } else {
+                val bestByScore =
+                    scoredCandidates
+                        .sortedWith(
+                            compareByDescending<Pair<String, Int>> { it.second }
+                                .thenBy { pair -> candidates.indexOf(pair.first) },
+                        )
+                        .map { it.first }
+                // Keep any unscored candidates as last resort, preserving the original order.
+                (bestByScore + candidates.filter { c -> bestByScore.none { it == c } }).distinct()
+            }
+
+        // Phase 2: validate all entry names with the preferred ordering, returning the first fully-decodable encoding.
+        var last: Throwable? = null
+        for (enc in preferred) {
+            try {
+                val zip = openCommonsZip(zipFile, enc)
+                try {
+                    validateZipEntries(zip)
+                } catch (t: Throwable) {
+                    try {
+                        zip.close()
+                    } catch (_: Throwable) {
+                    }
+                    throw t
+                }
+                return OpenZipResult(zip = zip, encodingRequested = "auto", encodingUsed = enc)
+            } catch (t: Throwable) {
+                last = t
+            }
+        }
+        val msg = last?.message?.takeIf { it.isNotBlank() } ?: "zip entry name decode error"
+        throw IllegalArgumentException(msg, last)
+    }
+
+    private fun openCommonsZip(
+        zipFile: File,
+        charsetName: String,
+    ): CommonsZipFile {
+        val raf = RandomAccessFile(zipFile, "r")
+        val ch = RafSeekableByteChannel(raf)
+        try {
+            return CommonsZipFile
+                .builder()
+                .setSeekableByteChannel(ch)
+                .setCharset(Charset.forName(charsetName))
+                .setUseUnicodeExtraFields(true)
+                .get()
+        } catch (t: Throwable) {
+            try {
+                ch.close()
+            } catch (_: Throwable) {
+            }
+            throw t
+        }
+    }
+
+    private class RafSeekableByteChannel(
+        private val raf: RandomAccessFile,
+    ) : SeekableByteChannel by raf.channel {
+        override fun close() {
+            try {
+                raf.channel.close()
+            } finally {
+                raf.close()
+            }
+        }
+    }
+
+    private fun validateZipEntries(zip: CommonsZipFile) {
+        val it = zip.entries
+        while (it.hasMoreElements()) {
+            val e = it.nextElement()
+            // Accessing e.name is the main thing that can fail when decoding.
+            e.name
+        }
+    }
+
+    private fun scoreZipEntryNames(
+        zip: CommonsZipFile,
+        maxEntries: Int,
+    ): Int {
+        var score = 0
+        var seen = 0
+        val it = zip.entries
+        while (it.hasMoreElements() && seen < maxEntries) {
+            val e = it.nextElement()
+            val n = e.name.orEmpty()
+            score += scoreDecodedName(n)
+            seen += 1
+        }
+        return score
+    }
+
+    private fun scoreDecodedName(name: String): Int {
+        if (name.isEmpty()) return -10
+        var s = 0
+        val limit = minOf(name.length, 120)
+        for (i in 0 until limit) {
+            val ch = name[i]
+            val cp = ch.code
+            when {
+                ch == '\uFFFD' -> s -= 40 // replacement char
+                cp in 0x00..0x1F -> s -= 6 // control chars
+                cp in 0x7F..0x9F -> s -= 6 // control chars
+                cp in 0xE000..0xF8FF -> s -= 2 // private use (often mojibake)
+                cp in 0x3040..0x309F -> s += 4 // hiragana
+                cp in 0x30A0..0x30FF -> s += 4 // katakana
+                cp in 0x4E00..0x9FFF -> s += 3 // CJK unified
+                cp in 0xFF00..0xFFEF -> s += 1 // fullwidth/halfwidth
+                else -> {
+                    // neutral
+                }
+            }
+        }
+        // Mild penalty for the typical "�" marker (if it sneaks in via some console rendering).
+        if (name.contains('�')) s -= 20
+        return s
+    }
+
+    private fun normalizeEncodingSpec(raw: String?): String {
+        val v = raw?.trim().orEmpty()
+        if (v.isEmpty()) return "auto"
+        val key = v.lowercase()
+        return when (key) {
+            "auto" -> "auto"
+            "utf8", "utf-8" -> "UTF-8"
+            "cp932",
+            "ms932",
+            "windows-31j",
+            "shift_jis",
+            "shift-jis",
+            "shiftjis",
+            "sjis",
+            -> "windows-31j"
+            "cp936",
+            "gbk",
+            "windows-936",
+            -> "GBK"
+            else -> v
+        }
+    }
+
+    private fun zipEntryJson(
+        name: String,
+        size: Long,
+        csize: Long,
+        isDir: Boolean,
+        time: Long,
+    ): JsonElement {
         return buildJsonObject {
-            put("name", JsonPrimitive(n))
+            put("name", JsonPrimitive(name))
             put("compressed_bytes", JsonPrimitive(csize))
             put("uncompressed_bytes", JsonPrimitive(size))
-            put("is_dir", JsonPrimitive(e.isDirectory))
+            put("is_dir", JsonPrimitive(isDir))
             put("modified_time_ms", JsonPrimitive(time))
         }
     }
@@ -473,4 +712,3 @@ internal class ZipCommand(
         )
     }
 }
-

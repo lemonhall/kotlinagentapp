@@ -17,7 +17,7 @@
   - `zip list/extract/create`
   - `tar list/extract/create`
 - 依赖策略：
-  - zip：`java.util.zip`
+  - zip：读（list/extract）用 Apache Commons Compress（支持 `--encoding` / auto 回退）；写（create）用 `java.util.zip`
   - tar：Apache Commons Compress（纯 Java）
 - 安全策略（必须）：
   - extract/create 强制 `--confirm`
@@ -69,4 +69,3 @@
 
 - Android 存储空间与 I/O 性能：默认限制必须保守（max-files/max-bytes），并提供可解释错误。
 - tar 链接条目（symlink/hardlink）是常见逃逸载体：v17 默认拒绝，避免安全债。
-
