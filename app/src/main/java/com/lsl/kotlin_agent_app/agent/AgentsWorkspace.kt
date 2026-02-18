@@ -54,6 +54,7 @@ class AgentsWorkspace(
         installBundledSkillDir(name = "wapo-rss", assetDir = "builtin_skills/wapo-rss", overwrite = overwrite)
         installBundledSkillDir(name = "ssh-cli", assetDir = "builtin_skills/ssh-cli", overwrite = overwrite)
         installBundledSkillDir(name = "irc-cli", assetDir = "builtin_skills/irc-cli", overwrite = overwrite)
+        installBundledSkillDir(name = "music-cli", assetDir = "builtin_skills/music-cli", overwrite = overwrite)
 
         // Create secret template file once (never overwrite user's local secrets).
         ensureBundledSecretEnvFileIfMissing(

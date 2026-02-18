@@ -6,6 +6,7 @@ import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.cal.CalCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.git.GitCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.irc.IrcCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.ledger.LedgerCommand
+import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.music.MusicCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.qqmail.QqMailCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.rss.RssCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.ssh.SshCommand
@@ -28,6 +29,7 @@ internal object TerminalCommands {
                 RssCommand(appContext),
                 SshCommand(appContext),
                 IrcCommand(appContext),
+                MusicCommand(appContext),
             ),
         )
     }

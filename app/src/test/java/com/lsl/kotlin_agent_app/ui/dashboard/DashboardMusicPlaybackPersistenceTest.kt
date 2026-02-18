@@ -29,6 +29,8 @@ class DashboardMusicPlaybackPersistenceTest {
 
     private class FakeTransport : MusicTransport {
         var playing: Boolean = false
+        var vol: Float = 1.0f
+        var transportListener: com.lsl.kotlin_agent_app.media.MusicTransportListener? = null
         override suspend fun connect() = Unit
         override suspend fun play(request: MusicPlaybackRequest) {
             playing = true
@@ -46,6 +48,13 @@ class DashboardMusicPlaybackPersistenceTest {
         override fun currentPositionMs(): Long = 1234L
         override fun durationMs(): Long? = 5000L
         override fun isPlaying(): Boolean = playing
+        override suspend fun setVolume(volume: Float) {
+            vol = volume
+        }
+        override fun volume(): Float? = vol
+        override fun setListener(listener: com.lsl.kotlin_agent_app.media.MusicTransportListener?) {
+            this.transportListener = listener
+        }
     }
 
     @Test

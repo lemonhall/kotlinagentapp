@@ -24,6 +24,8 @@ class MusicPlayerControllerTest {
         var playing: Boolean = false
         var pos: Long = 0L
         var dur: Long? = null
+        var vol: Float = 1.0f
+        var transportListener: MusicTransportListener? = null
 
         override suspend fun connect() = Unit
 
@@ -58,6 +60,16 @@ class MusicPlayerControllerTest {
         override fun durationMs(): Long? = dur
 
         override fun isPlaying(): Boolean = playing
+
+        override suspend fun setVolume(volume: Float) {
+            vol = volume
+        }
+
+        override fun volume(): Float? = vol
+
+        override fun setListener(listener: MusicTransportListener?) {
+            this.transportListener = listener
+        }
     }
 
     @Test

@@ -8,4 +8,9 @@ object AppPrefsKeys {
     const val PROXY_ENABLED = "net.proxy_enabled"
     const val HTTP_PROXY = "net.http_proxy"
     const val HTTPS_PROXY = "net.https_proxy"
+
+    const val MUSIC_PLAYBACK_MODE = "music.playback_mode"
+    const val MUSIC_VOLUME = "music.volume"
+    const val MUSIC_MUTED = "music.muted"
+    const val MUSIC_LAST_NONZERO_VOLUME = "music.last_nonzero_volume"
 }

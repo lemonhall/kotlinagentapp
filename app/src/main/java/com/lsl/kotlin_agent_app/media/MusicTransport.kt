@@ -19,5 +19,14 @@ interface MusicTransport {
     fun currentPositionMs(): Long
     fun durationMs(): Long?
     fun isPlaying(): Boolean
+
+    suspend fun setVolume(volume: Float)
+    fun volume(): Float?
+
+    fun setListener(listener: MusicTransportListener?)
 }
 
+interface MusicTransportListener {
+    fun onPlaybackEnded()
+    fun onPlayerError(message: String?)
+}

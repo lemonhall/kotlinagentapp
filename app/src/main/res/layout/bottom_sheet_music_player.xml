@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/sheet_cover"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:contentDescription="封面"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_insert_drive_file_24" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/sheet_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textAppearance="?attr/textAppearanceHeadline6"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/sheet_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textAppearance="?attr/textAppearanceBody2" />
+
+            <TextView
+                android:id="@+id/sheet_mode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp"
+                android:text="顺序循环"
+                android:textAppearance="?attr/textAppearanceCaption" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/sheet_prev"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="上一首"
+            android:src="@drawable/ic_arrow_back_24"
+            android:tint="?attr/colorOnSurface" />
+
+        <ImageButton
+            android:id="@+id/sheet_play_pause"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginHorizontal="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="播放/暂停"
+            android:src="@drawable/ic_play_arrow_24"
+            android:tint="?attr/colorOnSurface" />
+
+        <ImageButton
+            android:id="@+id/sheet_next"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="下一首"
+            android:src="@drawable/ic_arrow_forward_24"
+            android:tint="?attr/colorOnSurface" />
+
+        <ImageButton
+            android:id="@+id/sheet_stop"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="停止"
+            android:src="@drawable/ic_stop"
+            android:tint="?attr/colorOnSurface" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/sheet_mute"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="静音"
+            android:src="@drawable/ic_volume_up_24"
+            android:tint="?attr/colorOnSurface" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sheet_volume_slider"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:valueFrom="0"
+            android:valueTo="1"
+            android:stepSize="0.01" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/sheet_lyrics_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="歌词"
+        android:textAppearance="?attr/textAppearanceSubtitle2" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/sheet_lyrics_list"
+        android:layout_width="match_parent"
+        android:layout_height="240dp"
+        android:overScrollMode="never" />
+
+    <ScrollView
+        android:id="@+id/sheet_lyrics_plain_container"
+        android:layout_width="match_parent"
+        android:layout_height="240dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/sheet_lyrics_plain"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:textAppearance="?attr/textAppearanceBody2" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/sheet_lyrics_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="暂无歌词"
+        android:textAppearance="?attr/textAppearanceBody2" />
+</LinearLayout>

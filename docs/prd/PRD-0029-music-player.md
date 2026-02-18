@@ -109,6 +109,20 @@
 - REQ-0029-052：写入失败必须给出可解释错误（如 `NotSupported`/`InvalidMp3`/`PermissionDenied`），不得产出半写入损坏文件（必要时用临时文件 + 原子替换）。
 - REQ-0029-053：tag 版本策略：默认**尽量保留**原文件的 ID3 版本；如因实现需要必须升级/转换版本，必须在 `result` 中显式返回（例如 `tagVersionBefore/tagVersionAfter`），并确保读写后 metadata 不丢字段。
 
+### G. 播放器体验增强（v31）[已由 ECN-0004 变更]
+
+- REQ-0029-060：封面渲染：在 Files 页签播放器 UI 中渲染专辑封面（优先读取 mp3 embedded picture；无则使用占位图），不得因封面缺失/损坏崩溃。
+- REQ-0029-061：播放模式：支持 4 种模式并可在 UI 中切换：  
+  1) 随机循环（永不停止）  
+  2) 顺序循环（从上到下扫描，循环回到开头，永不停止）  
+  3) 单曲循环（永不停止）  
+  4) 播放一次（播放完当前曲目即停止/不自动续播）
+- REQ-0029-062：自动续播：当曲目自然播放结束时，必须按 REQ-0029-061 的模式选择下一动作（自动下一首/循环/停止），不得“播完就停在 paused 但不续播”（除播放一次外）。
+- REQ-0029-063：歌词渲染：若曲目包含歌词（至少支持 ID3v2 `USLT`），在播放器 UI 中可查看歌词文本；若歌词包含 LRC 时间戳（如 `[mm:ss.xx]`），则应随播放位置高亮当前行（best-effort）。
+- REQ-0029-064：外置歌词（可选）：若同目录存在同名 `.lrc` 文件（如 `song.mp3` 对应 `song.lrc`），优先或可选读取并渲染（策略由 v31 计划锁定并写入验收）。
+- REQ-0029-065：音量控制：提供 mute 切换与音量滑块（0.0~1.0），且用户设置需持久化（下次打开仍生效）。
+- REQ-0029-066：下一首/上一首：在 UI 中提供 next/prev 控制；当队列 size=1 时应降级为禁用或等价行为（不崩溃、可解释）。
+
 ## Acceptance（硬口径）
 
 ### v29（核心播放器）
@@ -135,6 +149,17 @@
 2. CLI 能在不依赖 Files UI 的情况下查询/控制播放状态（status/play/stop/seek/next…）。  
 3. `music meta set` 具备 `--confirm` 门禁，且写入具备原子性（失败不损坏原文件）。  
 4. Verify：`.\gradlew.bat :app:testDebugUnitTest` exit code=0（覆盖：status/play/stop/seek、非法参数、unknown file、confirm 门禁、写入失败回滚）。  
+
+### v31（UX：封面/播放模式/歌词/音量）
+
+1. Files 页签播放器 UI 可渲染封面：有 embedded picture 的 mp3 显示封面；无封面的 mp3 显示占位图（不得崩溃）。  
+2. 支持 4 种播放模式（随机循环/顺序循环/单曲循环/播放一次），UI 可切换且状态可见。  
+3. 自然播放结束行为正确：除“播放一次”外，均不会停止（必须自动续播）。  
+4. 支持 next/prev：能切歌并更新 UI；队列 size=1 时行为合理且不崩溃。  
+5. 歌词可查看：至少支持 ID3 `USLT` 文本展示；若包含 LRC 时间戳则随播放高亮（best-effort）。  
+6. 音量控制可用：mute + 滑块可调节音量并持久化。  
+7. Verify：`.\gradlew.bat :app:testDebugUnitTest` exit code=0（覆盖：播放模式状态机 + 歌词解析）。  
+
 
 ## Risks
 

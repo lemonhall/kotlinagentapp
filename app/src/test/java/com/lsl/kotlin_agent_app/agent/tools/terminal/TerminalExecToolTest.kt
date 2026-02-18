@@ -21,6 +21,10 @@ import com.lsl.kotlin_agent_app.agent.tools.stock.FinnhubHttpResponse
 import com.lsl.kotlin_agent_app.agent.tools.stock.FinnhubTransport
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.cal.CalCommandTestHooks
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.qqmail.QqMailCommandTestHooks
+import com.lsl.kotlin_agent_app.media.MusicPlayerController
+import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
+import com.lsl.kotlin_agent_app.media.MusicPlaybackRequest
+import com.lsl.kotlin_agent_app.media.MusicTransport
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -39,6 +43,8 @@ import okio.FileSystem
 import okio.Path.Companion.toPath
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
+import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -79,6 +85,189 @@ class TerminalExecToolTest {
         assertTrue(auditText.contains("hello"))
         assertTrue("audit should include stdout", auditText.contains("\"stdout\""))
         assertTrue("audit should not include stdin key", !auditText.contains("\"stdin\""))
+    }
+
+    @Test
+    fun music_status_idle_byDefault() = runTest(
+        setup = { context ->
+            MusicPlayerControllerProvider.resetForTests()
+            MusicPlayerControllerProvider.installAppContext(context)
+            MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                MusicPlayerController(ctx, transport = FakeMusicTransport())
+            }
+            {
+                MusicPlayerControllerProvider.resetForTests()
+            }
+        },
+    ) { tool ->
+        val out = tool.exec("music status")
+        assertEquals(0, out.exitCode)
+        val r = out.result ?: error("missing result")
+        assertEquals("idle", r["state"]!!.jsonPrimitive.content)
+        assertEquals(0, r["queue_size"]!!.jsonPrimitive.content.toInt())
+    }
+
+    @Test
+    fun music_play_rejectsPathOutsideMusicsTree() = runTest(
+        setup = { context ->
+            MusicPlayerControllerProvider.resetForTests()
+            MusicPlayerControllerProvider.installAppContext(context)
+            MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                MusicPlayerController(ctx, transport = FakeMusicTransport())
+            }
+            {
+                MusicPlayerControllerProvider.resetForTests()
+            }
+        },
+    ) { tool ->
+        val out = tool.exec("music play --in workspace/inbox/not_allowed.mp3")
+        assertTrue(out.exitCode != 0)
+        assertEquals("PathNotAllowed", out.errorCode)
+    }
+
+    @Test
+    fun music_play_pause_resume_seek_stop_roundtrip() = runTest(
+        setup = { context ->
+            val ws = AgentsWorkspace(context)
+            ws.ensureInitialized()
+            val p = "workspace/musics/demo.mp3"
+            val f = File(context.filesDir, ".agents/$p")
+            f.parentFile?.mkdirs()
+            f.writeBytes(buildFakeMp3Bytes())
+
+            MusicPlayerControllerProvider.resetForTests()
+            MusicPlayerControllerProvider.installAppContext(context)
+            MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                MusicPlayerController(ctx, transport = FakeMusicTransport())
+            }
+            {
+                MusicPlayerControllerProvider.resetForTests()
+            }
+        },
+    ) { tool ->
+        val outPlay = tool.exec("music play --in workspace/musics/demo.mp3")
+        assertEquals(0, outPlay.exitCode)
+
+        val outStatus1 = tool.exec("music status")
+        assertEquals(0, outStatus1.exitCode)
+        assertEquals("playing", outStatus1.result!!["state"]!!.jsonPrimitive.content)
+
+        val outPause = tool.exec("music pause")
+        assertEquals(0, outPause.exitCode)
+        assertEquals("paused", outPause.result!!["state"]!!.jsonPrimitive.content)
+
+        val outResume = tool.exec("music resume")
+        assertEquals(0, outResume.exitCode)
+        assertEquals("playing", outResume.result!!["state"]!!.jsonPrimitive.content)
+
+        val outSeek = tool.exec("music seek --to-ms 1234")
+        assertEquals(0, outSeek.exitCode)
+        val outStatus2 = tool.exec("music status")
+        assertEquals(0, outStatus2.exitCode)
+        assertEquals(1234L, outStatus2.result!!["position_ms"]!!.jsonPrimitive.content.toLong())
+
+        val outStop = tool.exec("music stop")
+        assertEquals(0, outStop.exitCode)
+        val outStatus3 = tool.exec("music status")
+        assertEquals(0, outStatus3.exitCode)
+        assertEquals("stopped", outStatus3.result!!["state"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun music_next_prev_usesDeterministicQueue() = runTest(
+        setup = { context ->
+            val ws = AgentsWorkspace(context)
+            ws.ensureInitialized()
+            val f1 = File(context.filesDir, ".agents/workspace/musics/a.mp3")
+            val f2 = File(context.filesDir, ".agents/workspace/musics/b.mp3")
+            f1.parentFile?.mkdirs()
+            f1.writeBytes(buildFakeMp3Bytes())
+            f2.writeBytes(buildFakeMp3Bytes())
+
+            MusicPlayerControllerProvider.resetForTests()
+            MusicPlayerControllerProvider.installAppContext(context)
+            MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                MusicPlayerController(ctx, transport = FakeMusicTransport())
+            }
+            {
+                MusicPlayerControllerProvider.resetForTests()
+            }
+        },
+    ) { tool ->
+        assertEquals(0, tool.exec("music play --in workspace/musics/a.mp3").exitCode)
+        assertEquals(0, tool.exec("music next").exitCode)
+        val st1 = tool.exec("music status").result ?: error("missing result")
+        val track1 = st1["track"]!!.jsonObject
+        assertEquals("workspace/musics/b.mp3", track1["path"]!!.jsonPrimitive.content)
+
+        assertEquals(0, tool.exec("music prev").exitCode)
+        val st2 = tool.exec("music status").result ?: error("missing result")
+        val track2 = st2["track"]!!.jsonObject
+        assertEquals("workspace/musics/a.mp3", track2["path"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun music_meta_set_requiresConfirm_andDoesNotModifyFile() = runTest { tool ->
+        val context = RuntimeEnvironment.getApplication()
+        val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
+        val f = File(context.filesDir, ".agents/workspace/musics/meta.mp3")
+        f.parentFile?.mkdirs()
+        val before = buildFakeMp3Bytes()
+        f.writeBytes(before)
+
+        val out = tool.exec("music meta set --in workspace/musics/meta.mp3 --title new-title")
+        assertTrue(out.exitCode != 0)
+        assertEquals("ConfirmRequired", out.errorCode)
+        assertTrue(f.readBytes().contentEquals(before))
+    }
+
+    @Test
+    fun music_meta_set_writesAtomically_andMetaGetReflectsChanges() = runTest { tool ->
+        val context = RuntimeEnvironment.getApplication()
+        val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
+        val f = File(context.filesDir, ".agents/workspace/musics/meta2.mp3")
+        f.parentFile?.mkdirs()
+        f.writeBytes(buildFakeMp3Bytes())
+
+        val outSet =
+            tool.exec(
+                "music meta set --in workspace/musics/meta2.mp3 --title \"t1\" --artist \"a1\" --lyrics \"l1\" --confirm",
+            )
+        assertEquals(0, outSet.exitCode)
+        val outGet = tool.exec("music meta get --in workspace/musics/meta2.mp3")
+        assertEquals(0, outGet.exitCode)
+        val md = outGet.result!!["metadata"]!!.jsonObject
+        assertEquals("t1", md["title"]!!.jsonPrimitive.content)
+        assertEquals("a1", md["artist"]!!.jsonPrimitive.content)
+        assertEquals("l1", md["lyrics"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun music_meta_set_rollbackOnReplaceFailure() = runTest(
+        setup = { context ->
+            System.setProperty("kotlin-agent-app.music.atomic_replace.fail_for_test", "1");
+            {
+                System.clearProperty("kotlin-agent-app.music.atomic_replace.fail_for_test")
+            }
+        },
+    ) { tool ->
+        val context = RuntimeEnvironment.getApplication()
+        val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
+        val f = File(context.filesDir, ".agents/workspace/musics/meta3.mp3")
+        f.parentFile?.mkdirs()
+        val before = buildFakeMp3Bytes()
+        f.writeBytes(before)
+
+        val out =
+            tool.exec(
+                "music meta set --in workspace/musics/meta3.mp3 --title \"t2\" --confirm",
+            )
+        assertTrue(out.exitCode != 0)
+        assertEquals("WriteFailed", out.errorCode)
+        assertTrue(f.readBytes().contentEquals(before))
     }
 
     @Test
@@ -1055,6 +1244,58 @@ class TerminalExecToolTest {
     }
 
     @Test
+    fun zip_extract_supportsEncodingFlag_forCp932Names() = runTest { tool ->
+        val zipRel = "workspace/cp932-" + UUID.randomUUID().toString().replace("-", "").take(8) + ".zip"
+        val zipFile = File(tool.filesDir, ".agents/$zipRel")
+        zipFile.parentFile?.mkdirs()
+
+        val entryName = "残酷な天使のテーゼ.txt"
+        ZipArchiveOutputStream(FileOutputStream(zipFile)).use { zos ->
+            zos.setEncoding("windows-31j")
+            zos.setUseLanguageEncodingFlag(false)
+            val e = ZipArchiveEntry(entryName)
+            zos.putArchiveEntry(e)
+            zos.write("ok".toByteArray(Charsets.UTF_8))
+            zos.closeArchiveEntry()
+            zos.finish()
+        }
+
+        val destRel = "workspace/unpack-" + UUID.randomUUID().toString().replace("-", "").take(8)
+        val out = tool.exec("zip extract --in $zipRel --dest $destRel --confirm --encoding cp932")
+        assertEquals(0, out.exitCode)
+
+        val extracted = File(tool.filesDir, ".agents/$destRel/$entryName")
+        assertTrue("expected decoded filename to be preserved: $extracted", extracted.exists())
+        assertEquals("ok", extracted.readText(Charsets.UTF_8))
+    }
+
+    @Test
+    fun zip_extract_autoEncoding_canHandleGbkEncodedJapaneseNames() = runTest { tool ->
+        val zipRel = "workspace/gbk-" + UUID.randomUUID().toString().replace("-", "").take(8) + ".zip"
+        val zipFile = File(tool.filesDir, ".agents/$zipRel")
+        zipFile.parentFile?.mkdirs()
+
+        val entryName = "残酷な天使のテーゼ.txt"
+        ZipArchiveOutputStream(FileOutputStream(zipFile)).use { zos ->
+            zos.setEncoding("GBK")
+            zos.setUseLanguageEncodingFlag(false)
+            val e = ZipArchiveEntry(entryName)
+            zos.putArchiveEntry(e)
+            zos.write("ok".toByteArray(Charsets.UTF_8))
+            zos.closeArchiveEntry()
+            zos.finish()
+        }
+
+        val destRel = "workspace/unpack-" + UUID.randomUUID().toString().replace("-", "").take(8)
+        val out = tool.exec("zip extract --in $zipRel --dest $destRel --confirm --encoding auto")
+        assertEquals(0, out.exitCode)
+
+        val extracted = File(tool.filesDir, ".agents/$destRel/$entryName")
+        assertTrue("expected decoded filename to be preserved: $extracted", extracted.exists())
+        assertEquals("ok", extracted.readText(Charsets.UTF_8))
+    }
+
+    @Test
     fun zip_list_supportsOutArtifact() = runTest { tool ->
         val zipRel = "workspace/many-" + UUID.randomUUID().toString().replace("-", "").take(8) + ".zip"
         val zipFile = File(tool.filesDir, ".agents/$zipRel")
@@ -1653,5 +1894,69 @@ class TerminalExecToolTest {
             lastHeaders = headers.toMap()
             return RssHttpResponse(statusCode = statusCode, bodyText = bodyText, headers = this.headers)
         }
+    }
+
+    private class FakeMusicTransport : MusicTransport {
+        @Volatile private var playing: Boolean = false
+        @Volatile private var posMs: Long = 0L
+        @Volatile private var durMs: Long? = 60_000L
+        @Volatile private var vol: Float = 1.0f
+        @Volatile private var transportListener: com.lsl.kotlin_agent_app.media.MusicTransportListener? = null
+
+        @Volatile var lastPlayedAgentsPath: String? = null
+        @Volatile var playCalls: Int = 0
+
+        override suspend fun connect() {
+            // no-op
+        }
+
+        override suspend fun play(request: MusicPlaybackRequest) {
+            playCalls += 1
+            lastPlayedAgentsPath = request.agentsPath
+            playing = true
+            posMs = 0L
+            durMs = request.metadata.durationMs ?: durMs
+        }
+
+        override suspend fun pause() {
+            playing = false
+        }
+
+        override suspend fun resume() {
+            playing = true
+        }
+
+        override suspend fun stop() {
+            playing = false
+            posMs = 0L
+        }
+
+        override suspend fun seekTo(positionMs: Long) {
+            posMs = positionMs.coerceAtLeast(0L)
+        }
+
+        override fun currentPositionMs(): Long = posMs
+
+        override fun durationMs(): Long? = durMs
+
+        override fun isPlaying(): Boolean = playing
+
+        override suspend fun setVolume(volume: Float) {
+            vol = volume
+        }
+
+        override fun volume(): Float? = vol
+
+        override fun setListener(listener: com.lsl.kotlin_agent_app.media.MusicTransportListener?) {
+            this.transportListener = listener
+        }
+    }
+
+    private fun buildFakeMp3Bytes(): ByteArray {
+        // Minimal "mp3-looking" bytes: frame sync + padding.
+        // It's not meant to be playable; only to satisfy lightweight validation for unit tests.
+        val header = byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x64.toByte())
+        val body = ByteArray(4096) { 0 }
+        return header + body
     }
 }

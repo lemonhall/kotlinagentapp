@@ -30,6 +30,8 @@ import com.google.android.material.color.MaterialColors
 import com.lsl.kotlin_agent_app.ui.markdown.MarkwonProvider
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.slider.Slider
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -38,11 +40,17 @@ import java.io.File
 import java.net.URLConnection
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.FileOutputStream
 import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
+import com.lsl.kotlin_agent_app.databinding.BottomSheetMusicPlayerBinding
+import com.lsl.kotlin_agent_app.media.lyrics.LrcParser
+import com.lsl.kotlin_agent_app.media.lyrics.LrcLine
 
 class DashboardFragment : Fragment() {
 
@@ -59,6 +67,17 @@ class DashboardFragment : Fragment() {
     private val sidRx = Regex("^[a-f0-9]{32}$", RegexOption.IGNORE_CASE)
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private var filesViewModel: FilesViewModel? = null
+
+    private var lastCoverBytesRef: ByteArray? = null
+    private var lastCoverBitmap: Bitmap? = null
+
+    private var musicSheetDialog: BottomSheetDialog? = null
+    private var musicSheetBinding: BottomSheetMusicPlayerBinding? = null
+    private var sheetLyricsAdapter: LyricsLineAdapter? = null
+    private var sheetLyricsRaw: String? = null
+    private var sheetLyricsTimed: List<LrcLine>? = null
+    private var sheetLastHighlightedIndex: Int = -1
+    private var sheetIsSlidingVolume: Boolean = false
 
     private val importLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -206,8 +225,32 @@ class DashboardFragment : Fragment() {
         binding.buttonMusicPlayPause.setOnClickListener {
             musicController.togglePlayPause()
         }
+        binding.buttonMusicPrev.setOnClickListener {
+            musicController.prev()
+        }
+        binding.buttonMusicNext.setOnClickListener {
+            musicController.next()
+        }
         binding.buttonMusicStop.setOnClickListener {
             musicController.stop()
+        }
+        binding.textMusicSubtitle.setOnClickListener {
+            val cur = musicController.state.value.playbackMode
+            val next =
+                when (cur) {
+                    com.lsl.kotlin_agent_app.media.MusicPlaybackMode.SequentialLoop -> com.lsl.kotlin_agent_app.media.MusicPlaybackMode.ShuffleLoop
+                    com.lsl.kotlin_agent_app.media.MusicPlaybackMode.ShuffleLoop -> com.lsl.kotlin_agent_app.media.MusicPlaybackMode.RepeatOne
+                    com.lsl.kotlin_agent_app.media.MusicPlaybackMode.RepeatOne -> com.lsl.kotlin_agent_app.media.MusicPlaybackMode.PlayOnce
+                    com.lsl.kotlin_agent_app.media.MusicPlaybackMode.PlayOnce -> com.lsl.kotlin_agent_app.media.MusicPlaybackMode.SequentialLoop
+                }
+            musicController.cyclePlaybackMode()
+            Toast.makeText(requireContext(), "播放模式：${modeLabel(next)}", Toast.LENGTH_SHORT).show()
+        }
+        binding.imageMusicCover.setOnClickListener {
+            showMusicPlayerSheet(musicController)
+        }
+        binding.textMusicTitle.setOnClickListener {
+            showMusicPlayerSheet(musicController)
         }
 
         filesViewModel.state.observe(viewLifecycleOwner) { st ->
@@ -289,6 +332,7 @@ class DashboardFragment : Fragment() {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 musicController.state.collect { st ->
                     updateMiniBar(st)
+                    updateMusicSheetIfVisible(st)
                     val cwd = filesViewModel.state.value?.cwd.orEmpty()
                     if (isInMusicsTree(cwd)) {
                         val base = "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
@@ -321,8 +365,9 @@ class DashboardFragment : Fragment() {
         val dur = st.durationMs?.let { fmt(it) }
         val timeLabel = if (dur != null) "$pos / $dur" else pos
         val artist = st.artist?.trim()?.ifBlank { null }
+        val mode = modeLabel(st.playbackMode)
         binding.textMusicSubtitle.text =
-            listOfNotNull(artist, timeLabel).joinToString(" · ").ifBlank { timeLabel }
+            listOfNotNull(artist, mode, timeLabel).joinToString(" · ").ifBlank { timeLabel }
 
         val progress =
             if (st.durationMs != null && st.durationMs > 0L) {
@@ -335,6 +380,206 @@ class DashboardFragment : Fragment() {
         binding.buttonMusicPlayPause.setImageResource(
             if (st.isPlaying) com.lsl.kotlin_agent_app.R.drawable.ic_pause_24 else com.lsl.kotlin_agent_app.R.drawable.ic_play_arrow_24
         )
+
+        val canSkip = (st.queueSize ?: 0) > 1
+        binding.buttonMusicPrev.isEnabled = canSkip
+        binding.buttonMusicPrev.alpha = if (canSkip) 1.0f else 0.4f
+        binding.buttonMusicNext.isEnabled = canSkip
+        binding.buttonMusicNext.alpha = if (canSkip) 1.0f else 0.4f
+
+        val cover = st.coverArtBytes
+        if (cover != null && cover.isNotEmpty()) {
+            if (lastCoverBytesRef !== cover) {
+                lastCoverBytesRef = cover
+                lastCoverBitmap =
+                    runCatching { BitmapFactory.decodeByteArray(cover, 0, cover.size) }.getOrNull()
+            }
+            binding.imageMusicCover.imageTintList = null
+            binding.imageMusicCover.setImageBitmap(lastCoverBitmap)
+        } else {
+            lastCoverBytesRef = null
+            lastCoverBitmap = null
+            binding.imageMusicCover.setImageResource(com.lsl.kotlin_agent_app.R.drawable.ic_insert_drive_file_24)
+            val tint = MaterialColors.getColor(binding.imageMusicCover, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.GRAY)
+            binding.imageMusicCover.imageTintList = ColorStateList.valueOf(tint)
+        }
+    }
+
+    private fun modeLabel(mode: com.lsl.kotlin_agent_app.media.MusicPlaybackMode): String {
+        return when (mode) {
+            com.lsl.kotlin_agent_app.media.MusicPlaybackMode.ShuffleLoop -> "随机循环"
+            com.lsl.kotlin_agent_app.media.MusicPlaybackMode.SequentialLoop -> "顺序循环"
+            com.lsl.kotlin_agent_app.media.MusicPlaybackMode.RepeatOne -> "单曲循环"
+            com.lsl.kotlin_agent_app.media.MusicPlaybackMode.PlayOnce -> "播放一次"
+        }
+    }
+
+    private fun showMusicPlayerSheet(musicController: com.lsl.kotlin_agent_app.media.MusicPlayerController) {
+        if (musicSheetDialog?.isShowing == true) return
+
+        val dialog = BottomSheetDialog(requireContext())
+        val sheet = BottomSheetMusicPlayerBinding.inflate(layoutInflater)
+
+        sheet.sheetPrev.setOnClickListener { musicController.prev() }
+        sheet.sheetPlayPause.setOnClickListener { musicController.togglePlayPause() }
+        sheet.sheetNext.setOnClickListener { musicController.next() }
+        sheet.sheetStop.setOnClickListener { musicController.stop() }
+
+        sheet.sheetMode.setOnClickListener {
+            val cur = musicController.state.value.playbackMode
+            val next =
+                when (cur) {
+                    com.lsl.kotlin_agent_app.media.MusicPlaybackMode.SequentialLoop -> com.lsl.kotlin_agent_app.media.MusicPlaybackMode.ShuffleLoop
+                    com.lsl.kotlin_agent_app.media.MusicPlaybackMode.ShuffleLoop -> com.lsl.kotlin_agent_app.media.MusicPlaybackMode.RepeatOne
+                    com.lsl.kotlin_agent_app.media.MusicPlaybackMode.RepeatOne -> com.lsl.kotlin_agent_app.media.MusicPlaybackMode.PlayOnce
+                    com.lsl.kotlin_agent_app.media.MusicPlaybackMode.PlayOnce -> com.lsl.kotlin_agent_app.media.MusicPlaybackMode.SequentialLoop
+                }
+            musicController.cyclePlaybackMode()
+            Toast.makeText(requireContext(), "播放模式：${modeLabel(next)}", Toast.LENGTH_SHORT).show()
+        }
+
+        sheet.sheetMute.setOnClickListener { musicController.toggleMute() }
+        sheet.sheetVolumeSlider.addOnSliderTouchListener(
+            object : Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(slider: Slider) {
+                    sheetIsSlidingVolume = true
+                }
+
+                override fun onStopTrackingTouch(slider: Slider) {
+                    sheetIsSlidingVolume = false
+                }
+            }
+        )
+        sheet.sheetVolumeSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) musicController.setVolume(value)
+        }
+
+        val lyricsAdapter = LyricsLineAdapter()
+        sheet.sheetLyricsList.layoutManager = LinearLayoutManager(requireContext())
+        sheet.sheetLyricsList.adapter = lyricsAdapter
+
+        dialog.setContentView(sheet.root)
+        dialog.setOnDismissListener {
+            musicSheetDialog = null
+            musicSheetBinding = null
+            sheetLyricsAdapter = null
+            sheetLyricsRaw = null
+            sheetLyricsTimed = null
+            sheetLastHighlightedIndex = -1
+            sheetIsSlidingVolume = false
+        }
+
+        musicSheetDialog = dialog
+        musicSheetBinding = sheet
+        sheetLyricsAdapter = lyricsAdapter
+        updateMusicSheetIfVisible(musicController.state.value)
+
+        dialog.show()
+    }
+
+    private fun updateMusicSheetIfVisible(st: com.lsl.kotlin_agent_app.media.MusicNowPlayingState) {
+        val sheet = musicSheetBinding ?: return
+        if (musicSheetDialog?.isShowing != true) return
+
+        sheet.sheetTitle.text = st.title?.trim()?.ifBlank { null } ?: "unknown"
+        val artist = st.artist?.trim()?.ifBlank { null }
+        val album = st.album?.trim()?.ifBlank { null }
+        sheet.sheetSubtitle.text = listOfNotNull(artist, album).joinToString(" · ")
+        sheet.sheetMode.text = modeLabel(st.playbackMode)
+
+        sheet.sheetPlayPause.setImageResource(
+            if (st.isPlaying) com.lsl.kotlin_agent_app.R.drawable.ic_pause_24 else com.lsl.kotlin_agent_app.R.drawable.ic_play_arrow_24
+        )
+
+        val canSkip = (st.queueSize ?: 0) > 1
+        sheet.sheetPrev.isEnabled = canSkip
+        sheet.sheetPrev.alpha = if (canSkip) 1.0f else 0.4f
+        sheet.sheetNext.isEnabled = canSkip
+        sheet.sheetNext.alpha = if (canSkip) 1.0f else 0.4f
+
+        sheet.sheetMute.setImageResource(
+            if (st.isMuted) com.lsl.kotlin_agent_app.R.drawable.ic_volume_off_24 else com.lsl.kotlin_agent_app.R.drawable.ic_volume_up_24
+        )
+        if (!sheetIsSlidingVolume) {
+            sheet.sheetVolumeSlider.value = st.volume.coerceIn(0f, 1f)
+        }
+
+        val cover = st.coverArtBytes
+        if (cover != null && cover.isNotEmpty()) {
+            if (lastCoverBytesRef !== cover) {
+                lastCoverBytesRef = cover
+                lastCoverBitmap =
+                    runCatching { BitmapFactory.decodeByteArray(cover, 0, cover.size) }.getOrNull()
+            }
+            sheet.sheetCover.imageTintList = null
+            sheet.sheetCover.setImageBitmap(lastCoverBitmap)
+        } else {
+            sheet.sheetCover.setImageResource(com.lsl.kotlin_agent_app.R.drawable.ic_insert_drive_file_24)
+            val tint = MaterialColors.getColor(sheet.sheetCover, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.GRAY)
+            sheet.sheetCover.imageTintList = ColorStateList.valueOf(tint)
+        }
+
+        val rawLyrics = st.lyrics?.trim()?.ifBlank { null }
+        if (rawLyrics == null) {
+            sheet.sheetLyricsList.visibility = View.GONE
+            sheet.sheetLyricsPlainContainer.visibility = View.GONE
+            sheet.sheetLyricsEmpty.visibility = View.VISIBLE
+            sheetLyricsRaw = null
+            sheetLyricsTimed = null
+            sheetLastHighlightedIndex = -1
+            return
+        }
+
+        if (rawLyrics != sheetLyricsRaw) {
+            sheetLyricsRaw = rawLyrics
+            sheetLastHighlightedIndex = -1
+            val timed = LrcParser.parseTimedLinesOrNull(rawLyrics)
+            sheetLyricsTimed = timed
+            if (timed != null) {
+                sheet.sheetLyricsEmpty.visibility = View.GONE
+                sheet.sheetLyricsPlainContainer.visibility = View.GONE
+                sheet.sheetLyricsList.visibility = View.VISIBLE
+                sheetLyricsAdapter?.submitLines(timed)
+            } else {
+                sheet.sheetLyricsEmpty.visibility = View.GONE
+                sheet.sheetLyricsList.visibility = View.GONE
+                sheet.sheetLyricsPlainContainer.visibility = View.VISIBLE
+                sheet.sheetLyricsPlain.text = rawLyrics
+            }
+        }
+
+        val timed = sheetLyricsTimed
+        if (timed != null) {
+            val idx = findLyricIndex(timed, st.positionMs)
+            if (idx != sheetLastHighlightedIndex) {
+                sheetLastHighlightedIndex = idx
+                sheetLyricsAdapter?.setHighlightedIndex(idx)
+                if (idx >= 0) {
+                    sheet.sheetLyricsList.post {
+                        sheet.sheetLyricsList.scrollToPosition(idx)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun findLyricIndex(lines: List<LrcLine>, positionMs: Long): Int {
+        if (lines.isEmpty()) return -1
+        var lo = 0
+        var hi = lines.size - 1
+        var ans = -1
+        val p = positionMs.coerceAtLeast(0L)
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            val t = lines[mid].timeMs
+            if (t <= p) {
+                ans = mid
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        return ans
     }
 
     private fun isMp3Name(name: String): Boolean {
