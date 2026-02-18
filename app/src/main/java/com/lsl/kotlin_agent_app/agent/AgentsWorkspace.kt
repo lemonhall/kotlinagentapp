@@ -44,6 +44,7 @@ class AgentsWorkspace(
         installBundledSkillDir(name = "archive-tar", assetDir = "builtin_skills/archive-tar", overwrite = overwrite)
         installBundledSkillDir(name = "calendar-cli", assetDir = "builtin_skills/calendar-cli", overwrite = overwrite)
         installBundledSkillDir(name = "qqmail-cli", assetDir = "builtin_skills/qqmail-cli", overwrite = overwrite)
+        installBundledSkillDir(name = "ledger-cli", assetDir = "builtin_skills/ledger-cli", overwrite = overwrite)
 
         // Create secret template file once (never overwrite user's local secrets).
         ensureBundledSecretEnvFileIfMissing(
