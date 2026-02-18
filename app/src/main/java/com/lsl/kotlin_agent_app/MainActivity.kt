@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.widget.Toast
+import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
 
 class MainActivity : AppCompatActivity() {
 
@@ -39,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
         val proxyConfig = SharedPreferencesProxyConfigRepository(prefs).get()
         ProxyManager.apply(applicationContext, proxyConfig)
+        IrcSessionRuntimeStore.installAppContext(applicationContext)
 
         val navView: BottomNavigationView = binding.navView
 

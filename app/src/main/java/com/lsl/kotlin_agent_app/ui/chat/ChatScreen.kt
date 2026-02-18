@@ -389,6 +389,8 @@ private fun ToolTracePanel(
     val sessionKey = sessionId ?: "__no_session__"
     val ircStatus by IrcSessionRuntimeStore.statusFlow(sessionKey).collectAsState()
     val ircLogs by IrcSessionRuntimeStore.logsFlow(sessionKey).collectAsState()
+    val ircInbound by IrcSessionRuntimeStore.inboundFlow(sessionKey).collectAsState()
+    val ircQuestions by IrcSessionRuntimeStore.questionsFlow(sessionKey).collectAsState()
     var showIrcDialog by remember { mutableStateOf(false) }
     val ircColor =
         when (ircStatus.state) {
@@ -452,6 +454,30 @@ private fun ToolTracePanel(
                     TextButton(onClick = onClear) { Text("Clear") }
                 }
             }
+
+            val lastIrc = ircInbound.lastOrNull()
+            if (lastIrc != null) {
+                val preview = "${lastIrc.nick}: ${lastIrc.text}".replace("\n", " ").trim()
+                Text(
+                    text = "IRC $preview",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val lastQ = ircQuestions.lastOrNull()
+            if (lastQ != null) {
+                val inboundPreview = "${lastQ.nick}: ${lastQ.inboundText}".replace("\n", " ").trim()
+                val qPreview = lastQ.question.replace("\n", " ").trim()
+                Text(
+                    text = "IRC 待确认：$inboundPreview ｜ $qPreview",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             val show = if (expanded) traces.takeLast(12) else traces.takeLast(1)
             Column(
                 modifier =
@@ -483,7 +509,36 @@ private fun ToolTracePanel(
                 appendLine("state=${ircStatus.state}")
                 val le = ircStatus.lastError
                 if (le != null) appendLine("last_error=${le.errorCode}: ${le.message}")
+                appendLine("auto_forward_to_agent=${ircStatus.autoForwardToAgent}")
                 appendLine("")
+
+                appendLine("inbound:")
+                val inbound = ircInbound.takeLast(30)
+                if (inbound.isEmpty()) {
+                    appendLine("(no inbound yet)")
+                } else {
+                    inbound.forEach { m ->
+                        val t = m.text.replace("\r\n", "\n").replace("\n", "\\n").take(400)
+                        appendLine("- [${m.tsMs}] ${m.channel} ${m.nick}: $t")
+                    }
+                }
+                appendLine("")
+
+                appendLine("pending_questions:")
+                val qs = ircQuestions.takeLast(10)
+                if (qs.isEmpty()) {
+                    appendLine("(none)")
+                } else {
+                    qs.forEach { q ->
+                        val inbound = q.inboundText.replace("\r\n", "\n").replace("\n", "\\n").take(400)
+                        val question = q.question.replace("\r\n", "\n").replace("\n", "\\n").take(400)
+                        appendLine("- [${q.tsMs}] ${q.channel} ${q.nick}: $inbound")
+                        appendLine("  question: $question")
+                    }
+                }
+                appendLine("")
+
+                appendLine("logs:")
                 val lines = ircLogs.takeLast(80)
                 if (lines.isEmpty()) {
                     appendLine("(no logs yet)")

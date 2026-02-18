@@ -22,6 +22,7 @@ internal class IrcSessionRuntime(
     private val config: IrcConfig,
     private val scope: CoroutineScope,
     private val statusFlow: kotlinx.coroutines.flow.MutableStateFlow<IrcStatusSnapshot>,
+    private val onInbound: (IrcInboundMessage) -> Unit,
     private val onLog: (String) -> Unit,
 ) : IrcClientListener {
     private val mutex = Mutex()
@@ -258,6 +259,7 @@ internal class IrcSessionRuntime(
         }
 
         appendInboundJsonl(msg)
+        onInbound(msg)
     }
 
     override fun onDisconnected(message: String?) {

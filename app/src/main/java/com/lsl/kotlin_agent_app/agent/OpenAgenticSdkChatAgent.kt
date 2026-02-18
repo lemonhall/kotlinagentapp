@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.lemonhall.openagentic.sdk.events.HookEvent
@@ -270,13 +271,22 @@ class OpenAgenticSdkChatAgent(
                         hook = { payload ->
                             val arr = payload["input"] as? JsonArray
                             val current = arr?.mapNotNull { it as? JsonObject }.orEmpty()
+                            val sanitized = sanitizeResponsesInput(current)
                             val alreadyInjected = current.firstOrNull()?.let { first ->
                                 val role = (first["role"] as? JsonPrimitive)?.content?.trim().orEmpty()
                                 val content = (first["content"] as? JsonPrimitive)?.content?.trim().orEmpty()
                                 role == "system" && content.contains(marker)
                             } == true
                             if (alreadyInjected) {
-                                HookDecision(action = buildSystemPromptHookAction(base = "system prompt already present", label = actionLabel))
+                                val action =
+                                    buildSystemPromptHookAction(
+                                        base = if (sanitized.size != current.size) "sanitized model input" else "system prompt already present",
+                                        label = actionLabel,
+                                    )
+                                HookDecision(
+                                    overrideModelInput = sanitized,
+                                    action = action,
+                                )
                             } else {
                                 val sys =
                                     buildJsonObject {
@@ -284,7 +294,7 @@ class OpenAgenticSdkChatAgent(
                                         put("content", JsonPrimitive(systemPrompt))
                                     }
                                 HookDecision(
-                                    overrideModelInput = listOf(sys) + current,
+                                    overrideModelInput = listOf(sys) + sanitized,
                                     action = buildSystemPromptHookAction(base = "prepended system prompt", label = actionLabel),
                                 )
                             }
@@ -292,6 +302,29 @@ class OpenAgenticSdkChatAgent(
                     ),
                 ),
         )
+    }
+
+    private fun sanitizeResponsesInput(input: List<JsonObject>): List<JsonObject> {
+        val nameOk = Regex("^[a-zA-Z0-9_-]+$")
+        val droppedCallIds = linkedSetOf<String>()
+        val out = ArrayList<JsonObject>(input.size)
+        for (item in input) {
+            val type = (item["type"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            if (type == "function_call") {
+                val name = (item["name"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+                val callId = (item["call_id"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+                if (name.isNotBlank() && !nameOk.matches(name)) {
+                    if (callId.isNotBlank()) droppedCallIds.add(callId)
+                    continue
+                }
+            }
+            if (type == "function_call_output") {
+                val callId = (item["call_id"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+                if (callId.isNotBlank() && droppedCallIds.contains(callId)) continue
+            }
+            out.add(item)
+        }
+        return out
     }
 
     private fun buildMainSystemPrompt(root: Path): String {

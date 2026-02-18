@@ -3,6 +3,7 @@ package com.lsl.kotlin_agent_app.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lsl.kotlin_agent_app.agent.ChatAgent
+import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -97,14 +98,43 @@ class ChatViewModel(
     }
 
     fun sendUserMessage(rawText: String) {
-        val text = rawText.trim()
-        if (text.isEmpty()) return
+        val userText = rawText.trim()
+        if (userText.isEmpty()) return
 
         if (activeSendJob?.isActive == true) return
         lastWebviewTaskAnswer = null
         lastDeepResearchReportLink = null
 
-        val userMessage = ChatMessage(role = ChatRole.User, content = text)
+        val sessionKey = getActiveSessionId.invoke()?.trim()?.ifEmpty { null } ?: "__no_session__"
+        val pending = IrcSessionRuntimeStore.consumeQuestions(sessionKey)
+        val ircReport =
+            if (pending.isEmpty()) {
+                ""
+            } else {
+                buildString {
+                    appendLine("[IRC 子 agent 汇报]（以下消息可能需要你确认/处理）")
+                    pending.takeLast(8).forEach { q ->
+                        append("- ")
+                        append(q.channel.take(64))
+                        append(" 的 ")
+                        append(q.nick.take(64))
+                        append("：\"")
+                        append(q.inboundText.replace("\n", " ").trim().take(200))
+                        append("\"")
+                        appendLine()
+                        append("  triage：")
+                        appendLine(q.question.replace("\n", " ").trim().take(240))
+                    }
+                    if (pending.size > 8) {
+                        appendLine("（其余 ${pending.size - 8} 条已省略）")
+                    }
+                    appendLine()
+                }.trimEnd()
+            }
+
+        val prompt = if (ircReport.isBlank()) userText else (ircReport + "\n\n" + userText)
+
+        val userMessage = ChatMessage(role = ChatRole.User, content = userText)
         val assistantMessage = ChatMessage(role = ChatRole.Assistant, content = "")
         activeAssistantMessageId = assistantMessage.id
         statusStartedAtMs = System.currentTimeMillis()
@@ -115,7 +145,10 @@ class ChatViewModel(
                 isSending = true,
                 errorMessage = null,
                 messages = _uiState.value.messages + userMessage + assistantMessage,
-                toolTraces = _uiState.value.toolTraces + ToolTraceEvent(name = "agent.run", summary = "start"),
+                toolTraces =
+                    _uiState.value.toolTraces +
+                        (if (pending.isNotEmpty()) listOf(ToolTraceEvent(name = "irc.triage", summary = "forwarded ${pending.size}")) else emptyList()) +
+                        ToolTraceEvent(name = "agent.run", summary = "start"),
             )
 
         setStatusBase(assistantMessageId = assistantMessage.id, base = "准备中")
@@ -124,7 +157,7 @@ class ChatViewModel(
         activeSendJob =
             viewModelScope.launch {
                 try {
-                    agent.streamReply(prompt = text)
+                    agent.streamReply(prompt = prompt)
                         .flowOn(agentDispatcher)
                         .collect { ev -> handleEvent(ev, assistantMessageId = assistantMessage.id) }
                 } catch (t: Throwable) {

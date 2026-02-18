@@ -56,6 +56,7 @@ class ChatFragment : Fragment() {
         super.onResume()
         viewModel.syncSessionHistoryIfNeeded()
 
+        IrcSessionRuntimeStore.installAppContext(requireContext().applicationContext)
         val prefs = requireContext().getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
         val sessionKey = prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null } ?: return
         val stateNow = IrcSessionRuntimeStore.statusFlow(sessionKey).value.state
