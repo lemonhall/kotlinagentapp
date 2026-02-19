@@ -137,6 +137,7 @@ UI (Chat/Files/Settings)
 - **避免改动生成产物**：不要手改 `build/`、`.gradle/` 等生成目录内容；需要清理用 Gradle/IDE 的 clean。
 - **功能改动后默认装机验证**：每一次“成功的功能修改”（行为/界面/交互变化，且本地相关测试通过）后，默认执行 `.\gradlew.bat :app:installDebug` 安装到已连接真机/模拟器进行冒烟验证；不要等用户提醒。
 - **submodule 改动不要混在本仓库提交里**：如需修改 `external/*`，优先在对应仓库提交并更新 submodule 指针；本仓库只提交 submodule 指针变化即可。
+- **多行格式输出** 所有供 Agent 读取的 JSON 索引文件（如 `.countries.index.json`、`.stations.meta.json` 等）必须使用 `prettyPrint` 多行格式输出，禁止写成单行紧凑 JSON。单行大 JSON 会导致 Read 工具截断、Grep 返回整文件、上下文爆炸等连锁问题。
 
 ## Testing Strategy
 

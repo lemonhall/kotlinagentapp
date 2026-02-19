@@ -44,6 +44,8 @@ internal class RadioRepository(
     private val stationsTtlMs: Long = 72L * 3600L * 1000L,
     private val stationsLimit: Int = 200,
 ) {
+    private val prettyJson: Json = Json { ignoreUnknownKeys = true; explicitNulls = false; prettyPrint = true }
+
     fun ensureRoot() {
         ws.mkdir(RADIOS_DIR)
         ws.mkdir(FAVORITES_DIR)
@@ -243,7 +245,7 @@ internal class RadioRepository(
                     },
                 )
             }
-        return json.encodeToString(JsonObject.serializer(), obj)
+        return prettyJson.encodeToString(JsonObject.serializer(), obj)
     }
 
     private fun ensureCountryDirsExist(index: RadioCountriesIndex?) {
@@ -297,7 +299,7 @@ internal class RadioRepository(
                 put("schema", JsonPrimitive(META_SCHEMA))
                 put("fetchedAtSec", JsonPrimitive(nowSec()))
             }
-        ws.writeTextFile(path, json.encodeToString(JsonObject.serializer(), obj) + "\n")
+        ws.writeTextFile(path, prettyJson.encodeToString(JsonObject.serializer(), obj) + "\n")
     }
 
     private fun writeRootStatus(
