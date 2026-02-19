@@ -287,7 +287,7 @@ class DashboardFragment : Fragment() {
              if (inMusics) {
                  binding.textMusicHint.text = "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
              } else if (inRadios) {
-                 binding.textMusicHint.text = "仅 radios/ 启用电台目录与 .radio 播放；点“刷新”可强制拉取目录。"
+                 binding.textMusicHint.text = "仅 radios/ 启用电台目录与 .radio 播放；长按 .radio 可收藏到 favorites/；点“刷新”可强制拉取目录。"
              }
 
              val openPath = st.openFilePath

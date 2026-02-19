@@ -68,7 +68,7 @@ class TerminalExecToolRssTest {
                         bodyText = "rate limited",
                         headers = mapOf("Retry-After" to "5"),
                     )
-                RssClientTestHooks.install(transport!!)
+                RssClientTestHooks.install(transport!!);
                 { RssClientTestHooks.clear() }
             },
         ) { tool ->
@@ -114,7 +114,7 @@ class TerminalExecToolRssTest {
                         bodyText = rssXml,
                         headers = mapOf("ETag" to "W/\"abc\"", "Last-Modified" to "Wed, 18 Feb 2026 01:30:32 GMT"),
                     )
-                RssClientTestHooks.install(transport!!)
+                RssClientTestHooks.install(transport!!);
                 { RssClientTestHooks.clear() }
             },
         ) { tool ->
@@ -142,4 +142,3 @@ class TerminalExecToolRssTest {
         }
     }
 }
-

@@ -51,7 +51,7 @@ class TerminalExecToolExchangeRateTest {
                         bodyText = fakeExchangeRateLatestCnyJson(nextUpdateUtc = "Tue, 18 Feb 2099 00:00:01 +0000"),
                         headers = emptyMap(),
                     )
-                ExchangeRateClientTestHooks.install(transport!!)
+                ExchangeRateClientTestHooks.install(transport!!);
                 { ExchangeRateClientTestHooks.clear() }
             },
         ) { t ->
@@ -85,7 +85,7 @@ class TerminalExecToolExchangeRateTest {
                         bodyText = fakeExchangeRateLatestCnyJson(nextUpdateUtc = "Tue, 18 Feb 2099 00:00:01 +0000"),
                         headers = emptyMap(),
                     )
-                ExchangeRateClientTestHooks.install(transport!!)
+                ExchangeRateClientTestHooks.install(transport!!);
                 { ExchangeRateClientTestHooks.clear() }
             },
         ) { t ->
@@ -110,7 +110,7 @@ class TerminalExecToolExchangeRateTest {
                         bodyText = fakeExchangeRateLatestCnyJson(nextUpdateUtc = "Tue, 18 Feb 2099 00:00:01 +0000"),
                         headers = emptyMap(),
                     )
-                ExchangeRateClientTestHooks.install(transport!!)
+                ExchangeRateClientTestHooks.install(transport!!);
                 { ExchangeRateClientTestHooks.clear() }
             },
         ) { tool ->
@@ -147,7 +147,7 @@ class TerminalExecToolExchangeRateTest {
                         bodyText = """{"result":"error","error-type":"invalid-base"}""",
                         headers = emptyMap(),
                     )
-                ExchangeRateClientTestHooks.install(transport!!)
+                ExchangeRateClientTestHooks.install(transport!!);
                 { ExchangeRateClientTestHooks.clear() }
             },
         ) { tool ->
@@ -165,4 +165,3 @@ class TerminalExecToolExchangeRateTest {
             assertEquals("InvalidArgs", out.errorCode)
         }
 }
-

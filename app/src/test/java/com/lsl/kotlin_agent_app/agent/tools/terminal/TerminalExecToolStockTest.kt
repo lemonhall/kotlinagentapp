@@ -64,7 +64,7 @@ class TerminalExecToolStockTest {
                         bodyText = """{"c":123.45,"h":124.0,"l":120.0,"o":121.0,"pc":122.0,"t":1700000000}""",
                         headers = emptyMap(),
                     )
-                FinnhubClientTestHooks.install(transport!!)
+                FinnhubClientTestHooks.install(transport!!);
                 { FinnhubClientTestHooks.clear() }
             },
         ) { tool ->
@@ -105,7 +105,7 @@ class TerminalExecToolStockTest {
                         bodyText = """[{"symbol":"AAPL"},{"symbol":"MSFT"}]""",
                         headers = emptyMap(),
                     )
-                FinnhubClientTestHooks.install(transport!!)
+                FinnhubClientTestHooks.install(transport!!);
                 { FinnhubClientTestHooks.clear() }
             },
         ) { tool ->
@@ -147,7 +147,7 @@ class TerminalExecToolStockTest {
                         bodyText = "",
                         headers = mapOf("Retry-After" to "2"),
                     )
-                FinnhubClientTestHooks.install(transport!!)
+                FinnhubClientTestHooks.install(transport!!);
                 { FinnhubClientTestHooks.clear() }
             },
         ) { tool ->
@@ -159,4 +159,3 @@ class TerminalExecToolStockTest {
         }
     }
 }
-

@@ -24,7 +24,7 @@ class TerminalExecToolCalTest {
                 CalCommandTestHooks.install(
                     store = InMemoryCalendarStore(),
                     permissions = FakeCalendarPermissionChecker(read = false, write = false),
-                )
+                );
                 { CalCommandTestHooks.clear() }
             },
         ) { tool ->
@@ -42,13 +42,13 @@ class TerminalExecToolCalTest {
                         addCalendar(id = 1, displayName = "Personal", accountName = "me", accountType = "local")
                         addCalendar(id = 2, displayName = "Work", accountName = "me", accountType = "local")
                     }
-                CalCommandTestHooks.install(
-                    store = store,
-                    permissions = FakeCalendarPermissionChecker(read = true, write = false),
-                )
-                { CalCommandTestHooks.clear() }
-            },
-        ) { tool ->
+            CalCommandTestHooks.install(
+                store = store,
+                permissions = FakeCalendarPermissionChecker(read = true, write = false),
+            );
+            { CalCommandTestHooks.clear() }
+        },
+    ) { tool ->
             val outRel = "artifacts/cal/test-calendars.json"
             val out = tool.exec("cal list-calendars --max 1 --out $outRel")
             assertEquals(0, out.exitCode)
@@ -67,13 +67,13 @@ class TerminalExecToolCalTest {
                     InMemoryCalendarStore().apply {
                         addCalendar(id = 1, displayName = "Personal", accountName = "me", accountType = "local")
                     }
-                CalCommandTestHooks.install(
-                    store = store,
-                    permissions = FakeCalendarPermissionChecker(read = true, write = true),
-                )
-                { CalCommandTestHooks.clear() }
-            },
-        ) { tool ->
+            CalCommandTestHooks.install(
+                store = store,
+                permissions = FakeCalendarPermissionChecker(read = true, write = true),
+            );
+            { CalCommandTestHooks.clear() }
+        },
+    ) { tool ->
             val created =
                 tool.exec(
                     "cal create-event --calendar-id 1 --title \"Demo\" --start 2026-02-18T10:00:00Z --end 2026-02-18T11:00:00Z --confirm",
@@ -97,13 +97,13 @@ class TerminalExecToolCalTest {
     fun cal_createEvent_withoutConfirm_isRejected() =
         runTerminalExecToolTest(
             setup = {
-                CalCommandTestHooks.install(
-                    store = InMemoryCalendarStore(),
-                    permissions = FakeCalendarPermissionChecker(read = true, write = true),
-                )
-                { CalCommandTestHooks.clear() }
-            },
-        ) { tool ->
+            CalCommandTestHooks.install(
+                store = InMemoryCalendarStore(),
+                permissions = FakeCalendarPermissionChecker(read = true, write = true),
+            );
+            { CalCommandTestHooks.clear() }
+        },
+    ) { tool ->
             val out =
                 tool.exec(
                     "cal create-event --calendar-id 1 --title \"t\" --start 2026-02-18T10:00:00Z --end 2026-02-18T11:00:00Z",
@@ -120,13 +120,13 @@ class TerminalExecToolCalTest {
                     InMemoryCalendarStore().apply {
                         addCalendar(id = 1, displayName = "Personal", accountName = "me", accountType = "local")
                     }
-                CalCommandTestHooks.install(
-                    store = store,
-                    permissions = FakeCalendarPermissionChecker(read = true, write = true),
-                )
-                { CalCommandTestHooks.clear() }
-            },
-        ) { tool ->
+            CalCommandTestHooks.install(
+                store = store,
+                permissions = FakeCalendarPermissionChecker(read = true, write = true),
+            );
+            { CalCommandTestHooks.clear() }
+        },
+    ) { tool ->
             val created =
                 tool.exec(
                     "cal create-event --calendar-id 1 --title \"Demo\" --start 2026-02-18T10:00:00Z --end 2026-02-18T11:00:00Z --remind-minutes 15 --confirm",
@@ -162,4 +162,3 @@ class TerminalExecToolCalTest {
             assertEquals(0, deleted.exitCode)
         }
 }
-

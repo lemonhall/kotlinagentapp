@@ -3,7 +3,12 @@ package com.lsl.kotlin_agent_app.agent.tools.terminal
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import java.io.File
 import java.lang.reflect.Proxy
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -28,6 +33,7 @@ internal data class TerminalExecOut(
     val filesDir: File,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 internal fun runTerminalExecToolTest(
     setup: (android.content.Context) -> (() -> Unit) = { { } },
     block: suspend (TerminalExecTestHarness) -> Unit,
@@ -37,6 +43,9 @@ internal fun runTerminalExecToolTest(
     AgentsWorkspace(context).ensureInitialized()
 
     try {
+        // Avoid deadlocks when production code uses withContext(Dispatchers.Main.immediate) under Robolectric.
+        // Using a test dispatcher also reduces risk of leaked real threads keeping the test JVM alive.
+        Dispatchers.setMain(UnconfinedTestDispatcher());
         val tool = TerminalExecTool(appContext = context)
         val ctx =
             ToolContext(
@@ -49,6 +58,7 @@ internal fun runTerminalExecToolTest(
             block(harness)
         }
     } finally {
+        Dispatchers.resetMain()
         teardown()
     }
 }

@@ -41,6 +41,7 @@ class TerminalExecToolQqmailTest {
                     """.trimIndent() + "\n",
                     Charsets.UTF_8,
                 )
+                ;
                 { }
             },
         ) { tool ->
@@ -102,7 +103,7 @@ class TerminalExecToolQqmailTest {
                             return QqMailSendResult(messageId = "<sent@test>")
                         }
                     }
-                QqMailCommandTestHooks.install(imap = fakeImap, smtp = fakeSmtp)
+                QqMailCommandTestHooks.install(imap = fakeImap, smtp = fakeSmtp);
                 { QqMailCommandTestHooks.clear() }
             },
         ) { tool ->
@@ -159,7 +160,7 @@ class TerminalExecToolQqmailTest {
                             return QqMailSendResult(messageId = "<sent@test>")
                         }
                     }
-                QqMailCommandTestHooks.install(imap = fakeImap, smtp = fakeSmtp)
+                QqMailCommandTestHooks.install(imap = fakeImap, smtp = fakeSmtp);
                 { QqMailCommandTestHooks.clear() }
             },
         ) { tool ->
@@ -212,6 +213,7 @@ class TerminalExecToolQqmailTest {
                             }
                         },
                 )
+                ;
                 { QqMailCommandTestHooks.clear() }
             },
         ) { tool ->
@@ -220,4 +222,3 @@ class TerminalExecToolQqmailTest {
             assertEquals("SensitiveArgv", out.errorCode)
         }
 }
-

@@ -1,12 +1,14 @@
 package com.lsl.kotlin_agent_app.agent.tools.terminal.commands.radio
 
 import android.content.Context
+import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.agent.tools.terminal.TerminalCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.TerminalCommandOutput
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.archive.requireFlagValue
 import com.lsl.kotlin_agent_app.media.MusicPlaybackState
 import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
+import com.lsl.kotlin_agent_app.radios.RadioPathNaming
 import java.io.File
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -37,6 +39,7 @@ internal class RadioCommand(
     appContext: Context,
 ) : TerminalCommand {
     private val ctx = appContext.applicationContext
+    private val ws = AgentsWorkspace(ctx)
 
     override val name: String = "radio"
     override val description: String = "Radio player control plane (status/play/pause/resume/stop)."
@@ -73,6 +76,7 @@ internal class RadioCommand(
                 "pause" -> handlePause()
                 "resume" -> handleResume()
                 "stop" -> handleStop()
+                "fav" -> handleFav(argv)
                 else -> invalidArgs("unknown subcommand: $subRaw")
             }
         } catch (t: NotInRadiosDir) {
@@ -208,6 +212,165 @@ internal class RadioCommand(
         return handleStatus().copy(stdout = "playing: ${rawIn.trim()}")
     }
 
+    private suspend fun handleFav(argv: List<String>): TerminalCommandOutput {
+        if (argv.size < 3) return invalidArgs("missing subcommand: fav add|rm|list")
+        when (val sub = argv[2].trim().lowercase()) {
+            "add" -> return handleFavAdd(argv)
+            "rm", "remove" -> return handleFavRemove(argv)
+            "list" -> return handleFavList()
+            else -> return invalidArgs("unknown fav subcommand: $sub")
+        }
+    }
+
+    private fun optionalFlagValue(
+        argv: List<String>,
+        flag: String,
+    ): String? {
+        val idx = argv.indexOf(flag)
+        if (idx < 0) return null
+        return argv.getOrNull(idx + 1)?.trim()?.ifBlank { null }
+    }
+
+    private suspend fun handleFavAdd(argv: List<String>): TerminalCommandOutput {
+        ws.ensureInitialized()
+        val rawIn = optionalFlagValue(argv, "--in")
+        val agentsPath =
+            if (rawIn.isNullOrBlank()) {
+                val st = MusicPlayerControllerProvider.get().statusSnapshot()
+                val p = st.agentsPath?.trim().orEmpty()
+                val isRadio = st.isLive && p.endsWith(".radio", ignoreCase = true) && isInRadiosTree(p)
+                if (!isRadio) throw NotPlayingRadio("no active radio playback")
+                p
+            } else {
+                val p = normalizeAgentsPathArg(rawIn)
+                if (!isInRadiosTree(p)) throw NotInRadiosDir("仅允许 radios/ 目录下的 .radio：$rawIn")
+                if (!p.lowercase().endsWith(".radio")) throw NotRadioFile("仅允许 radios/ 目录下的 .radio：$rawIn")
+                p
+            }
+
+        val file = File(ctx.filesDir, agentsPath)
+        if (!file.exists() || !file.isFile) throw NotFound("文件不存在：${rawIn ?: toWorkspacePath(agentsPath)}")
+        val raw = file.readText(Charsets.UTF_8)
+        val station =
+            try {
+                RadioStationFileV1.parse(raw)
+            } catch (_: Throwable) {
+                throw InvalidRadio("非法 .radio：${rawIn ?: toWorkspacePath(agentsPath)}")
+            }
+
+        val uuid = station.id.substringAfter(':', missingDelimiterValue = station.id)
+        val fileName = RadioPathNaming.stationFileName(stationName = station.name, stationUuid = uuid)
+        val dest = ".agents/workspace/radios/favorites/$fileName"
+        val destFile = File(ctx.filesDir, dest)
+        if (!destFile.exists()) {
+            destFile.parentFile?.mkdirs()
+            destFile.writeText(raw.trimEnd() + "\n", Charsets.UTF_8)
+        }
+
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("command", JsonPrimitive("radio fav add"))
+                put("favorite_path", JsonPrimitive(toWorkspacePath(dest)))
+                put(
+                    "station",
+                    buildJsonObject {
+                        put("id", JsonPrimitive(station.id))
+                        put("name", JsonPrimitive(station.name))
+                        put("path", JsonPrimitive(toWorkspacePath(dest)))
+                    },
+                )
+            }
+        return TerminalCommandOutput(exitCode = 0, stdout = "favorited: ${station.name}", result = result)
+    }
+
+    private suspend fun handleFavRemove(argv: List<String>): TerminalCommandOutput {
+        ws.ensureInitialized()
+        val rawIn = optionalFlagValue(argv, "--in")
+        val agentsPath =
+            if (rawIn.isNullOrBlank()) {
+                val st = MusicPlayerControllerProvider.get().statusSnapshot()
+                val p = st.agentsPath?.trim().orEmpty()
+                val isRadio = st.isLive && p.endsWith(".radio", ignoreCase = true) && isInRadiosTree(p)
+                if (!isRadio) throw NotPlayingRadio("no active radio playback")
+                p
+            } else {
+                val p = normalizeAgentsPathArg(rawIn)
+                if (!isInRadiosTree(p)) throw NotInRadiosDir("仅允许 radios/ 目录下的 .radio：$rawIn")
+                if (!p.lowercase().endsWith(".radio")) throw NotRadioFile("仅允许 radios/ 目录下的 .radio：$rawIn")
+                p
+            }
+
+        val file = File(ctx.filesDir, agentsPath)
+        if (!file.exists() || !file.isFile) throw NotFound("文件不存在：${rawIn ?: toWorkspacePath(agentsPath)}")
+        val raw = file.readText(Charsets.UTF_8)
+        val station =
+            try {
+                RadioStationFileV1.parse(raw)
+            } catch (_: Throwable) {
+                throw InvalidRadio("非法 .radio：${rawIn ?: toWorkspacePath(agentsPath)}")
+            }
+
+        val uuid = station.id.substringAfter(':', missingDelimiterValue = station.id)
+        val fileName = RadioPathNaming.stationFileName(stationName = station.name, stationUuid = uuid)
+        val dest = ".agents/workspace/radios/favorites/$fileName"
+        val destFile = File(ctx.filesDir, dest)
+        if (!destFile.exists()) throw NotFound("不在收藏：${station.name}")
+        destFile.delete()
+
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("command", JsonPrimitive("radio fav rm"))
+                put("removed_path", JsonPrimitive(toWorkspacePath(dest)))
+                put(
+                    "station",
+                    buildJsonObject {
+                        put("id", JsonPrimitive(station.id))
+                        put("name", JsonPrimitive(station.name))
+                    },
+                )
+            }
+        return TerminalCommandOutput(exitCode = 0, stdout = "unfavorited: ${station.name}", result = result)
+    }
+
+    private suspend fun handleFavList(): TerminalCommandOutput {
+        ws.ensureInitialized()
+        val dir = File(ctx.filesDir, ".agents/workspace/radios/favorites")
+        val files =
+            dir.listFiles()
+                .orEmpty()
+                .filter { it.isFile && it.name.lowercase().endsWith(".radio") }
+                .sortedBy { it.name.lowercase() }
+
+        val favorites =
+            buildJsonArray {
+                for (f in files) {
+                    val parsed =
+                        runCatching {
+                            RadioStationFileV1.parse(f.readText(Charsets.UTF_8))
+                        }.getOrNull()
+                    add(
+                        buildJsonObject {
+                            put("path", JsonPrimitive(toWorkspacePath(".agents/workspace/radios/favorites/" + f.name)))
+                            put("id", parsed?.id?.let { JsonPrimitive(it) } ?: JsonNull)
+                            put("name", parsed?.name?.let { JsonPrimitive(it) } ?: JsonPrimitive(f.name))
+                            put("country", parsed?.country?.let { JsonPrimitive(it) } ?: JsonNull)
+                        },
+                    )
+                }
+            }
+
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("command", JsonPrimitive("radio fav list"))
+                put("count_total", JsonPrimitive(files.size))
+                put("favorites", favorites)
+            }
+        return TerminalCommandOutput(exitCode = 0, stdout = "favorites: ${files.size}", result = result)
+    }
+
     private suspend fun handlePause(): TerminalCommandOutput {
         ensurePlayingRadio()
         MusicPlayerControllerProvider.get().pauseNow()
@@ -244,6 +407,9 @@ internal class RadioCommand(
                           radio pause
                           radio resume
                           radio stop
+                          radio fav add [--in <agents-path>]
+                          radio fav rm [--in <agents-path>]
+                          radio fav list
                         
                         Help:
                           radio --help
@@ -257,6 +423,8 @@ internal class RadioCommand(
                         "radio pause",
                         "radio resume",
                         "radio stop",
+                        "radio fav add",
+                        "radio fav list",
                     )
                 }
                 "status" -> "Usage: radio status" to listOf("radio status")
@@ -264,6 +432,16 @@ internal class RadioCommand(
                 "pause" -> "Usage: radio pause" to listOf("radio pause")
                 "resume" -> "Usage: radio resume" to listOf("radio resume")
                 "stop" -> "Usage: radio stop" to listOf("radio stop")
+                "fav" -> {
+                    val u =
+                        """
+                        Usage:
+                          radio fav add [--in <agents-path>]
+                          radio fav rm [--in <agents-path>]
+                          radio fav list
+                        """.trimIndent()
+                    u to listOf("radio fav list", "radio fav add", "radio fav rm")
+                }
                 else -> return invalidArgs("unknown subcommand: $sub")
             }
 
@@ -281,6 +459,7 @@ internal class RadioCommand(
                         add(JsonPrimitive("pause"))
                         add(JsonPrimitive("resume"))
                         add(JsonPrimitive("stop"))
+                        add(JsonPrimitive("fav"))
                     },
                 )
                 if (sub == null || sub == "play") {
@@ -292,6 +471,19 @@ internal class RadioCommand(
                                     put("name", JsonPrimitive("--in"))
                                     put("required", JsonPrimitive(true))
                                     put("description", JsonPrimitive("Input .radio file within workspace/radios/"))
+                                },
+                            )
+                        },
+                    )
+                } else if (sub == "fav") {
+                    put(
+                        "flags",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--in"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Optional input .radio path within workspace/radios/ (defaults to current playing station)."))
                                 },
                             )
                         },

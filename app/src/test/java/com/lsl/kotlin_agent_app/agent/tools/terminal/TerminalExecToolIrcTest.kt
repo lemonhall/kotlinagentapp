@@ -9,6 +9,7 @@ import java.util.UUID
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,7 +27,7 @@ class TerminalExecToolIrcTest {
             setup = { ctx ->
                 val prefs = ctx.getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
                 val sid = "sess_irc_" + UUID.randomUUID().toString().replace("-", "")
-                prefs.edit().putString(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID, sid).apply()
+                prefs.edit().putString(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID, sid).apply();
                 {
                     prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
                     IrcClientTestHooks.clear()
@@ -59,6 +60,7 @@ class TerminalExecToolIrcTest {
                     """.trimIndent() + "\n",
                     Charsets.UTF_8,
                 )
+                ;
                 {
                     prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
                     IrcClientTestHooks.clear()
@@ -99,6 +101,7 @@ class TerminalExecToolIrcTest {
                     fake.listener = listener
                     fake
                 }
+                ;
 
                 {
                     prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
@@ -140,6 +143,7 @@ class TerminalExecToolIrcTest {
                     fake.listener = listener
                     fake
                 }
+                ;
 
                 {
                     prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
@@ -188,6 +192,7 @@ class TerminalExecToolIrcTest {
                     fake.listener = listener
                     fake
                 }
+                ;
 
                 {
                     prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
@@ -254,6 +259,7 @@ class TerminalExecToolIrcTest {
                     fake.listener = listener
                     fake
                 }
+                ;
 
                 {
                     prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
@@ -287,4 +293,3 @@ class TerminalExecToolIrcTest {
             assertTrue(texts.any { it.contains("[...TRUNCATED...]") })
         }
 }
-

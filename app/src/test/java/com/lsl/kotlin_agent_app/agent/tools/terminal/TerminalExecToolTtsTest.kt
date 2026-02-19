@@ -18,7 +18,7 @@ class TerminalExecToolTtsTest {
     fun tts_help_isAvailable() =
         runTerminalExecToolTest(
             setup = { _ ->
-                TtsRuntimeProvider.installForTests(FakeTtsRuntime())
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
                 { TtsRuntimeProvider.clearForTests() }
             },
         ) { tool ->
@@ -42,6 +42,7 @@ class TerminalExecToolTtsTest {
                             ),
                     ),
                 )
+                ;
                 { TtsRuntimeProvider.clearForTests() }
             },
         ) { tool ->
@@ -56,7 +57,7 @@ class TerminalExecToolTtsTest {
     fun tts_speak_requiresText() =
         runTerminalExecToolTest(
             setup = { _ ->
-                TtsRuntimeProvider.installForTests(FakeTtsRuntime())
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
                 { TtsRuntimeProvider.clearForTests() }
             },
         ) { tool ->
@@ -69,7 +70,7 @@ class TerminalExecToolTtsTest {
     fun tts_speak_returnsUtteranceId() =
         runTerminalExecToolTest(
             setup = { _ ->
-                TtsRuntimeProvider.installForTests(FakeTtsRuntime())
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
                 { TtsRuntimeProvider.clearForTests() }
             },
         ) { tool ->
@@ -85,7 +86,7 @@ class TerminalExecToolTtsTest {
     fun tts_speak_await_timeout_returnsTimeoutError() =
         runTerminalExecToolTest(
             setup = { _ ->
-                TtsRuntimeProvider.installForTests(FakeTtsRuntime())
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
                 { TtsRuntimeProvider.clearForTests() }
             },
         ) { tool ->
@@ -98,7 +99,7 @@ class TerminalExecToolTtsTest {
     fun tts_stop_isAvailable() =
         runTerminalExecToolTest(
             setup = { _ ->
-                TtsRuntimeProvider.installForTests(FakeTtsRuntime())
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
                 { TtsRuntimeProvider.clearForTests() }
             },
         ) { tool ->
@@ -109,4 +110,3 @@ class TerminalExecToolTtsTest {
             assertEquals("true", r["stopped"]!!.jsonPrimitive.content)
         }
 }
-

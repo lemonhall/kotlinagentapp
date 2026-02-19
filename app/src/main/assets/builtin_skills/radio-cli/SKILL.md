@@ -18,6 +18,7 @@ workspace/radios/
   .countries.index.json   ← 国家列表索引
   .countries.meta.json    ← 国家元数据
   .last_played.json       ← 上次播放记忆（用于加速重复请求）
+  favorites/              ← 收藏夹（Everything is FileSystem）
   {CC}__{CountryName}/    ← 国家目录，如 AU__Australia/、CN__China/
     .stations.index.json  ← 该国电台索引（用于搜索）
     .stations.meta.json   ← 该国电台缓存元数据（TTL）
@@ -62,6 +63,23 @@ workspace/radios/
 - `exit_code=0`
 - `radio play` 成功后：`radio status` 的 `result.state=playing`
 
+### 收藏（Favorites）
+
+使用工具 `terminal_exec` 执行：
+
+- `radio fav list`
+- `radio fav add`（默认收藏**当前正在播放**的电台）
+- `radio fav rm`（默认移出**当前正在播放**的电台）
+
+也可显式指定路径（仅允许 `workspace/radios/**.radio`）：
+
+- `radio fav add --in workspace/radios/CN__China/中国之声__a1b2c3d4e5.radio`
+- `radio fav rm --in workspace/radios/CN__China/中国之声__a1b2c3d4e5.radio`
+
+期望：
+- `exit_code=0`
+- `radio fav list` 的 `result.favorites[]` 返回 `path/name/id/country`
+
 ## 常见用语映射
 
 用户描述电台时经常使用口语化表达，必须正确映射到国家代码：
@@ -81,11 +99,20 @@ workspace/radios/
 
 当用户请求播放某个电台但未给出精确 `.radio` 文件路径时，**必须使用 `explore` 子 agent** 完成电台发现。主 agent 禁止自行读取或扫描 `workspace/radios/` 下的任何文件。
 
-### Step 0：检查记忆（快速路径）
+### Step 0：读取收藏夹（快速路径）
+
+目标：优先复用收藏夹，降低搜索成本、加快选台。
+
+1) **直接**用 `terminal_exec` 执行 `radio fav list` 获取收藏夹列表（无需 Read 文件系统）。
+2) 若用户意图明显可在收藏夹中匹配（允许模糊匹配），优先给出收藏候选让用户选：
+   - 问法示例：`我在收藏夹里找到了这些：1)xxx 2)yyy，要播放哪个？回复序号。`
+3) 如果收藏夹为空/匹配不到/用户说“换一批/重新搜”：进入 Step 1（explore 搜索）。
+
+### Step 0.1：检查记忆（快速路径）
 
 目标：对“重复意图”的请求，避免每次都从头跑 explore 搜索。
 
-1) **直接**用 `Read` 读取 `workspace/radios/.last_played.json`（若不存在/读取失败则跳过 Step 0，进入 Step 1）。
+1) **直接**用 `Read` 读取 `workspace/radios/.last_played.json`（若不存在/读取失败则跳过 Step 0.1，进入 Step 1）。
 2) 判断“用户当前意图”是否与记忆相似（允许粗略匹配，不要求精确）：
    - 例：用户说“国内/中国 + 新闻/资讯/时事/radio”，且记忆里的 station.path 包含 `workspace/radios/CN__China/`，就视为相似。
 3) 若相似：优先询问用户是否沿用上次播放的电台，并提供候选换台（如果 candidates 存在）：
@@ -163,6 +190,7 @@ workspace/radios/
 
 - 必须实际调用 `terminal_exec`，不要臆造 stdout/result/artifacts。
 - `radio play` 只允许 `workspace/radios/**.radio`；越界应返回 `exit_code!=0` 且 `error_code` 可解释（如 `NotInRadiosDir/NotRadioFile/NotFound`）。
+- `radio fav add/rm` 只允许 `workspace/radios/**.radio`；未指定 `--in` 时要求当前正在播放电台，否则应返回稳定错误（例如 `NotPlayingRadio`）。
 - `terminal_exec` 不支持 `;` / `&&` / `|` / 重定向；命令必须单行。
 - 若工具返回 `exit_code!=0` 或包含 `error_code`，直接报告错误并停止。
 - **主 agent 禁止**使用 `Read`、`Glob`、`List`、`Grep` 等工具直接访问 `workspace/radios/` 目录树，**唯一例外**：允许主 agent `Read/Write` `workspace/radios/.last_played.json`（记忆文件），用于快速路径与写入记忆。

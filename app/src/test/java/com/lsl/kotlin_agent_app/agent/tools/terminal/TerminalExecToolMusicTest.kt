@@ -185,7 +185,7 @@ class TerminalExecToolMusicTest {
     fun music_meta_set_rollbackOnReplaceFailure() =
         runTerminalExecToolTest(
             setup = { _ ->
-                System.setProperty("kotlin-agent-app.music.atomic_replace.fail_for_test", "1")
+                System.setProperty("kotlin-agent-app.music.atomic_replace.fail_for_test", "1");
                 {
                     System.clearProperty("kotlin-agent-app.music.atomic_replace.fail_for_test")
                 }
@@ -208,4 +208,3 @@ class TerminalExecToolMusicTest {
             assertTrue(f.readBytes().contentEquals(before))
         }
 }
-
