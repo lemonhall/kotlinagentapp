@@ -84,22 +84,30 @@ workspace/radios/
 
 使用 `Task(agent="explore", prompt="...")` 发出搜索指令，模板：
 
-> **直接**用 `Read` 读取 `workspace/radios/.countries.index.json`（不要用 Glob/Grep 搜索这个文件，路径是确定的），
-> 从 JSON 中找到 code 为 "{CC}" 的条目，取其 dir 字段作为国家目录名；
-> 然后对 `workspace/radios/{dir}/.stations.index.json` 用 `Grep` 搜索（regex）：
-> - 优先匹配 `"name": "..."` 含 "{用户关键词}" 的行
-> - 同时可匹配 tags 含 `"news"` 等新闻属性
-> - 必须设置 `after_context>=8`，以便从 after_context 中拿到同一条目里的 `"path": "..."` 行
-> 返回最多 10 条结果，每条包含电台名称（name）和完整的 `.radio` 文件相对路径（path）。
+> 先用 `Grep` 在 `workspace/radios/.countries.index.json` 里精确定位国家目录（不要整文件 Read）：
+> - `file_glob="workspace/radios/.countries.index.json"`
+> - `query="\\\"code\\\"\\s*:\\s*\\\"{CC}\\\""`
+> - `before_context>=6`（用于从 before_context 里拿到同一条目的 `"dir": "..."`）
+> 然后在 `workspace/radios/{dir}/.stations.index.json` 里用 `Grep` 搜索候选（不要整文件 Read；最多 2 次 Grep + 不超过 2 次小范围 Read）：
+> 1) 首选命中 path 行（这样能直接拿到 `.radio` 路径），并用 `before_context>=4` 拿到 name：
+>    - `file_glob="workspace/radios/{dir}/.stations.index.json"`
+>    - `query="\\\"path\\\"\\s*:\\s*\\\"workspace/radios/{dir}/.*({用户关键词}|新闻|资讯|中国之声|CNR|央广|CRI).*\\\\.radio\\\""`
+>    - `before_context>=4`
+> 2) 如结果过少，再补充一次 tags 命中（同样用 `before_context` 取 name/path）：
+>    - `query="\\\"tags\\\"\\s*:\\s*\\[.*(news|information|talk).*\\]"`
+>    - `before_context>=6`
+> 返回最多 10 条结果，每条格式：`- <name> — <path>`（必须是 `workspace/radios/**.radio`）。
 
 示例——用户说"收听国内的新闻 radio"：
 
-> **直接**用 `Read` 读取 `workspace/radios/.countries.index.json`（路径确定，不要搜索），
-> 找到 code 为 "CN" 的条目，取其 dir 字段；
-> 然后对 `workspace/radios/CN__China/.stations.index.json` 用 `Grep` 搜索 `"name": ".*(新闻|资讯|综合|中国之声|CNR|央广|CRI).*"`，
-> 并设置 `after_context>=8`，从 after_context 中提取 `"path": "..."`；
-> 若 name 匹配不足，可补充一次 Grep：搜索 tags 行 `"tags": .*news.*`；
-> 返回最多 10 条结果，每条包含电台名称（name）和 `.radio` 文件相对路径（path）。
+> 用 `Grep` 在 `workspace/radios/.countries.index.json` 搜索：`\"code\"\\s*:\\s*\"CN\"`，并设置 `before_context>=6`，从 before_context 中提取 `dir=CN__China`；
+> 然后对 `workspace/radios/CN__China/.stations.index.json` 用 `Grep` 搜索 path 行：
+> - `query="\\\"path\\\"\\s*:\\s*\\\"workspace/radios/CN__China/.*(新闻|资讯|中国之声|CNR|央广|CRI).*\\\\.radio\\\""`
+> - `before_context>=4`（从 before_context 里取 `"name": "..."`）
+> 若结果过少，再补充一次 tags 命中：
+> - `query="\\\"tags\\\"\\s*:\\s*\\[.*(news|information|talk).*\\]"`
+> - `before_context>=6`
+> 返回最多 10 条：`- <name> — <path>`，不要对目录做 `List`，不要逐个 `Read *.radio`。
 
 ### Step 2：处理 explore 返回结果
 
