@@ -165,8 +165,8 @@ provider 切换后，对应的 API key 配置项自动出现（如 `openai.apiKe
 | `RecordingTimeout` | 录音超过 60 秒上限，自动停止 |
 | `StreamConnectionFailed` | 流式 ASR 连接失败 |
 | `StreamInterrupted` | 流式 ASR 连接中断 |
-| `NetworkError` | 网络不可达 |
-| `RemoteError` | 云端 API 返回非 2xx |
+| `AsrNetworkError` | 网络不可达 |
+| `AsrRemoteError` | 云端 API 返回非 2xx |
 | `ProviderQuotaExceeded` | API 配额耗尽 |
 
 ## Acceptance（硬 DoD）

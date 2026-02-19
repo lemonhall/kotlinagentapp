@@ -8,7 +8,7 @@
 > - 产品需求：`docs/prd/PRD-0030-radio-player.md`
 > - 录制/转录/翻译/实时翻译：`docs/prd/PRD-0034-radio-recording-transcript-translation-live.md`
 > - 计划：`docs/plan/v32-radio-player.md`、`docs/plan/v33-radio-cli-and-listening-logs.md`、`docs/plan/v37-radio-playback-reliability.md`
-> - 计划（录制→实时翻译 roadmap）：`docs/plan/v39-radio-recording.md`、`docs/plan/v40-radio-offline-transcript.md`、`docs/plan/v41-radio-offline-translation.md`、`docs/plan/v42-radio-language-learning.md`、`docs/plan/v43-asr-tts-modularization.md`、`docs/plan/v44-radio-live-translation-mvp.md`、`docs/plan/v45-radio-live-translation-full.md`
+> - 计划（录制→实时翻译 roadmap）：`docs/plan/v39-radio-recording.md`、`docs/plan/v40-radio-offline-transcript.md`、`docs/plan/v41-radio-offline-translation.md`、`docs/plan/v42-radio-language-learning.md`、`docs/plan/v43-radio-dual-language.md`、`docs/plan/v44-asr-tts-modularization.md`、`docs/plan/v45-radio-live-translation-full.md`、`docs/plan/v46-radio-live-AudioFocusManager.md`
 > - 内置技能说明书：`app/src/main/assets/builtin_skills/radio-cli/SKILL.md`
 
 ---

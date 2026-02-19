@@ -177,12 +177,11 @@ v43 交付第一个实现（Analysis 阶段确定选型：OpenAI TTS API 或 And
 ## CLI
 
 ```
-radio tts start --task <transcriptTaskId> --mode interleaved|target_only \
-  [--source_voice ja-JP-Neural] [--target_voice zh-CN-Neural]
-radio tts status --task 
+radio tts start --task  --mode interleaved|target_only 
 
->
-radio tts cancel --task <ttsTaskId>
+[--source_voice ja-JP-Neural] [--target_voice zh-CN-Neural]
+radio tts status --task 
+radio tts cancel --task 
 ```
 
 `radio tts start` 的 result：

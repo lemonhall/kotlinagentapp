@@ -198,7 +198,7 @@ AudioFocusManager（v46：跨源仲裁）
 v45 的 `radio live start` 扩展落盘参数：
 
 ```
-radio live start --station <stationId> --mode interleaved|target_only \
+radio live start --station <stationId> --mode interleaved|target_only|subtitle_only \
   --source_lang ja --target_lang zh \
   [--save_audio] [--save_transcript] [--save_translation] [--save_tts]
 

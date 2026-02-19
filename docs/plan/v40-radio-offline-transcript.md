@@ -8,6 +8,46 @@
 - 云端 ASR 把每个 `chunk_NNN.ogg` 转为 `chunk_NNN.transcript.json`
 - CLI：`radio transcript start|status|list|cancel`
 
+## 录制会话与转录任务的目录关系
+
+v39 录制产物与 v40 转录任务、v41 翻译产物的完整嵌套结构：
+
+```
+workspace/radio_recordings/
+  rec_20260219_140000_a1b2c3/           # v39 录制会话
+    _meta.json                           # 录制元信息（state/stationId/...）
+    _STATUS.md
+    chunk_001.ogg                        # 10min 音频切片
+    chunk_002.ogg
+    ...
+    transcripts/                         # v40 转录任务根目录
+      _tasks.index.json                  # 该 session 下所有转录任务索引
+      tx_abc_ja/                         # v40 转录任务（source_lang=ja）
+        _task.json                       # 任务状态/进度
+        _STATUS.md
+        chunk_001.transcript.json        # v40 转录产物
+        chunk_001.translation.json       # v41 翻译产物（若指定了 target_lang）
+        chunk_002.transcript.json
+        chunk_002.translation.json
+      tx_abc_ja2zh/                      # v41 多语言对任务（ja→zh）
+        _task.json
+        _STATUS.md
+        chunk_001.transcript.json
+        chunk_001.translation.json
+      tx_abc_ja2en/                      # v41 多语言对任务（ja→en）
+        _task.json
+        _STATUS.md
+        chunk_001.transcript.json
+        chunk_001.translation.json
+```
+
+关键规则：
+
+- `transcripts/` 位于录制会话目录内部（`rec_*/transcripts/`）
+- 每个转录任务有独立的 `tx_*/` 子目录
+- `_tasks.index.json` 位于 `transcripts/` 根，索引该 session 下所有任务
+- transcript/translation 文件与源 chunk 同名（只是后缀不同），便于定位对应音频
+
 ## PRD Trace
 
 - PRD-0034：REQ-0034-050 / REQ-0034-051 / REQ-0034-052 / REQ-0034-053
@@ -24,7 +64,7 @@
   - `OpenAiWhisperClient` 作为第一个实现
   - 上传 `.ogg` chunk（MIME type: `audio/ogg`）
   - 解析 `verbose_json`（带 timestamps）为 segments
-  - 错误码归一：NetworkError / RemoteError / InvalidArgs / …
+  - 错误码归一：AsrNetworkError / AsrRemoteError / InvalidArgs / …
 - CLI：`radio transcript ...`（受控输入：sessionId 或录制目录）
 
 不做（v40）：
@@ -133,8 +173,8 @@ radio transcript cancel --task <taskId>
 | `SessionNoChunks` | session 存在但无 chunk 文件 |
 | `TaskNotFound` | taskId 对应目录或 `_task.json` 不存在 |
 | `TaskAlreadyExists` | 该 session 已有相同 source_lang 的进行中任务 |
-| `NetworkError` | ASR API 网络不可达 |
-| `RemoteError` | ASR API 返回非 2xx |
+| `AsrNetworkError` | ASR API 网络不可达 |
+| `AsrRemoteError` | ASR API 返回非 2xx |
 | `AsrParseError` | ASR 返回内容无法解析为 segments |
 
 ## Steps（Strict / TDD）
