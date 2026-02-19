@@ -1,0 +1,76 @@
+# v39 Plan：Radio 后台录制（RecordingService + ChunkWriter + `radio record`）
+
+## Goal
+
+交付“电台可录制”的最小闭环，并保持 Everything is FileSystem：
+
+- UI：正在播放电台可一键开始/停止录制；后台/锁屏不中断  
+- CLI：`terminal_exec radio record ...` 可控、可审计、可测试  
+- VFS：产物落盘到 `workspace/radio_recordings/`，按 10min 切片
+
+## PRD Trace
+
+- PRD-0034：REQ-0034-000 / REQ-0034-001 / REQ-0034-002
+- PRD-0034：REQ-0034-010 / REQ-0034-011 / REQ-0034-012 / REQ-0034-013 / REQ-0034-014
+
+## Scope
+
+做（v39）：
+
+- `workspace/radio_recordings/` 根目录初始化（含 `_STATUS.md`、`.recordings.index.json`）
+- 前台服务录制引擎（并发 ≤2）：
+  - Media3 独立 Player 解码 → PCM
+  - MediaCodec 编码 AAC（`.m4a`，128kbps）
+  - 10min chunk 切片写盘 + 元信息落盘
+- CLI：`radio record start|stop|status|list`（最小闭环）
+- Files：在 `workspace/` 下把 `radio_recordings/` 目录“命名/简介”做轻度装饰（类似 radios）
+
+不做（v39）：
+
+- 不做转录/翻译/TTS（v40+）
+- 不做录制任意 URL（只允许 `.radio`）
+- 不做 >2 路并发录制（必须硬限制）
+
+## Acceptance（硬 DoD）
+
+- 并发上限：第三路 `radio record start ...` 必须失败，`error_code=MaxConcurrentRecordings`（或等价稳定码）。  
+- 产物结构：录制开始后必须创建 `{session_id}/_meta.json` 与 `{session_id}/chunk_001.m4a`（允许短延迟）；录制停止后 `state=completed|cancelled|failed` 可解释。  
+- 切片策略：单会话 chunk 文件名连续（`chunk_001...`），chunk 时长目标 10min（允许最后一片不足）。  
+- CLI help：`radio record --help` / `radio help record` 必须 `exit_code=0`。  
+
+验证命令（开发机）：
+
+- `.\gradlew.bat :app:testDebugUnitTest`
+- 真机冒烟：`.\gradlew.bat :app:installDebug` 后录制 1–2 分钟，确认后台不中断 + chunk 可播放。
+
+## Files（规划）
+
+- Workspace 初始化：
+  - `app/src/main/java/com/lsl/kotlin_agent_app/agent/AgentsWorkspace.kt`（新增 `workspace/radio_recordings` 初始化）
+- 录制模块（建议新包，避免塞进 `radios/`）：
+  - `app/src/main/java/com/lsl/kotlin_agent_app/radio_recordings/*`
+    - `RadioRecordingService.kt`（Foreground Service）
+    - `RecordingSession.kt`（单会话状态机）
+    - `ChunkWriter.kt`
+    - `RecordingMetaV1.kt` / `RecordingsIndexV1.kt`（kotlinx.serialization）
+- CLI：
+  - `app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/terminal/commands/radio/RadioCommand.kt`
+    - 新增 `record` 子命令（必要时先做一次子命令拆分重构）
+- Files UI 装饰（最小）：
+  - `app/src/main/java/com/lsl/kotlin_agent_app/ui/dashboard/FilesViewModel.kt`
+
+## Steps（Strict / TDD）
+
+1) Analysis：确定 `radio_recordings/` 的落盘结构、错误码集合（含并发上限/路径门禁/状态机失败），以及 CLI 输出字段（`session_id/state/dir/...`）。  
+2) TDD Red：为 `radio record --help` / argv 校验 / 路径门禁 / 并发上限写 `TerminalExecToolTest`（或等价测试入口）。  
+3) TDD Green：实现 CLI 框架（只做参数解析 + 结构化输出 + 创建 session 目录与 `_meta.json/_STATUS.md`），先不接真实编码。  
+4) TDD Red：为 `ChunkWriter` 写纯 Kotlin 单测（切片命名、写入原子性、更新 `_meta.json` 与 `.recordings.index.json` 的一致性）。  
+5) TDD Green：接入实际录制链路（Media3 + MediaCodec），并把“录制状态 → 文件落盘”打通。  
+6) Refactor：把 `RadioCommand.kt` 里与 v39 无关的逻辑保持不动，但避免 `record` 子命令继续膨胀（必要时引入 `RadioSubcommand` 分发）。  
+7) Verify：跑 UT；真机录制冒烟（后台/锁屏/切页签）。  
+
+## Risks
+
+- 音频管线复杂且难以纯单测覆盖：必须把“状态机/落盘/CLI”做成可单测，真机仅做最小冒烟。  
+- 并发与资源占用：2 路并发要严格限流并有可解释失败，避免 OOM/编码器占用冲突。  
+
