@@ -115,6 +115,11 @@ android {
 tasks.withType<Test>().configureEach {
     val cpu = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
     maxParallelForks = testMaxParallelForks ?: (cpu / 2).coerceIn(1, 4)
+
+    // Windows occasional file-lock issue on build/test-results/**/binary/output.bin may prevent Gradle
+    // from deleting the directory between runs. Use a separate directory to avoid reusing a locked path.
+    @Suppress("UnstableApiUsage")
+    binaryResultsDirectory.set(layout.buildDirectory.dir("test-results/${name}/binary_v2"))
 }
 
 dependencies {
