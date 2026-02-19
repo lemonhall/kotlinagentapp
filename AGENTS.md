@@ -14,8 +14,66 @@
 - Lint: `.\gradlew.bat :app:lintDebug`
 - Test (unit): `.\gradlew.bat :app:testDebugUnitTest`
 - Test (instrumented): `.\gradlew.bat :app:connectedDebugAndroidTest`（需要已启动模拟器或连接真机）
+- Clean: `.\gradlew.bat clean`
 
 > 说明：本仓库默认使用 PowerShell；连续执行命令用 `;` 分隔（例如 `cd app ; ls`），不要用 `&&`。
+
+### Gradle 性能（本地开发）
+
+- 单测默认开启 Configuration Cache；第一次会慢一些，后续会明显变快。
+- 如需更快（多核并行跑 UT）：`.\gradlew.bat :app:testDebugUnitTest -PtestMaxParallelForks=4`
+- 如果遇到 “另一个程序正在使用此文件”：先执行 `.\gradlew.bat --stop` 再重试。
+
+## 本地环境（Windows 11 + PowerShell 7.x）
+
+在本仓库中执行命令时，遵循以下约定：
+
+### Shell 环境
+
+- 默认 Shell 为 **PowerShell 7.x**（非 bash），所有命令片段优先使用 PowerShell 原生语法。
+- 命令连续执行使用 `;`（PS5/PS7 通用语句分隔符）。避免使用 `&&` / `||`，除非明确需要 PS7 的管道链条件控制语义。
+
+### 常见 bash 写法的 PowerShell 对照
+
+| bash 写法 | PowerShell 写法 |
+|---|---|
+| `ls -la` | `Get-ChildItem -Force` |
+| `cat file` | `Get-Content file`（需要整个文件内容时用 `-Raw`） |
+| `grep -R pattern` | `rg pattern`（首选 ripgrep）或 `Select-String -Pattern pattern` |
+| `curl ...` / `wget ...` | `curl.exe ...` / `wget.exe ...`（调用真实二进制）；处理 JSON API 推荐 `Invoke-RestMethod`（别名 `irm`） |
+
+### 退出状态判断
+
+- `$LASTEXITCODE`：上一个**原生可执行程序**（`git`/`adb`/`java`/`gradle` 等）的退出码，优先使用这个。
+- `$?`：PowerShell 内部的成功/失败布尔值；对原生命令在不同版本/写法下行为可能有差异，不作为主要判断依据。
+
+### 代理配置（中国大陆网络环境）
+
+Gradle 通常读取 `~/.gradle/gradle.properties` 的 `systemProp.http.*` / `systemProp.https.*`；不要把代理硬编码进仓库。
+
+**当前会话临时生效：**
+
+```powershell
+$env:HTTP_PROXY='http://127.0.0.1:7897'; $env:HTTPS_PROXY='http://127.0.0.1:7897'
+```
+
+**npm 项目级配置（写入当前仓库的 `.npmrc`，避免污染全局）：**
+
+```powershell
+npm config set proxy http://127.0.0.1:7897 --location=project
+npm config set https-proxy http://127.0.0.1:7897 --location=project
+```
+
+**git 仓库级配置（避免污染全局配置）：**
+
+```powershell
+git config --local http.proxy http://127.0.0.1:7897
+git config --local https.proxy http://127.0.0.1:7897
+```
+
+### WSL2 调用
+
+- 如果确实需要执行 bash 命令，通过 `wsl -e bash -lc '...'` 显式调用，其余部分保持在 PowerShell 中。
 
 ## Architecture Overview
 
@@ -53,6 +111,8 @@ UI (Chat/Files/Settings)
 
 - 根目录 `.env`：仅用于 Debug，已在 `.gitignore` 中忽略；Debug 构建会读取其中的默认值并注入到 App 的本地配置（用于本机测试）。
   - `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `MODEL`
+  - `TAVILY_URL` / `TAVILY_API_KEY`
+  - `HTTP_PROXY` / `HTTPS_PROXY`
 - 任何密钥不要写进代码/日志，不要提交到 git。
 
 ## Code Style & Conventions
@@ -75,16 +135,15 @@ UI (Chat/Files/Settings)
 - **功能改动后默认装机验证**：每一次“成功的功能修改”（行为/界面/交互变化，且本地相关测试通过）后，默认执行 `.\gradlew.bat :app:installDebug` 安装到已连接真机/模拟器进行冒烟验证；不要等用户提醒。
 - **submodule 改动不要混在本仓库提交里**：如需修改 `external/*`，优先在对应仓库提交并更新 submodule 指针；本仓库只提交 submodule 指针变化即可。
 
-### Proxy（中国大陆网络环境）
-
-- Gradle 通常读取 `~/.gradle/gradle.properties` 的 `systemProp.http.*` / `systemProp.https.*`；不要把代理硬编码进仓库。
-- 如需临时代理，优先在当前会话设置环境变量或在用户级 Gradle 配置设置。
-
 ## Testing Strategy
 
 - Unit tests：`.\gradlew.bat :app:testDebugUnitTest`
 - Instrumentation tests：`.\gradlew.bat :app:connectedDebugAndroidTest`
 - 基本原则：改了行为就补/改测试；合并前确保相关测试与 lint 通过。
+
+## 任务提醒
+
+每次任务执行完毕之后，使用 `apn-pushtool` 技能给手机发送一条简要消息：`xxx任务已完成`（`xxx` 为任务梗概，字数不超过 10 个字）。
 
 ## ADB Debug（导出 sessions/events.jsonl）
 

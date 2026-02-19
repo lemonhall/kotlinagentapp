@@ -3,6 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+val testMaxParallelForks: Int? =
+    providers.gradleProperty("testMaxParallelForks").orNull?.toIntOrNull()
+
 android {
     namespace = "com.lsl.kotlin_agent_app"
     compileSdk = 35
@@ -107,6 +110,11 @@ android {
             )
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    val cpu = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+    maxParallelForks = testMaxParallelForks ?: (cpu / 2).coerceIn(1, 4)
 }
 
 dependencies {
