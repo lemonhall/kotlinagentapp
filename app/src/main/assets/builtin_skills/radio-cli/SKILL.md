@@ -18,7 +18,8 @@ workspace/radios/
   .countries.index.json   ← 国家列表索引
   .countries.meta.json    ← 国家元数据
   {CC}__{CountryName}/    ← 国家目录，如 AU__Australia/、CN__China/
-    .stations.meta.json   ← 该国电台元数据索引
+    .stations.index.json  ← 该国电台索引（用于搜索）
+    .stations.meta.json   ← 该国电台缓存元数据（TTL）
     {StationName}__{hash}.radio  ← 电台文件
     _STATUS.md
 ```
@@ -85,16 +86,19 @@ workspace/radios/
 
 > **直接**用 `Read` 读取 `workspace/radios/.countries.index.json`（不要用 Glob/Grep 搜索这个文件，路径是确定的），
 > 从 JSON 中找到 code 为 "{CC}" 的条目，取其 dir 字段作为国家目录名；
-> 然后**直接**用 `Read` 读取 `workspace/radios/{dir}/.stations.meta.json`，
-> 从中找出名称包含"{用户关键词}"的电台，
+> 然后对 `workspace/radios/{dir}/.stations.index.json` 用 `Grep` 搜索（regex）：
+> - 优先匹配 `"name": "..."` 含 "{用户关键词}" 的行
+> - 同时可匹配 tags 含 `"news"` 等新闻属性
+> - 必须设置 `after_context>=8`，以便从 after_context 中拿到同一条目里的 `"path": "..."` 行
 > 返回最多 10 条结果，每条包含电台名称（name）和完整的 `.radio` 文件相对路径（path）。
 
 示例——用户说"收听国内的新闻 radio"：
 
 > **直接**用 `Read` 读取 `workspace/radios/.countries.index.json`（路径确定，不要搜索），
 > 找到 code 为 "CN" 的条目，取其 dir 字段；
-> 然后**直接**用 `Read` 读取 `workspace/radios/CN__China/.stations.meta.json`，
-> 找出名称包含"新闻"或"news"的电台，
+> 然后对 `workspace/radios/CN__China/.stations.index.json` 用 `Grep` 搜索 `"name": ".*(新闻|资讯|综合|中国之声|CNR|央广|CRI).*"`，
+> 并设置 `after_context>=8`，从 after_context 中提取 `"path": "..."`；
+> 若 name 匹配不足，可补充一次 Grep：搜索 tags 行 `"tags": .*news.*`；
 > 返回最多 10 条结果，每条包含电台名称（name）和 `.radio` 文件相对路径（path）。
 
 ### Step 2：处理 explore 返回结果

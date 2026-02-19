@@ -184,6 +184,7 @@ internal class RadioRepository(
         return try {
             val stations = api.listStationsByCountry(entry.name, limit = stationsLimit)
             val nowSec = nowSec()
+            val indexEntries = ArrayList<JsonElement>(stations.size.coerceAtLeast(0))
             for (s in stations) {
                 val uuid = s.stationUuid?.trim()?.ifBlank { null } ?: continue
                 val name = s.name?.trim()?.ifBlank { null } ?: continue
@@ -213,7 +214,29 @@ internal class RadioRepository(
                 val fileName = RadioPathNaming.stationFileName(stationName = name, stationUuid = uuid)
                 val targetPath = "$RADIOS_DIR/${entry.dir}/$fileName"
                 ws.writeTextFile(targetPath, json.encodeToString(JsonObject.serializer(), file.toJsonObject()) + "\n")
+
+                val tags = file.tags
+                indexEntries.add(
+                    buildJsonObject {
+                        put("name", JsonPrimitive(file.name))
+                        put("path", JsonPrimitive("workspace/radios/${entry.dir}/$fileName"))
+                        put("tags", JsonArray(tags.map { JsonPrimitive(it) }))
+                        file.language?.let { put("language", JsonPrimitive(it)) }
+                        file.votes?.let { put("votes", JsonPrimitive(it)) }
+                    },
+                )
             }
+            val stationsIndexObj =
+                buildJsonObject {
+                    put("schema", JsonPrimitive(STATIONS_INDEX_SCHEMA))
+                    put("dir", JsonPrimitive(entry.dir))
+                    put("generatedAtSec", JsonPrimitive(nowSec))
+                    put("stations", JsonArray(indexEntries))
+                }
+            ws.writeTextFile(
+                "$RADIOS_DIR/${entry.dir}/.stations.index.json",
+                prettyJson.encodeToString(JsonObject.serializer(), stationsIndexObj) + "\n",
+            )
             writeMeta(metaPath)
             writeCountryStatus(entry.dir, ok = true, note = if (force) "已刷新" else "已更新")
             RadioSyncOutcome(ok = true)
@@ -358,6 +381,7 @@ internal class RadioRepository(
         const val FAVORITES_NAME = "favorites"
         const val FAVORITES_DIR = "$RADIOS_DIR/$FAVORITES_NAME"
 
+        private const val STATIONS_INDEX_SCHEMA = "kotlin-agent-app/radios-stations-index@v1"
         private const val COUNTRIES_META_PATH = "$RADIOS_DIR/.countries.meta.json"
         private const val COUNTRIES_INDEX_PATH = "$RADIOS_DIR/.countries.index.json"
         private const val COUNTRIES_INDEX_SCHEMA = "kotlin-agent-app/radios-countries-index@v1"
