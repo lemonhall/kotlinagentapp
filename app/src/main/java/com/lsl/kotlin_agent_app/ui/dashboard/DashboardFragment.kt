@@ -150,9 +150,9 @@ class DashboardFragment : Fragment() {
                             arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "删除", "复制路径")
                         } else if (isDir) {
                             val isSessionDir = (cwd == ".agents/sessions" && sidRx.matches(entry.name))
-                            if (isSessionDir) arrayOf("进入目录", "剪切", "删除") else arrayOf("剪切", "删除")
+                            if (isSessionDir) arrayOf("进入目录", "剪切", "删除", "复制路径") else arrayOf("剪切", "删除", "复制路径")
                         } else {
-                            arrayOf("分享", "剪切", "删除")
+                            arrayOf("分享", "剪切", "删除", "复制路径")
                         }
 
                     MaterialAlertDialogBuilder(requireContext())
