@@ -55,9 +55,20 @@ workspace/radios/
 使用工具 `terminal_exec` 执行（示例）：
 
 - `radio play --in workspace/radios/CN__China/中国之声__a1b2c3d4e5.radio`
+- `radio play --in "workspace/radios/EG__Egypt/Egyptian Radio__6254b05b33.radio"`（路径含空格/Unicode 时用双引号）
+- `radio play --in_b64 <base64-utf8-path>`（推荐：彻底规避空格/Unicode/转义问题）
 - `radio pause`
 - `radio resume`
 - `radio stop`
+
+#### 关于 `--in_b64`
+
+当 `.radio` 文件路径包含空格（包括阿语空格）、中文或其它 Unicode 字符时，为避免参数被拆分/转义错误，优先用 `--in_b64`：把 **UTF-8 路径**做 Base64 编码后传参。
+
+示例：
+- 原始路径：`workspace/radios/EG__Egypt/Egyptian Radio__6254b05b33.radio`
+- 编码后：`d29ya3NwYWNlL3JhZGlvcy9FR19fRWd5cHQvRWd5cHRpYW4gUmFkaW9fXzYyNTRiMDViMzMucmFkaW8=`
+- 命令：`radio play --in_b64 d29ya3NwYWNlL3JhZGlvcy9FR19fRWd5cHQvRWd5cHRpYW4gUmFkaW9fXzYyNTRiMDViMzMucmFkaW8=`
 
 期望：
 - `exit_code=0`
@@ -75,6 +86,8 @@ workspace/radios/
 
 - `radio fav add --in workspace/radios/CN__China/中国之声__a1b2c3d4e5.radio`
 - `radio fav rm --in workspace/radios/CN__China/中国之声__a1b2c3d4e5.radio`
+- `radio fav add --in "workspace/radios/EG__Egypt/Egyptian Radio__6254b05b33.radio"`（路径含空格/Unicode 时用双引号）
+- `radio fav rm --in_b64 <base64-utf8-path>`
 
 期望：
 - `exit_code=0`
@@ -161,7 +174,10 @@ workspace/radios/
 
 ### Step 3：播放
 
-拿到精确的 `.radio` 文件路径后，执行 `radio play --in <path>`。
+拿到精确的 `.radio` 文件路径后，执行以下任一方式：
+
+- `radio play --in "<path>"`（推荐：路径里有空格/Unicode 时必须加双引号）
+- `radio play --in_b64 <base64-utf8-path>`（最稳：彻底规避空格/Unicode/转义问题）
 
 ### Step 4：写入记忆（播放成功后）
 
@@ -190,7 +206,7 @@ workspace/radios/
 
 - 必须实际调用 `terminal_exec`，不要臆造 stdout/result/artifacts。
 - `radio play` 只允许 `workspace/radios/**.radio`；越界应返回 `exit_code!=0` 且 `error_code` 可解释（如 `NotInRadiosDir/NotRadioFile/NotFound`）。
-- `radio fav add/rm` 只允许 `workspace/radios/**.radio`；未指定 `--in` 时要求当前正在播放电台，否则应返回稳定错误（例如 `NotPlayingRadio`）。
+- `radio fav add/rm` 只允许 `workspace/radios/**.radio`；未指定 `--in` / `--in_b64` 时要求当前正在播放电台，否则应返回稳定错误（例如 `NotPlayingRadio`）。
 - `terminal_exec` 不支持 `;` / `&&` / `|` / 重定向；命令必须单行。
 - 若工具返回 `exit_code!=0` 或包含 `error_code`，直接报告错误并停止。
 - **主 agent 禁止**使用 `Read`、`Glob`、`List`、`Grep` 等工具直接访问 `workspace/radios/` 目录树，**唯一例外**：允许主 agent `Read/Write` `workspace/radios/.last_played.json`（记忆文件），用于快速路径与写入记忆。

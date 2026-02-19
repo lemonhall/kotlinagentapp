@@ -5,6 +5,7 @@ import com.lsl.kotlin_agent_app.media.MusicPlayerController
 import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 import com.lsl.kotlin_agent_app.radios.RadioPathNaming
 import java.io.File
+import java.util.Base64
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -131,6 +132,58 @@ class TerminalExecToolRadioTest {
         }
 
     @Test
+    fun radio_play_supportsPathsWithSpaces_viaIn_andInB64() =
+        runTerminalExecToolTest(
+            setup = { context ->
+                val ws = AgentsWorkspace(context)
+                ws.ensureInitialized()
+
+                val radioJson =
+                    """
+                    {
+                      "schema": "kotlin-agent-app/radio-station@v1",
+                      "id": "radio-browser:egypt-1",
+                      "name": "Egyptian Radio",
+                      "streamUrl": "https://example.com/live?token=SECRET",
+                      "country": "Egypt",
+                      "faviconUrl": "https://example.com/favicon.png"
+                    }
+                    """.trimIndent()
+                val agentsPath = ".agents/workspace/radios/EG__Egypt/Egyptian Radio__test-1.radio"
+                val f = File(context.filesDir, agentsPath)
+                f.parentFile?.mkdirs()
+                f.writeText(radioJson, Charsets.UTF_8)
+
+                MusicPlayerControllerProvider.resetForTests()
+                MusicPlayerControllerProvider.installAppContext(context)
+                MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                    MusicPlayerController(ctx, transport = FakeMusicTransport())
+                }
+                {
+                    MusicPlayerControllerProvider.resetForTests()
+                }
+            },
+        ) { tool ->
+            val rawWorkspacePath = "workspace/radios/EG__Egypt/Egyptian Radio__test-1.radio"
+
+            val outPlayIn = tool.exec("radio play --in $rawWorkspacePath")
+            assertEquals(0, outPlayIn.exitCode)
+            val st1 = tool.exec("radio status")
+            assertEquals(0, st1.exitCode)
+            assertEquals(rawWorkspacePath, st1.result!!["station"]!!.jsonObject["path"]!!.jsonPrimitive.content)
+
+            val outStop = tool.exec("radio stop")
+            assertEquals(0, outStop.exitCode)
+
+            val b64 = Base64.getEncoder().encodeToString(rawWorkspacePath.toByteArray(Charsets.UTF_8))
+            val outPlayB64 = tool.exec("radio play --in_b64 $b64")
+            assertEquals(0, outPlayB64.exitCode)
+            val st2 = tool.exec("radio status")
+            assertEquals(0, st2.exitCode)
+            assertEquals(rawWorkspacePath, st2.result!!["station"]!!.jsonObject["path"]!!.jsonPrimitive.content)
+        }
+
+    @Test
     fun radio_fav_add_list_rm_roundtrip() =
         runTerminalExecToolTest(
             setup = { context ->
@@ -209,4 +262,3 @@ class TerminalExecToolRadioTest {
             assertEquals("NotPlayingRadio", out.errorCode)
         }
 }
-

@@ -1,10 +1,10 @@
 package com.lsl.kotlin_agent_app.agent.tools.terminal.commands.radio
 
 import android.content.Context
+import android.util.Base64
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.agent.tools.terminal.TerminalCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.TerminalCommandOutput
-import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.archive.requireFlagValue
 import com.lsl.kotlin_agent_app.media.MusicPlaybackState
 import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
@@ -187,7 +187,7 @@ internal class RadioCommand(
     }
 
     private suspend fun handlePlay(argv: List<String>): TerminalCommandOutput {
-        val rawIn = requireFlagValue(argv, "--in").trim()
+        val rawIn = requireInPathArg(argv).trim()
         val agentsPath = normalizeAgentsPathArg(rawIn)
         if (!isInRadiosTree(agentsPath)) throw NotInRadiosDir("仅允许 radios/ 目录下的 .radio：$rawIn")
         if (!agentsPath.lowercase().endsWith(".radio")) throw NotRadioFile("仅允许 radios/ 目录下的 .radio：$rawIn")
@@ -222,18 +222,9 @@ internal class RadioCommand(
         }
     }
 
-    private fun optionalFlagValue(
-        argv: List<String>,
-        flag: String,
-    ): String? {
-        val idx = argv.indexOf(flag)
-        if (idx < 0) return null
-        return argv.getOrNull(idx + 1)?.trim()?.ifBlank { null }
-    }
-
     private suspend fun handleFavAdd(argv: List<String>): TerminalCommandOutput {
         ws.ensureInitialized()
-        val rawIn = optionalFlagValue(argv, "--in")
+        val rawIn = optionalInPathArg(argv)
         val agentsPath =
             if (rawIn.isNullOrBlank()) {
                 val st = MusicPlayerControllerProvider.get().statusSnapshot()
@@ -286,7 +277,7 @@ internal class RadioCommand(
 
     private suspend fun handleFavRemove(argv: List<String>): TerminalCommandOutput {
         ws.ensureInitialized()
-        val rawIn = optionalFlagValue(argv, "--in")
+        val rawIn = optionalInPathArg(argv)
         val agentsPath =
             if (rawIn.isNullOrBlank()) {
                 val st = MusicPlayerControllerProvider.get().statusSnapshot()
@@ -403,12 +394,12 @@ internal class RadioCommand(
                         """
                         Usage:
                           radio status
-                          radio play --in <agents-path>
+                          radio play (--in <agents-path> | --in_b64 <base64-utf8-path>)
                           radio pause
                           radio resume
                           radio stop
-                          radio fav add [--in <agents-path>]
-                          radio fav rm [--in <agents-path>]
+                          radio fav add [--in <agents-path> | --in_b64 <base64-utf8-path>]
+                          radio fav rm [--in <agents-path> | --in_b64 <base64-utf8-path>]
                           radio fav list
                         
                         Help:
@@ -428,7 +419,12 @@ internal class RadioCommand(
                     )
                 }
                 "status" -> "Usage: radio status" to listOf("radio status")
-                "play" -> "Usage: radio play --in <agents-path>" to listOf("radio play --in workspace/radios/demo.radio")
+                "play" ->
+                    "Usage: radio play (--in <agents-path> | --in_b64 <base64-utf8-path>)" to
+                        listOf(
+                            "radio play --in workspace/radios/demo.radio",
+                            "radio play --in \"workspace/radios/EG__Egypt/Egyptian Radio__6254b05b33.radio\"",
+                        )
                 "pause" -> "Usage: radio pause" to listOf("radio pause")
                 "resume" -> "Usage: radio resume" to listOf("radio resume")
                 "stop" -> "Usage: radio stop" to listOf("radio stop")
@@ -436,8 +432,8 @@ internal class RadioCommand(
                     val u =
                         """
                         Usage:
-                          radio fav add [--in <agents-path>]
-                          radio fav rm [--in <agents-path>]
+                          radio fav add [--in <agents-path> | --in_b64 <base64-utf8-path>]
+                          radio fav rm [--in <agents-path> | --in_b64 <base64-utf8-path>]
                           radio fav list
                         """.trimIndent()
                     u to listOf("radio fav list", "radio fav add", "radio fav rm")
@@ -469,8 +465,15 @@ internal class RadioCommand(
                             add(
                                 buildJsonObject {
                                     put("name", JsonPrimitive("--in"))
-                                    put("required", JsonPrimitive(true))
-                                    put("description", JsonPrimitive("Input .radio file within workspace/radios/"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Input .radio file within workspace/radios/. For paths with spaces, you may quote with double-quotes."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--in_b64"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Base64-encoded UTF-8 path for input .radio file within workspace/radios/. Use when you cannot reliably quote/escape spaces or Unicode."))
                                 },
                             )
                         },
@@ -484,6 +487,13 @@ internal class RadioCommand(
                                     put("name", JsonPrimitive("--in"))
                                     put("required", JsonPrimitive(false))
                                     put("description", JsonPrimitive("Optional input .radio path within workspace/radios/ (defaults to current playing station)."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--in_b64"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Optional base64-encoded UTF-8 path for input .radio file within workspace/radios/ (defaults to current playing station)."))
                                 },
                             )
                         },
@@ -529,6 +539,53 @@ internal class RadioCommand(
             p0.startsWith("radios/") -> ".agents/workspace/$p0"
             else -> p0
         }.trimEnd('/')
+    }
+
+    private fun decodeBase64Utf8(
+        rawB64: String,
+        flag: String,
+    ): String {
+        val b64 = rawB64.trim()
+        if (b64.isEmpty()) throw IllegalArgumentException("empty value for $flag")
+        try {
+            val bytes = Base64.decode(b64, Base64.DEFAULT)
+            return String(bytes, Charsets.UTF_8)
+        } catch (t: IllegalArgumentException) {
+            throw IllegalArgumentException("invalid base64 for $flag")
+        }
+    }
+
+    private fun optionalFlagValueRest(
+        argv: List<String>,
+        flag: String,
+    ): String? {
+        val idx = argv.indexOf(flag)
+        if (idx < 0 || idx + 1 >= argv.size) return null
+
+        val parts = mutableListOf<String>()
+        for (i in (idx + 1) until argv.size) {
+            val tok = argv[i]
+            if (tok.startsWith("--")) break
+            parts.add(tok)
+        }
+        val joined = parts.joinToString(" ").trim()
+        return joined.ifBlank { null }
+    }
+
+    private fun requireInPathArg(argv: List<String>): String {
+        val inB64 = optionalFlagValueRest(argv, "--in_b64")
+        if (!inB64.isNullOrBlank()) return decodeBase64Utf8(inB64, flag = "--in_b64")
+
+        val rawIn = optionalFlagValueRest(argv, "--in")
+        if (!rawIn.isNullOrBlank()) return rawIn
+
+        throw IllegalArgumentException("missing required flag: --in or --in_b64")
+    }
+
+    private fun optionalInPathArg(argv: List<String>): String? {
+        val inB64 = optionalFlagValueRest(argv, "--in_b64")
+        if (!inB64.isNullOrBlank()) return decodeBase64Utf8(inB64, flag = "--in_b64")
+        return optionalFlagValueRest(argv, "--in")
     }
 
     private fun isInRadiosTree(agentsPath: String): Boolean {
