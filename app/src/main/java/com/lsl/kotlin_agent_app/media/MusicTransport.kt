@@ -1,11 +1,17 @@
 package com.lsl.kotlin_agent_app.media
 
-import java.io.File
+data class MusicMediaMetadata(
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    val durationMs: Long? = null,
+)
 
 data class MusicPlaybackRequest(
     val agentsPath: String,
-    val file: File,
-    val metadata: Mp3Metadata,
+    val uri: String,
+    val metadata: MusicMediaMetadata = MusicMediaMetadata(),
+    val isLive: Boolean = false,
 )
 
 interface MusicTransport {

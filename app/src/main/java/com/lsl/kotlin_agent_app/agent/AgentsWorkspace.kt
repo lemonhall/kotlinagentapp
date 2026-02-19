@@ -33,6 +33,8 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents/workspace")
         mkdirsIfMissing(".agents/workspace/inbox")
         mkdirsIfMissing(".agents/workspace/musics")
+        mkdirsIfMissing(".agents/workspace/radios")
+        mkdirsIfMissing(".agents/workspace/radios/favorites")
 
         // Best-effort: missing asset must not break the rest.
         // In Debug builds, keep bundled skills synced to avoid stale/partial copies across app reinstalls.

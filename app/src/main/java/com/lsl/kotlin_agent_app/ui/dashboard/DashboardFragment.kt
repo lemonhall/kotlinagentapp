@@ -51,6 +51,8 @@ import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 import com.lsl.kotlin_agent_app.databinding.BottomSheetMusicPlayerBinding
 import com.lsl.kotlin_agent_app.media.lyrics.LrcParser
 import com.lsl.kotlin_agent_app.media.lyrics.LrcLine
+import com.lsl.kotlin_agent_app.radios.RadioPathNaming
+import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 
 class DashboardFragment : Fragment() {
 
@@ -78,6 +80,7 @@ class DashboardFragment : Fragment() {
     private var sheetLyricsTimed: List<LrcLine>? = null
     private var sheetLastHighlightedIndex: Int = -1
     private var sheetIsSlidingVolume: Boolean = false
+    private var lastPlaybackErrorToast: String? = null
 
     private val importLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -119,7 +122,9 @@ class DashboardFragment : Fragment() {
                         }
                     } else {
                         val path = joinAgentsPath(cwd, entry.name)
-                        if (isMp3Name(entry.name) && isInMusicsTree(path)) {
+                        if (isRadioName(entry.name) && isInRadiosTree(path)) {
+                            musicController.playAgentsRadio(path)
+                        } else if (isMp3Name(entry.name) && isInMusicsTree(path)) {
                             musicController.playAgentsMp3(path)
                         } else {
                             filesViewModel.openFile(entry)
@@ -131,9 +136,17 @@ class DashboardFragment : Fragment() {
                     val cwd = filesViewModel.state.value?.cwd ?: ".agents"
                     val relativePath = joinAgentsPath(cwd, entry.name)
                     val isMp3InMusics = (!isDir && isMp3Name(entry.name) && isInMusicsTree(relativePath))
+                    val isRadioInRadios = (!isDir && isRadioName(entry.name) && isInRadiosTree(relativePath))
+                    val isRadioInFavorites = isRadioInRadios && isInRadioFavorites(relativePath)
 
                     val actions =
-                        if (isMp3InMusics) {
+                        if (isRadioInRadios) {
+                            if (isRadioInFavorites) {
+                                arrayOf("播放", "播放/暂停", "停止", "移出收藏", "分享", "剪切", "删除", "复制路径")
+                            } else {
+                                arrayOf("播放", "播放/暂停", "停止", "收藏", "分享", "剪切", "删除", "复制路径")
+                            }
+                        } else if (isMp3InMusics) {
                             arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "删除", "复制路径")
                         } else if (isDir) {
                             val isSessionDir = (cwd == ".agents/sessions" && sidRx.matches(entry.name))
@@ -148,9 +161,16 @@ class DashboardFragment : Fragment() {
                             val action = actions.getOrNull(which) ?: return@setItems
                             when (action) {
                                 "进入目录" -> filesViewModel.goInto(entry)
-                                "播放" -> musicController.playAgentsMp3(relativePath)
+                                "播放" ->
+                                    when {
+                                        isRadioName(entry.name) && isInRadiosTree(relativePath) -> musicController.playAgentsRadio(relativePath)
+                                        isMp3Name(entry.name) && isInMusicsTree(relativePath) -> musicController.playAgentsMp3(relativePath)
+                                        else -> Unit
+                                    }
                                 "播放/暂停" -> musicController.togglePlayPause()
                                 "停止" -> musicController.stop()
+                                "收藏" -> addRadioFavorite(relativePath)
+                                "移出收藏" -> removeRadioFavorite(relativePath)
                                 "分享" -> shareAgentsFile(relativePath)
                                 "剪切" -> {
                                     filesViewModel.cutEntry(entry)
@@ -184,7 +204,7 @@ class DashboardFragment : Fragment() {
             true
         }
 
-        binding.buttonRefresh.setOnClickListener { filesViewModel.refresh() }
+        binding.buttonRefresh.setOnClickListener { filesViewModel.refresh(force = true) }
         binding.buttonUp.setOnClickListener { filesViewModel.goUp() }
         binding.buttonUp.setOnLongClickListener {
             filesViewModel.goRoot()
@@ -261,10 +281,13 @@ class DashboardFragment : Fragment() {
              binding.buttonClearSessions.visibility = if (st.cwd == ".agents/sessions") View.VISIBLE else View.GONE
              binding.buttonPaste.visibility = if (!st.clipboardCutPath.isNullOrBlank()) View.VISIBLE else View.GONE
              val inMusics = isInMusicsTree(st.cwd)
+             val inRadios = isInRadiosTree(st.cwd)
              binding.buttonMusicHelp.visibility = if (inMusics) View.VISIBLE else View.GONE
-             binding.textMusicHint.visibility = if (inMusics) View.VISIBLE else View.GONE
+             binding.textMusicHint.visibility = if (inMusics || inRadios) View.VISIBLE else View.GONE
              if (inMusics) {
                  binding.textMusicHint.text = "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
+             } else if (inRadios) {
+                 binding.textMusicHint.text = "仅 radios/ 启用电台目录与 .radio 播放；点“刷新”可强制拉取目录。"
              }
 
              val openPath = st.openFilePath
@@ -334,10 +357,25 @@ class DashboardFragment : Fragment() {
                     updateMiniBar(st)
                     updateMusicSheetIfVisible(st)
                     val cwd = filesViewModel.state.value?.cwd.orEmpty()
-                    if (isInMusicsTree(cwd)) {
-                        val base = "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
+                    val err = st.errorMessage?.trim()?.ifBlank { null }
+                    if (err != null && err != lastPlaybackErrorToast) {
+                        lastPlaybackErrorToast = err
+                        Toast.makeText(requireContext(), "播放失败：$err", Toast.LENGTH_SHORT).show()
+                    }
+                    if (err == null) lastPlaybackErrorToast = null
+
+                    val inMusics = isInMusicsTree(cwd)
+                    val inRadios = isInRadiosTree(cwd)
+                    if (inMusics || inRadios) {
+                        val base =
+                            if (inMusics) {
+                                "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
+                            } else {
+                                "仅 radios/ 启用电台目录与 .radio 播放；点“刷新”可强制拉取目录。"
+                            }
                         val warn = st.warningMessage?.trim()?.ifBlank { null }
-                        binding.textMusicHint.text = if (warn != null) "$base\n$warn" else base
+                        val lines = listOfNotNull(base, warn, err?.let { "错误：$it" })
+                        binding.textMusicHint.text = lines.joinToString("\n").trim()
                     }
                 }
             }
@@ -361,16 +399,22 @@ class DashboardFragment : Fragment() {
 
         binding.textMusicTitle.text = st.title?.trim()?.ifBlank { null } ?: "unknown"
 
-        val pos = fmt(st.positionMs)
-        val dur = st.durationMs?.let { fmt(it) }
-        val timeLabel = if (dur != null) "$pos / $dur" else pos
+        val timeLabel =
+            if (st.isLive) {
+                "LIVE"
+            } else {
+                val pos = fmt(st.positionMs)
+                val dur = st.durationMs?.let { fmt(it) }
+                if (dur != null) "$pos / $dur" else pos
+            }
         val artist = st.artist?.trim()?.ifBlank { null }
         val mode = modeLabel(st.playbackMode)
         binding.textMusicSubtitle.text =
             listOfNotNull(artist, mode, timeLabel).joinToString(" · ").ifBlank { timeLabel }
 
+        binding.progressMusic.isIndeterminate = st.isLive
         val progress =
-            if (st.durationMs != null && st.durationMs > 0L) {
+            if (!st.isLive && st.durationMs != null && st.durationMs > 0L) {
                 ((st.positionMs.coerceIn(0L, st.durationMs) * 1000L) / st.durationMs).toInt().coerceIn(0, 1000)
             } else {
                 0
@@ -591,6 +635,63 @@ class DashboardFragment : Fragment() {
         return p == ".agents/workspace/musics" || p.startsWith(".agents/workspace/musics/")
     }
 
+    private fun isRadioName(name: String): Boolean {
+        return name.trim().lowercase().endsWith(".radio")
+    }
+
+    private fun isInRadiosTree(agentsPath: String): Boolean {
+        val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
+        return p == ".agents/workspace/radios" || p.startsWith(".agents/workspace/radios/")
+    }
+
+    private fun isInRadioFavorites(agentsPath: String): Boolean {
+        val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
+        return p == ".agents/workspace/radios/favorites" || p.startsWith(".agents/workspace/radios/favorites/")
+    }
+
+    private fun addRadioFavorite(agentsRadioPath: String) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val appContext = requireContext().applicationContext
+            val ws = AgentsWorkspace(appContext)
+            try {
+                val msg =
+                    withContext(Dispatchers.IO) {
+                        ws.ensureInitialized()
+                        val raw = ws.readTextFile(agentsRadioPath, maxBytes = 128 * 1024)
+                        val st = RadioStationFileV1.parse(raw)
+                        val uuid = st.id.substringAfter(':', missingDelimiterValue = st.id)
+                        val fileName = RadioPathNaming.stationFileName(stationName = st.name, stationUuid = uuid)
+                        val dest = ".agents/workspace/radios/favorites/$fileName"
+                        if (ws.exists(dest)) return@withContext "已在收藏：$fileName"
+                        ws.writeTextFile(dest, raw.trimEnd() + "\n")
+                        "已收藏：$fileName"
+                    }
+                Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+                filesViewModel?.refresh()
+            } catch (t: Throwable) {
+                Toast.makeText(requireContext(), "收藏失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun removeRadioFavorite(agentsRadioPath: String) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val appContext = requireContext().applicationContext
+            val ws = AgentsWorkspace(appContext)
+            try {
+                withContext(Dispatchers.IO) {
+                    ws.ensureInitialized()
+                    if (!isInRadioFavorites(agentsRadioPath)) error("仅允许从 favorites/ 移出收藏")
+                    ws.deletePath(agentsRadioPath, recursive = false)
+                }
+                Toast.makeText(requireContext(), "已移出收藏", Toast.LENGTH_SHORT).show()
+                filesViewModel?.refresh()
+            } catch (t: Throwable) {
+                Toast.makeText(requireContext(), "移出收藏失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun copyTextToClipboard(label: String, text: String) {
         val cm = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         cm.setPrimaryClip(ClipData.newPlainText(label, text))
@@ -750,7 +851,7 @@ class DashboardFragment : Fragment() {
 
     private fun isJsonPath(path: String): Boolean {
         val p = path.lowercase()
-        return p.endsWith(".json") || p.endsWith(".jsonl")
+        return p.endsWith(".json") || p.endsWith(".jsonl") || p.endsWith(".radio")
     }
 
     private fun dp(value: Int): Int {

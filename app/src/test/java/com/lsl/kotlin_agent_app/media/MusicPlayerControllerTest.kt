@@ -10,6 +10,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -111,9 +112,64 @@ class MusicPlayerControllerTest {
             controller.playAgentsMp3(".agents/workspace/musics/a.mp3")
             testScheduler.runCurrent()
             assertEquals(".agents/workspace/musics/a.mp3", controller.state.value.agentsPath)
+            assertEquals(false, controller.state.value.isLive)
             assertEquals("Song", controller.state.value.title)
             assertEquals("Me", controller.state.value.artist)
             assertEquals(true, controller.state.value.isPlaying)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun playAgentsRadio_outsideRadios_isRejected() = runTest {
+        val ctx = RuntimeEnvironment.getApplication()
+        val transport = FakeTransport()
+        val controller =
+            MusicPlayerController(
+                ctx,
+                transport = transport,
+                metadataReader = Mp3MetadataReader(Mp3MetadataExtractor { null }),
+                ioDispatcher = kotlinx.coroutines.Dispatchers.Main,
+            )
+        try {
+            controller.playAgentsRadio(".agents/workspace/inbox/a.radio")
+            assertEquals("仅允许播放 radios/ 目录下的 .radio", controller.state.value.errorMessage)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun playAgentsRadio_insideRadios_updatesState_andPlaysStreamUrl() = runTest {
+        val ctx = RuntimeEnvironment.getApplication()
+        val transport = FakeTransport()
+        val controller =
+            MusicPlayerController(
+                ctx,
+                transport = transport,
+                metadataReader = Mp3MetadataReader(Mp3MetadataExtractor { null }),
+                ioDispatcher = kotlinx.coroutines.Dispatchers.Main,
+            )
+        val path = ".agents/workspace/radios/CN__China/test.radio"
+        val file = File(ctx.filesDir, path)
+        file.parentFile?.mkdirs()
+        file.writeText(
+            """
+            {"schema":"kotlin-agent-app/radio-station@v1","id":"radio-browser:uuid-123","name":"Station","streamUrl":"https://example.com/stream"}
+            """.trimIndent(),
+            Charsets.UTF_8
+        )
+
+        try {
+            controller.playAgentsRadio(path)
+            testScheduler.runCurrent()
+            assertEquals(path, controller.state.value.agentsPath)
+            assertEquals(true, controller.state.value.isLive)
+            assertEquals("Station", controller.state.value.title)
+            assertEquals(true, controller.state.value.isPlaying)
+            assertEquals("https://example.com/stream", transport.lastPlayed?.uri)
+            assertEquals(true, transport.lastPlayed?.isLive)
         } finally {
             controller.close()
         }

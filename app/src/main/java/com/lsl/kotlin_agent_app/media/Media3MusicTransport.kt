@@ -10,7 +10,6 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import java.io.File
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -59,7 +58,7 @@ class Media3MusicTransport(
         val md = request.metadata
         val item =
             MediaItem.Builder()
-                .setUri(Uri.fromFile(request.file))
+                .setUri(Uri.parse(request.uri))
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(md.title)

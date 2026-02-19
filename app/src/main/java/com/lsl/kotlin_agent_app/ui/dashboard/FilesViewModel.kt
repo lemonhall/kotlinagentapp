@@ -13,6 +13,8 @@ import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.config.LlmConfigRepository
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 import com.lsl.kotlin_agent_app.media.Mp3MetadataReader
+import com.lsl.kotlin_agent_app.radios.RadioRepository
+import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -41,8 +43,9 @@ class FilesViewModel(
 
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private var sessionTitleJob: Job? = null
+    private val radioRepo = RadioRepository(workspace)
 
-    fun refresh() {
+    fun refresh(force: Boolean = false) {
         val prev = _state.value ?: FilesUiState()
         _state.value = prev.copy(isLoading = true, errorMessage = null)
         viewModelScope.launch {
@@ -51,12 +54,21 @@ class FilesViewModel(
                     workspace.ensureInitialized()
                 }
                 val cwd = (_state.value ?: prev).cwd
+                val radioMessage =
+                    withContext(Dispatchers.IO) {
+                        maybeSyncRadios(cwd = cwd, force = force)
+                    }
                 val rawEntries = withContext(Dispatchers.IO) { workspace.listDir(cwd) }
                 val (entries, missingSessionIds) =
                     withContext(Dispatchers.IO) {
                         decorateEntries(cwd = cwd, entries = rawEntries)
                     }
-                _state.value = (_state.value ?: prev).copy(entries = entries, isLoading = false, errorMessage = null)
+                _state.value =
+                    (_state.value ?: prev).copy(
+                        entries = entries,
+                        isLoading = false,
+                        errorMessage = radioMessage?.trim()?.ifBlank { null },
+                    )
 
                 maybeStartSessionTitleJob(cwd = cwd, sessionIds = missingSessionIds)
             } catch (t: Throwable) {
@@ -288,7 +300,7 @@ class FilesViewModel(
         entries: List<AgentsDirEntry>,
     ): Pair<List<AgentsDirEntry>, List<String>> {
         if (cwd != ".agents/sessions") {
-            return decorateMusicEntries(cwd = cwd, entries = entries) to emptyList()
+            return decorateWorkspaceEntries(cwd = cwd, entries = entries) to emptyList()
         }
 
         data class Decorated(
@@ -346,6 +358,16 @@ class FilesViewModel(
         return (sortedSessions + sortedOthers) to missingTitles
     }
 
+    private fun decorateWorkspaceEntries(
+        cwd: String,
+        entries: List<AgentsDirEntry>,
+    ): List<AgentsDirEntry> {
+        var cur = entries
+        cur = decorateMusicEntries(cwd = cwd, entries = cur)
+        cur = decorateRadioEntries(cwd = cwd, entries = cur)
+        return cur
+    }
+
     private fun decorateMusicEntries(
         cwd: String,
         entries: List<AgentsDirEntry>,
@@ -401,6 +423,137 @@ class FilesViewModel(
             )
         }
     }
+
+    private fun decorateRadioEntries(
+        cwd: String,
+        entries: List<AgentsDirEntry>,
+    ): List<AgentsDirEntry> {
+        val normalized = cwd.replace('\\', '/').trim().trimEnd('/')
+        val inWorkspace = normalized == ".agents/workspace"
+        val inRadios = normalized == RadioRepository.RADIOS_DIR || normalized.startsWith(RadioRepository.RADIOS_DIR + "/")
+        if (!inWorkspace && !inRadios) return entries
+
+        if (inWorkspace) {
+            return entries.map { e ->
+                if (e.type == AgentsDirEntryType.Dir && e.name == "radios") {
+                    e.copy(
+                        displayName = "radios（电台）",
+                        subtitle = "懒加载国家/地区目录与 .radio 直播流",
+                    )
+                } else {
+                    e
+                }
+            }
+        }
+
+        val filtered =
+            entries.filterNot { e ->
+                val n = e.name.trim()
+                n.startsWith(".") && n.lowercase(Locale.ROOT).endsWith(".json")
+            }
+
+        val segs = normalized.split('/').filter { it.isNotBlank() }
+        val isRadiosRoot = normalized == RadioRepository.RADIOS_DIR
+
+        if (isRadiosRoot) {
+            val idx = radioRepo.readCountriesIndexOrNull()
+            val mapByDir = idx?.countries?.associateBy { it.dir }.orEmpty()
+            return filtered.map { e ->
+                if (e.type != AgentsDirEntryType.Dir) return@map e
+                if (e.name == RadioRepository.FAVORITES_NAME) {
+                    return@map e.copy(displayName = "favorites（收藏）", subtitle = "纯文件系统收藏入口")
+                }
+                val c = mapByDir[e.name]
+                val subtitle =
+                    c?.stationCount?.let { "stationCount=$it" }
+                        ?: c?.code?.let { "code=$it" }
+                e.copy(
+                    displayName = c?.name ?: e.name,
+                    subtitle = subtitle,
+                )
+            }
+        }
+
+        val isDirectChild = segs.size == 4 && normalized.startsWith(RadioRepository.RADIOS_DIR + "/")
+        if (!isDirectChild) return filtered
+
+        val isFavorites = normalized == RadioRepository.FAVORITES_DIR
+        val statusFirst =
+            filtered.sortedWith(compareBy<AgentsDirEntry> { it.name != "_STATUS.md" })
+
+        val radios = mutableListOf<AgentsDirEntry>()
+        val others = mutableListOf<AgentsDirEntry>()
+
+        for (e in statusFirst) {
+            if (e.type == AgentsDirEntryType.File && e.name.lowercase(Locale.ROOT).endsWith(".radio")) {
+                val path = workspace.joinPath(cwd, e.name)
+                val raw =
+                    try {
+                        workspace.readTextFile(path, maxBytes = 256 * 1024)
+                    } catch (_: Throwable) {
+                        null
+                    }
+                val st =
+                    try {
+                        raw?.let { RadioStationFileV1.parse(it) }
+                    } catch (_: Throwable) {
+                        null
+                    }
+                if (st == null) {
+                    radios.add(e)
+                    continue
+                }
+                val subtitleParts = mutableListOf<String>()
+                st.votes?.let { subtitleParts.add("votes=$it") }
+                st.codec?.trim()?.ifBlank { null }?.let { subtitleParts.add(it) }
+                st.bitrateKbps?.let { subtitleParts.add("${it}kbps") }
+                val subtitle = subtitleParts.joinToString(" · ").ifBlank { null }
+                val sortKey = (st.votes ?: 0).toLong()
+                radios.add(e.copy(displayName = st.name, subtitle = subtitle, sortKey = sortKey))
+            } else {
+                others.add(e)
+            }
+        }
+
+        val sortedRadios =
+            radios.sortedWith(
+                compareByDescending<AgentsDirEntry> { it.sortKey ?: 0L }
+                    .thenBy { (it.displayName ?: it.name).lowercase(Locale.ROOT) }
+            )
+
+        return if (isFavorites) {
+            (others.filter { it.type == AgentsDirEntryType.Dir } +
+                others.filter { it.type != AgentsDirEntryType.Dir && !it.name.lowercase(Locale.ROOT).endsWith(".radio") } +
+                sortedRadios)
+        } else {
+            (others.filter { it.type == AgentsDirEntryType.Dir } +
+                others.filter { it.type != AgentsDirEntryType.Dir && !it.name.lowercase(Locale.ROOT).endsWith(".radio") } +
+                sortedRadios)
+        }
+    }
+
+    private suspend fun maybeSyncRadios(
+        cwd: String,
+        force: Boolean,
+    ): String? {
+        val normalized = cwd.replace('\\', '/').trim().trimEnd('/')
+        if (normalized == RadioRepository.RADIOS_DIR) {
+            val r = radioRepo.syncCountries(force = force)
+            return r.message
+        }
+        if (normalized == RadioRepository.FAVORITES_DIR) return null
+        if (normalized.startsWith(RadioRepository.RADIOS_DIR + "/")) {
+            val rel = normalized.removePrefix(RadioRepository.RADIOS_DIR + "/")
+            val dir = rel.substringBefore('/')
+            if (dir.isBlank() || dir == RadioRepository.FAVORITES_NAME) return null
+            val countries = radioRepo.syncCountries(force = false)
+            if (!countries.ok && !countries.message.isNullOrBlank()) return countries.message
+            val r = radioRepo.syncStationsForCountryDir(countryDirName = dir, force = force)
+            return r.message
+        }
+        return null
+    }
+
 
     private data class SessionIdentity(
         val kind: String?,

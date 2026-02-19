@@ -13,6 +13,7 @@ import com.lsl.kotlin_agent_app.media.MusicPlayerController
 import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 import com.lsl.kotlin_agent_app.media.MusicTransport
 import com.lsl.kotlin_agent_app.media.RawMp3Metadata
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -120,6 +121,77 @@ class DashboardMusicPlaybackPersistenceTest {
         assertEquals("Song", title2.text.toString())
 
         assertEquals(".agents/workspace/musics/a.mp3", controller.state.value.agentsPath)
+        assertTrue(controller.state.value.isPlaying)
+
+        MusicPlayerControllerProvider.resetForTests()
+    }
+
+    @Test
+    fun radioPlayback_persistsAcrossTabSwitch_andMiniBarRebinds() {
+        MusicPlayerControllerProvider.resetForTests()
+        MusicPlayerControllerProvider.factoryOverride = { ctx ->
+            val fake = FakeTransport()
+            MusicPlayerController(
+                ctx,
+                transport = fake,
+                metadataReader = Mp3MetadataReader(extractor = Mp3MetadataExtractor { null }),
+            )
+        }
+
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val bottomNav = activity.findViewById<BottomNavigationView>(R.id.nav_view)
+        assertNotNull(bottomNav)
+
+        val radioPath = ".agents/workspace/radios/CN__China/test.radio"
+        val f = File(activity.filesDir, radioPath)
+        f.parentFile?.mkdirs()
+        f.writeText(
+            """{"schema":"kotlin-agent-app/radio-station@v1","id":"radio-browser:uuid-1","name":"Station X","streamUrl":"https://example.com/stream"}""",
+            Charsets.UTF_8
+        )
+
+        bottomNav.selectedItemId = R.id.navigation_dashboard
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        val controller = MusicPlayerControllerProvider.get()
+        controller.playAgentsRadio(radioPath)
+
+        val deadlineMs = System.currentTimeMillis() + 2_000
+        while (controller.state.value.agentsPath.isNullOrBlank() && System.currentTimeMillis() < deadlineMs) {
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+            Thread.sleep(10)
+        }
+        assertEquals(radioPath, controller.state.value.agentsPath)
+        assertTrue(controller.state.value.isPlaying)
+        assertTrue(controller.state.value.isLive)
+
+        fun currentDashboard(): DashboardFragment {
+            val navHost =
+                activity.supportFragmentManager.findFragmentById(R.id.nav_host_fragment_activity_main) as NavHostFragment
+            return (
+                navHost.childFragmentManager.primaryNavigationFragment
+                    ?: navHost.childFragmentManager.fragments.firstOrNull { it is DashboardFragment }
+            ) as DashboardFragment
+        }
+
+        val dashboard1 = currentDashboard()
+        val miniBar1 = dashboard1.view!!.findViewById<View>(R.id.music_mini_bar)
+        val title1 = dashboard1.view!!.findViewById<TextView>(R.id.text_music_title)
+        assertEquals(View.VISIBLE, miniBar1.visibility)
+        assertEquals("Station X", title1.text.toString())
+
+        bottomNav.selectedItemId = R.id.navigation_home
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+        bottomNav.selectedItemId = R.id.navigation_dashboard
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        val dashboard2 = currentDashboard()
+        val miniBar2 = dashboard2.view!!.findViewById<View>(R.id.music_mini_bar)
+        val title2 = dashboard2.view!!.findViewById<TextView>(R.id.text_music_title)
+        assertEquals(View.VISIBLE, miniBar2.visibility)
+        assertEquals("Station X", title2.text.toString())
+
+        assertEquals(radioPath, controller.state.value.agentsPath)
         assertTrue(controller.state.value.isPlaying)
 
         MusicPlayerControllerProvider.resetForTests()

@@ -10,6 +10,7 @@ enum class MusicPlaybackState {
 
 data class MusicNowPlayingState(
     val agentsPath: String? = null,
+    val isLive: Boolean = false,
     val title: String? = null,
     val artist: String? = null,
     val album: String? = null,

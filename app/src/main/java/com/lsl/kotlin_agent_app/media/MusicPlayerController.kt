@@ -1,9 +1,11 @@
 package com.lsl.kotlin_agent_app.media
 
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationManagerCompat
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
+import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -111,6 +113,15 @@ class MusicPlayerController(
         scope.launch { runCatching { playAgentsMp3Now(p) } }
     }
 
+    fun playAgentsRadio(agentsPath: String) {
+        val p = normalizeAgentsPathInput(agentsPath)
+        if (!isInRadiosTree(p) || !p.lowercase().endsWith(".radio")) {
+            _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 radios/ 目录下的 .radio") }
+            return
+        }
+        scope.launch { runCatching { playAgentsRadioNow(p) } }
+    }
+
     fun togglePlayPause() {
         scope.launch {
             try {
@@ -195,11 +206,25 @@ class MusicPlayerController(
         val (newQueue, _) = buildDeterministicQueue(currentAgentsPath = p)
         val q = queueCtrl.setQueue(newQueue, current = p)
 
-        transport.play(MusicPlaybackRequest(agentsPath = p, file = file, metadata = metadata))
+        transport.play(
+            MusicPlaybackRequest(
+                agentsPath = p,
+                uri = Uri.fromFile(file).toString(),
+                metadata =
+                    MusicMediaMetadata(
+                        title = metadata.title,
+                        artist = metadata.artist,
+                        album = metadata.album,
+                        durationMs = metadata.durationMs,
+                    ),
+                isLive = false,
+            )
+        )
         applyVolumeToTransportNow()
         _state.update {
             it.copy(
                 agentsPath = p,
+                isLive = false,
                 title = metadata.title,
                 artist = metadata.artist,
                 album = metadata.album,
@@ -214,6 +239,64 @@ class MusicPlayerController(
                 isMuted = isMuted,
                 coverArtBytes = extras.coverArtBytes,
                 lyrics = extras.lyrics,
+                warningMessage = warning,
+                errorMessage = null,
+            )
+        }
+    }
+
+    suspend fun playAgentsRadioNow(agentsPathInput: String) {
+        val p = normalizeAgentsPathInput(agentsPathInput)
+        if (!isInRadiosTree(p) || !p.lowercase().endsWith(".radio")) {
+            _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 radios/ 目录下的 .radio") }
+            throw IllegalArgumentException("path not allowed: $agentsPathInput")
+        }
+
+        val warning = computeNotificationWarning()
+        val file = File(appContext.filesDir, p)
+        val raw =
+            withContext(ioDispatcher) {
+                if (!file.exists() || !file.isFile) error("not a file: $p")
+                file.readText(Charsets.UTF_8)
+            }
+        val station = RadioStationFileV1.parse(raw)
+
+        val (newQueue, _) = buildRadioQueueNow(currentAgentsPath = p)
+        val q = queueCtrl.setQueue(newQueue, current = p)
+
+        transport.play(
+            MusicPlaybackRequest(
+                agentsPath = p,
+                uri = station.streamUrl,
+                metadata =
+                    MusicMediaMetadata(
+                        title = station.name,
+                        artist = station.country ?: station.language,
+                        album = "Radio",
+                        durationMs = null,
+                    ),
+                isLive = true,
+            )
+        )
+        applyVolumeToTransportNow()
+        _state.update {
+            it.copy(
+                agentsPath = p,
+                isLive = true,
+                title = station.name,
+                artist = station.country ?: station.language,
+                album = "Radio",
+                durationMs = null,
+                positionMs = 0L,
+                isPlaying = true,
+                playbackState = MusicPlaybackState.Playing,
+                queueIndex = q.index,
+                queueSize = q.items.size.takeIf { it > 0 },
+                playbackMode = playbackMode,
+                volume = volume,
+                isMuted = isMuted,
+                coverArtBytes = null,
+                lyrics = null,
                 warningMessage = warning,
                 errorMessage = null,
             )
@@ -277,12 +360,18 @@ class MusicPlayerController(
         return p == ".agents/workspace/musics" || p.startsWith(".agents/workspace/musics/")
     }
 
+    private fun isInRadiosTree(agentsPath: String): Boolean {
+        val p = agentsPath.replace('\\', '/').trim().trimStart('/')
+        return p == ".agents/workspace/radios" || p.startsWith(".agents/workspace/radios/")
+    }
+
     private fun normalizeAgentsPathInput(raw: String): String {
         val p0 = raw.replace('\\', '/').trim().trimStart('/')
         return when {
             p0.startsWith(".agents/") -> p0
             p0.startsWith("workspace/") -> ".agents/$p0"
             p0.startsWith("musics/") -> ".agents/workspace/$p0"
+            p0.startsWith("radios/") -> ".agents/workspace/$p0"
             else -> p0
         }
     }
@@ -307,22 +396,69 @@ class MusicPlayerController(
         return candidates to idx
     }
 
+    private suspend fun buildRadioQueueNow(currentAgentsPath: String): Pair<List<String>, Int> {
+        val normalized = currentAgentsPath.replace('\\', '/').trim().trimStart('/')
+        val parent = normalized.substringBeforeLast('/', missingDelimiterValue = normalized)
+        if (parent == normalized) return listOf(currentAgentsPath) to 0
+
+        val items =
+            withContext(ioDispatcher) {
+                val parentDir = File(appContext.filesDir, parent)
+                parentDir.listFiles().orEmpty()
+                    .filter { it.isFile && it.name.lowercase().endsWith(".radio") }
+                    .map { f ->
+                        val rel = parent + "/" + f.name
+                        val votes =
+                            runCatching {
+                                RadioStationFileV1.parse(f.readText(Charsets.UTF_8)).votes ?: 0
+                            }.getOrDefault(0)
+                        rel to votes.toLong()
+                    }
+                    .sortedWith(compareByDescending<Pair<String, Long>> { it.second }.thenBy { it.first.lowercase() })
+                    .map { it.first }
+            }
+
+        val candidates =
+            if (items.isEmpty()) listOf(currentAgentsPath) else items
+        val idx = candidates.indexOfFirst { it == currentAgentsPath }.takeIf { it >= 0 } ?: 0
+        return candidates to idx
+    }
+
     private suspend fun playQueueIndexNow(index: Int) {
         val q = queueCtrl.snapshot().items
         if (q.isEmpty()) return
         val i = index.coerceIn(0, q.size - 1)
         val p = q[i]
+        if (p.lowercase().endsWith(".radio") && isInRadiosTree(p)) {
+            playAgentsRadioNow(p)
+            return
+        }
+
         val file = File(appContext.filesDir, p)
         val (metadata, extras) =
             withContext(ioDispatcher) {
                 metadataReader.readBestEffort(file) to extrasReader.readBestEffort(file)
             }
 
-        transport.play(MusicPlaybackRequest(agentsPath = p, file = file, metadata = metadata))
+        transport.play(
+            MusicPlaybackRequest(
+                agentsPath = p,
+                uri = Uri.fromFile(file).toString(),
+                metadata =
+                    MusicMediaMetadata(
+                        title = metadata.title,
+                        artist = metadata.artist,
+                        album = metadata.album,
+                        durationMs = metadata.durationMs,
+                    ),
+                isLive = false,
+            )
+        )
         applyVolumeToTransportNow()
         _state.update {
             it.copy(
                 agentsPath = p,
+                isLive = false,
                 title = metadata.title,
                 artist = metadata.artist,
                 album = metadata.album,
