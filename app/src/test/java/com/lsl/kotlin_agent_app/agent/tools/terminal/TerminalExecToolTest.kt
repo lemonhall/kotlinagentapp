@@ -12,6 +12,8 @@ import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailImapClient
 import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailMessage
 import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailSendRequest
 import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailSendResult
+import com.lsl.kotlin_agent_app.agent.tools.exchange_rate.ExchangeRateClientTestHooks
+import com.lsl.kotlin_agent_app.agent.tools.exchange_rate.ExchangeRateTransport
 import com.lsl.kotlin_agent_app.agent.tools.mail.QqMailSmtpClient
 import com.lsl.kotlin_agent_app.agent.tools.rss.RssClientTestHooks
 import com.lsl.kotlin_agent_app.agent.tools.rss.RssHttpResponse
@@ -21,6 +23,15 @@ import com.lsl.kotlin_agent_app.agent.tools.stock.FinnhubHttpResponse
 import com.lsl.kotlin_agent_app.agent.tools.stock.FinnhubTransport
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.cal.CalCommandTestHooks
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.qqmail.QqMailCommandTestHooks
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsQueueMode
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsRuntime
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsRuntimeProvider
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsSpeakCompletion
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsSpeakRequest
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsSpeakResponse
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsStopResponse
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsTimeout
+import com.lsl.kotlin_agent_app.agent.tools.tts.TtsVoiceSummary
 import com.lsl.kotlin_agent_app.media.MusicPlayerController
 import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 import com.lsl.kotlin_agent_app.media.MusicPlaybackRequest
@@ -86,6 +97,102 @@ class TerminalExecToolTest {
         assertTrue("audit should include stdout", auditText.contains("\"stdout\""))
         assertTrue("audit should not include stdin key", !auditText.contains("\"stdin\""))
     }
+
+    @Test
+    fun tts_help_isAvailable() =
+        runTest(
+            setup = { _ ->
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
+                { TtsRuntimeProvider.clearForTests() }
+            },
+        ) { tool ->
+            val out = tool.exec("tts --help")
+            assertEquals(0, out.exitCode)
+            assertTrue(out.stdout.contains("tts speak"))
+            val r = out.result ?: error("missing result")
+            assertEquals("true", r["ok"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun tts_voices_returnsCount() =
+        runTest(
+            setup = { _ ->
+                TtsRuntimeProvider.installForTests(
+                    FakeTtsRuntime(
+                        voices =
+                            listOf(
+                                TtsVoiceSummary(name = "v1", localeTag = "zh-CN"),
+                                TtsVoiceSummary(name = "v2", localeTag = "en-US"),
+                            ),
+                    ),
+                )
+                ;
+                { TtsRuntimeProvider.clearForTests() }
+            },
+        ) { tool ->
+            val out = tool.exec("tts voices")
+            assertEquals(0, out.exitCode)
+            val r = out.result ?: error("missing result")
+            assertEquals("tts voices", r["command"]!!.jsonPrimitive.content)
+            assertEquals(2, r["voices_count"]!!.jsonPrimitive.content.toInt())
+        }
+
+    @Test
+    fun tts_speak_requiresText() =
+        runTest(
+            setup = { _ ->
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
+                { TtsRuntimeProvider.clearForTests() }
+            },
+        ) { tool ->
+            val out = tool.exec("tts speak")
+            assertTrue(out.exitCode != 0)
+            assertEquals("InvalidArgs", out.errorCode)
+        }
+
+    @Test
+    fun tts_speak_returnsUtteranceId() =
+        runTest(
+            setup = { _ ->
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
+                { TtsRuntimeProvider.clearForTests() }
+            },
+        ) { tool ->
+            val out = tool.exec("tts speak --text \"hi\"")
+            assertEquals(0, out.exitCode)
+            val r = out.result ?: error("missing result")
+            assertEquals("tts speak", r["command"]!!.jsonPrimitive.content)
+            assertTrue(r["utterance_id"]!!.jsonPrimitive.content.isNotBlank())
+            assertEquals("started", r["completion"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun tts_speak_await_timeout_returnsTimeoutError() =
+        runTest(
+            setup = { _ ->
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
+                { TtsRuntimeProvider.clearForTests() }
+            },
+        ) { tool ->
+            val out = tool.exec("tts speak --text \"hi\" --await true --timeout_ms 1")
+            assertTrue(out.exitCode != 0)
+            assertEquals("Timeout", out.errorCode)
+        }
+
+    @Test
+    fun tts_stop_isAvailable() =
+        runTest(
+            setup = { _ ->
+                TtsRuntimeProvider.installForTests(FakeTtsRuntime());
+                { TtsRuntimeProvider.clearForTests() }
+            },
+        ) { tool ->
+            val out = tool.exec("tts stop")
+            assertEquals(0, out.exitCode)
+            val r = out.result ?: error("missing result")
+            assertEquals("tts stop", r["command"]!!.jsonPrimitive.content)
+            assertEquals("true", r["stopped"]!!.jsonPrimitive.content)
+        }
 
     @Test
     fun music_status_idle_byDefault() = runTest(
@@ -781,6 +888,157 @@ class TerminalExecToolTest {
     }
 
     @Test
+    fun exchangeRate_help_forms_exit0() = runTest { tool ->
+        val forms =
+            listOf(
+                "exchange-rate --help",
+                "exchange-rate help",
+                "exchange-rate latest --help",
+                "exchange-rate help latest",
+                "exchange-rate convert --help",
+                "exchange-rate help convert",
+            )
+        for (cmd in forms) {
+            val out = tool.exec(cmd)
+            assertEquals("help should exit 0 for: $cmd", 0, out.exitCode)
+            val r = out.result ?: error("missing result for: $cmd")
+            assertEquals(true, r["ok"]!!.jsonPrimitive.content.toBooleanStrict())
+            assertTrue("stdout should be non-empty for: $cmd", out.stdout.isNotBlank())
+        }
+    }
+
+    @Test
+    fun exchangeRate_latest_withSymbols_onlyReturnsRequestedKeys() {
+        var transport: CapturingExchangeRateTransport? = null
+        runTest(
+            setup = { context ->
+                val cache = File(context.filesDir, ".agents/cache/exchange-rate/latest-CNY.json")
+                if (cache.exists()) cache.delete()
+
+                transport =
+                    CapturingExchangeRateTransport(
+                        statusCode = 200,
+                        bodyText = fakeExchangeRateLatestCnyJson(nextUpdateUtc = "Tue, 18 Feb 2099 00:00:01 +0000"),
+                        headers = emptyMap(),
+                    )
+                ExchangeRateClientTestHooks.install(transport!!)
+                val teardown = { ExchangeRateClientTestHooks.clear() }
+                teardown
+            },
+        ) { t ->
+            val out = t.exec("exchange-rate latest --base CNY --symbols USD,EUR")
+            assertEquals(0, out.exitCode)
+            val r = out.result ?: error("missing result")
+            assertEquals("exchange-rate latest", r["command"]!!.jsonPrimitive.content)
+            val rates = r["rates"]!!.jsonObject
+            assertEquals(setOf("USD", "EUR"), rates.keys)
+
+            val url = transport!!.lastUrl
+            assertNotNull(url)
+            assertTrue(url!!.encodedPath.endsWith("/v6/latest/CNY"))
+        }
+    }
+
+    @Test
+    fun exchangeRate_latest_withOut_writesArtifact() {
+        var transport: CapturingExchangeRateTransport? = null
+        runTest(
+            setup = { context ->
+                val cache = File(context.filesDir, ".agents/cache/exchange-rate/latest-CNY.json")
+                if (cache.exists()) cache.delete()
+
+                val outFile = File(context.filesDir, ".agents/artifacts/exchange-rate/latest-CNY.json")
+                if (outFile.exists()) outFile.delete()
+
+                transport =
+                    CapturingExchangeRateTransport(
+                        statusCode = 200,
+                        bodyText = fakeExchangeRateLatestCnyJson(nextUpdateUtc = "Tue, 18 Feb 2099 00:00:01 +0000"),
+                        headers = emptyMap(),
+                    )
+                ExchangeRateClientTestHooks.install(transport!!)
+                val teardown = { ExchangeRateClientTestHooks.clear() }
+                teardown
+            },
+        ) { t ->
+            val out = t.exec("exchange-rate latest --base CNY --out artifacts/exchange-rate/latest-CNY.json")
+            assertEquals(0, out.exitCode)
+            assertTrue(out.artifacts.contains(".agents/artifacts/exchange-rate/latest-CNY.json"))
+            assertTrue(File(t.filesDir, ".agents/artifacts/exchange-rate/latest-CNY.json").exists())
+        }
+    }
+
+    @Test
+    fun exchangeRate_latest_usesCache_onSecondCall_andNoCacheForcesNetwork() {
+        var transport: CapturingExchangeRateTransport? = null
+        runTest(
+            setup = { context ->
+                val cache = File(context.filesDir, ".agents/cache/exchange-rate/latest-CNY.json")
+                if (cache.exists()) cache.delete()
+
+                transport =
+                    CapturingExchangeRateTransport(
+                        statusCode = 200,
+                        bodyText = fakeExchangeRateLatestCnyJson(nextUpdateUtc = "Tue, 18 Feb 2099 00:00:01 +0000"),
+                        headers = emptyMap(),
+                    )
+                ExchangeRateClientTestHooks.install(transport!!)
+                val teardown = { ExchangeRateClientTestHooks.clear() }
+                teardown
+            },
+        ) { tool ->
+            val out1 = tool.exec("exchange-rate latest --base CNY --symbols USD")
+            assertEquals(0, out1.exitCode)
+            assertEquals(false, out1.result!!["cached"]!!.jsonPrimitive.content.toBooleanStrict())
+            assertEquals(1, transport!!.callCount)
+
+            val out2 = tool.exec("exchange-rate latest --base CNY --symbols USD")
+            assertEquals(0, out2.exitCode)
+            assertEquals(true, out2.result!!["cached"]!!.jsonPrimitive.content.toBooleanStrict())
+            assertEquals(1, transport!!.callCount)
+
+            val out3 = tool.exec("exchange-rate latest --base CNY --symbols USD --no-cache")
+            assertEquals(0, out3.exitCode)
+            assertEquals(false, out3.result!!["cached"]!!.jsonPrimitive.content.toBooleanStrict())
+            assertEquals(2, transport!!.callCount)
+
+            val out4 = tool.exec("exchange-rate latest --base CNY --symbols USD --no-cache")
+            assertEquals(0, out4.exitCode)
+            assertEquals(false, out4.result!!["cached"]!!.jsonPrimitive.content.toBooleanStrict())
+            assertEquals(3, transport!!.callCount)
+        }
+    }
+
+    @Test
+    fun exchangeRate_remoteError_isMapped() {
+        var transport: CapturingExchangeRateTransport? = null
+        runTest(
+            setup = { _ ->
+                transport =
+                    CapturingExchangeRateTransport(
+                        statusCode = 200,
+                        bodyText = """{"result":"error","error-type":"invalid-base"}""",
+                        headers = emptyMap(),
+                    )
+                ExchangeRateClientTestHooks.install(transport!!)
+                val teardown = { ExchangeRateClientTestHooks.clear() }
+                teardown
+            },
+        ) { tool ->
+            val out = tool.exec("exchange-rate latest --base XXX --symbols USD")
+            assertTrue(out.exitCode != 0)
+            assertEquals("RemoteError", out.errorCode)
+        }
+    }
+
+    @Test
+    fun exchangeRate_convert_invalidAmount_isRejected() = runTest { tool ->
+        val out = tool.exec("exchange-rate convert --from CNY --to USD --amount abc")
+        assertTrue(out.exitCode != 0)
+        assertEquals("InvalidArgs", out.errorCode)
+    }
+
+    @Test
     fun stock_outPathWithDotDot_isRejected() = runTest { tool ->
         val out = tool.exec("stock symbols --exchange US --out ../pwn.json")
         assertTrue(out.exitCode != 0)
@@ -922,6 +1180,12 @@ class TerminalExecToolTest {
         assertTrue("stock-cli skill should exist: $skill", skill.exists())
         val env = File(tool.filesDir, ".agents/skills/stock-cli/secrets/.env")
         assertTrue("stock-cli .env should exist: $env", env.exists())
+    }
+
+    @Test
+    fun agentsWorkspace_installsExchangeRateCliSkill() = runTest { tool ->
+        val skill = File(tool.filesDir, ".agents/skills/exchange-rate-cli/SKILL.md")
+        assertTrue("exchange-rate-cli skill should exist: $skill", skill.exists())
     }
 
     @Test
@@ -2066,5 +2330,76 @@ class TerminalExecToolTest {
         val header = byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x64.toByte())
         val body = ByteArray(4096) { 0 }
         return header + body
+    }
+
+    private class FakeTtsRuntime(
+        private val voices: List<TtsVoiceSummary> =
+            listOf(
+                TtsVoiceSummary(name = "fake-zh", localeTag = "zh-CN"),
+            ),
+    ) : TtsRuntime {
+        @Volatile var speakCalls: Int = 0
+        @Volatile var lastSpeak: TtsSpeakRequest? = null
+        @Volatile var stopCalls: Int = 0
+
+        override suspend fun listVoices(): List<TtsVoiceSummary> = voices
+
+        override suspend fun speak(
+            req: TtsSpeakRequest,
+            await: Boolean,
+            timeoutMs: Long?,
+        ): TtsSpeakResponse {
+            speakCalls += 1
+            lastSpeak = req
+            if (await && (timeoutMs ?: 0L) <= 1L) {
+                throw TtsTimeout("fake timeout")
+            }
+            val utteranceId = "fake_" + UUID.randomUUID().toString().replace("-", "").take(10)
+            val completion = if (await) TtsSpeakCompletion.Done else TtsSpeakCompletion.Started
+            return TtsSpeakResponse(utteranceId = utteranceId, completion = completion)
+        }
+
+        override suspend fun stop(): TtsStopResponse {
+            stopCalls += 1
+            return TtsStopResponse(stopped = true)
+        }
+    }
+
+    private class CapturingExchangeRateTransport(
+        private val statusCode: Int,
+        private val bodyText: String,
+        private val headers: Map<String, String>,
+    ) : ExchangeRateTransport {
+        @Volatile var lastUrl: HttpUrl? = null
+        @Volatile var callCount: Int = 0
+
+        override suspend fun get(url: HttpUrl): com.lsl.kotlin_agent_app.agent.tools.exchange_rate.ExchangeRateHttpResponse {
+            lastUrl = url
+            callCount += 1
+            return com.lsl.kotlin_agent_app.agent.tools.exchange_rate.ExchangeRateHttpResponse(
+                statusCode = statusCode,
+                bodyText = bodyText,
+                headers = headers,
+            )
+        }
+    }
+
+    private fun fakeExchangeRateLatestCnyJson(nextUpdateUtc: String): String {
+        return """
+            {
+              "result": "success",
+              "base_code": "CNY",
+              "time_last_update_utc": "Mon, 17 Feb 2025 00:00:01 +0000",
+              "time_next_update_utc": "$nextUpdateUtc",
+              "rates": {
+                "CNY": 1,
+                "USD": 0.1370,
+                "EUR": 0.1318,
+                "JPY": 20.89,
+                "GBP": 0.1095,
+                "HKD": 1.0667
+              }
+            }
+        """.trimIndent()
     }
 }

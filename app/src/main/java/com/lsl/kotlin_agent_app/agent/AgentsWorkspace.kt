@@ -52,12 +52,14 @@ class AgentsWorkspace(
         installBundledSkillDir(name = "qqmail-cli", assetDir = "builtin_skills/qqmail-cli", overwrite = overwrite)
         installBundledSkillDir(name = "ledger-cli", assetDir = "builtin_skills/ledger-cli", overwrite = overwrite)
         installBundledSkillDir(name = "stock-cli", assetDir = "builtin_skills/stock-cli", overwrite = overwrite)
+        installBundledSkillDir(name = "exchange-rate-cli", assetDir = "builtin_skills/exchange-rate-cli", overwrite = overwrite)
         installBundledSkillDir(name = "rss-cli", assetDir = "builtin_skills/rss-cli", overwrite = overwrite)
         installBundledSkillDir(name = "wapo-rss", assetDir = "builtin_skills/wapo-rss", overwrite = overwrite)
         installBundledSkillDir(name = "ssh-cli", assetDir = "builtin_skills/ssh-cli", overwrite = overwrite)
         installBundledSkillDir(name = "irc-cli", assetDir = "builtin_skills/irc-cli", overwrite = overwrite)
         installBundledSkillDir(name = "music-cli", assetDir = "builtin_skills/music-cli", overwrite = overwrite)
         installBundledSkillDir(name = "radio-cli", assetDir = "builtin_skills/radio-cli", overwrite = overwrite)
+        installBundledSkillDir(name = "android-tts", assetDir = "builtin_skills/android-tts", overwrite = overwrite)
 
         // Create secret template file once (never overwrite user's local secrets).
         ensureBundledSecretEnvFileIfMissing(
