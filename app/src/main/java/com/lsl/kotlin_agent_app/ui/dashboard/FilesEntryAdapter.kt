@@ -39,9 +39,18 @@ class FilesEntryAdapter(
         val subtitle = item.subtitle?.trim().orEmpty()
         holder.binding.entrySubtitle.visibility = if (subtitle.isBlank()) View.GONE else View.VISIBLE
         holder.binding.entrySubtitle.text = subtitle
-        holder.binding.entryIcon.setImageResource(
-            if (item.type == AgentsDirEntryType.Dir) R.drawable.ic_folder_24 else R.drawable.ic_insert_drive_file_24
-        )
+        val emoji = item.iconEmoji?.trim()?.ifBlank { null }
+        if (emoji != null) {
+            holder.binding.entryIcon.visibility = View.GONE
+            holder.binding.entryIconText.visibility = View.VISIBLE
+            holder.binding.entryIconText.text = emoji
+        } else {
+            holder.binding.entryIconText.visibility = View.GONE
+            holder.binding.entryIcon.visibility = View.VISIBLE
+            holder.binding.entryIcon.setImageResource(
+                if (item.type == AgentsDirEntryType.Dir) R.drawable.ic_folder_24 else R.drawable.ic_insert_drive_file_24
+            )
+        }
         holder.binding.root.setOnClickListener { onClick(item) }
         holder.binding.root.setOnLongClickListener {
             onLongClick(item)

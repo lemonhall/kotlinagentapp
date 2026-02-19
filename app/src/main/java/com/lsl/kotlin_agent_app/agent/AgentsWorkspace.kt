@@ -19,6 +19,7 @@ data class AgentsDirEntry(
     val displayName: String? = null,
     val subtitle: String? = null,
     val sortKey: Long? = null,
+    val iconEmoji: String? = null,
 )
 
 enum class AgentsDirEntryType {

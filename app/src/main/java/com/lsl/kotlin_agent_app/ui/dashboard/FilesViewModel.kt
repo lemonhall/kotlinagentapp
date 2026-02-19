@@ -433,6 +433,19 @@ class FilesViewModel(
         val inRadios = normalized == RadioRepository.RADIOS_DIR || normalized.startsWith(RadioRepository.RADIOS_DIR + "/")
         if (!inWorkspace && !inRadios) return entries
 
+        fun iso3166ToFlagEmoji(code: String?): String? {
+            val cc = code?.trim()?.uppercase(Locale.ROOT)?.ifBlank { null } ?: return null
+            if (cc.length != 2) return null
+            val a = cc[0]
+            val b = cc[1]
+            if (a !in 'A'..'Z' || b !in 'A'..'Z') return null
+            val base = 0x1F1E6
+            return buildString(4) {
+                appendCodePoint(base + (a.code - 'A'.code))
+                appendCodePoint(base + (b.code - 'A'.code))
+            }
+        }
+
         if (inWorkspace) {
             return entries.map { e ->
                 if (e.type == AgentsDirEntryType.Dir && e.name == "radios") {
@@ -470,6 +483,7 @@ class FilesViewModel(
                 e.copy(
                     displayName = c?.name ?: e.name,
                     subtitle = subtitle,
+                    iconEmoji = iso3166ToFlagEmoji(c?.code),
                 )
             }
         }

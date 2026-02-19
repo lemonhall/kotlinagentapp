@@ -25,6 +25,16 @@
             android:tint="?attr/colorOnSurface" />
 
         <TextView
+            android:id="@+id/entry_icon_text"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:contentDescription="图标"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:textSize="18sp"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/entry_name"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
