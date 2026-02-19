@@ -5,6 +5,8 @@ object AppPrefsKeys {
 
     const val CHAT_SESSION_ID = "chat.session_id"
 
+    const val LISTENING_HISTORY_ENABLED = "privacy.listening_history_enabled"
+
     const val PROXY_ENABLED = "net.proxy_enabled"
     const val HTTP_PROXY = "net.http_proxy"
     const val HTTPS_PROXY = "net.https_proxy"

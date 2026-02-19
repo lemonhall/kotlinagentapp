@@ -126,6 +126,114 @@ class TerminalExecToolTest {
     }
 
     @Test
+    fun radio_help_forms_exit0() = runTest { tool ->
+        val forms =
+            listOf(
+                "radio --help",
+                "radio help",
+                "radio status --help",
+                "radio help status",
+                "radio play --help",
+                "radio help play",
+                "radio pause --help",
+                "radio help pause",
+                "radio resume --help",
+                "radio help resume",
+                "radio stop --help",
+                "radio help stop",
+            )
+        for (cmd in forms) {
+            val out = tool.exec(cmd)
+            assertEquals("help should exit 0 for: $cmd", 0, out.exitCode)
+            val r = out.result ?: error("missing result for: $cmd")
+            assertEquals(true, r["ok"]!!.jsonPrimitive.content.toBooleanStrict())
+            assertTrue("stdout should be non-empty for: $cmd", out.stdout.isNotBlank())
+        }
+    }
+
+    @Test
+    fun radio_play_rejectsBadPaths_andMissingFile() = runTest(
+        setup = { context ->
+            MusicPlayerControllerProvider.resetForTests()
+            MusicPlayerControllerProvider.installAppContext(context)
+            MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                MusicPlayerController(ctx, transport = FakeMusicTransport())
+            }
+            {
+                MusicPlayerControllerProvider.resetForTests()
+            }
+        },
+    ) { tool ->
+        val outOutside = tool.exec("radio play --in workspace/musics/not_allowed.radio")
+        assertTrue(outOutside.exitCode != 0)
+        assertEquals("NotInRadiosDir", outOutside.errorCode)
+
+        val outExt = tool.exec("radio play --in workspace/radios/not_radio.txt")
+        assertTrue(outExt.exitCode != 0)
+        assertEquals("NotRadioFile", outExt.errorCode)
+
+        val outMissing = tool.exec("radio play --in workspace/radios/missing.radio")
+        assertTrue(outMissing.exitCode != 0)
+        assertEquals("NotFound", outMissing.errorCode)
+    }
+
+    @Test
+    fun radio_play_pause_resume_stop_roundtrip() = runTest(
+        setup = { context ->
+            val ws = AgentsWorkspace(context)
+            ws.ensureInitialized()
+            val radioJson =
+                """
+                {
+                  "schema": "kotlin-agent-app/radio-station@v1",
+                  "id": "radio-browser:test-1",
+                  "name": "Test Station 1",
+                  "streamUrl": "https://example.com/live?token=SECRET",
+                  "country": "Testland",
+                  "faviconUrl": "https://example.com/favicon.png"
+                }
+                """.trimIndent()
+            val f = File(context.filesDir, ".agents/workspace/radios/test1.radio")
+            f.parentFile?.mkdirs()
+            f.writeText(radioJson, Charsets.UTF_8)
+
+            MusicPlayerControllerProvider.resetForTests()
+            MusicPlayerControllerProvider.installAppContext(context)
+            MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                MusicPlayerController(ctx, transport = FakeMusicTransport())
+            }
+            {
+                MusicPlayerControllerProvider.resetForTests()
+            }
+        },
+    ) { tool ->
+        val outPlay = tool.exec("radio play --in workspace/radios/test1.radio")
+        assertEquals(0, outPlay.exitCode)
+
+        val outStatus1 = tool.exec("radio status")
+        assertEquals(0, outStatus1.exitCode)
+        assertEquals("playing", outStatus1.result!!["state"]!!.jsonPrimitive.content)
+        val station1 = outStatus1.result!!["station"]!!.jsonObject
+        assertEquals("workspace/radios/test1.radio", station1["path"]!!.jsonPrimitive.content)
+        assertEquals("radio-browser:test-1", station1["id"]!!.jsonPrimitive.content)
+        assertEquals("Test Station 1", station1["name"]!!.jsonPrimitive.content)
+
+        val outPause = tool.exec("radio pause")
+        assertEquals(0, outPause.exitCode)
+        assertEquals("paused", outPause.result!!["state"]!!.jsonPrimitive.content)
+
+        val outResume = tool.exec("radio resume")
+        assertEquals(0, outResume.exitCode)
+        assertEquals("playing", outResume.result!!["state"]!!.jsonPrimitive.content)
+
+        val outStop = tool.exec("radio stop")
+        assertEquals(0, outStop.exitCode)
+        val outStatus2 = tool.exec("radio status")
+        assertEquals(0, outStatus2.exitCode)
+        assertEquals("stopped", outStatus2.result!!["state"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun music_play_pause_resume_seek_stop_roundtrip() = runTest(
         setup = { context ->
             val ws = AgentsWorkspace(context)

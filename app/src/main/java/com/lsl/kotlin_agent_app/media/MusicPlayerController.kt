@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationManagerCompat
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
+import com.lsl.kotlin_agent_app.listening_history.ListeningHistoryStore
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
@@ -19,6 +20,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 class MusicPlayerController(
     private val appContext: Context,
@@ -30,6 +34,7 @@ class MusicPlayerController(
     private val job = SupervisorJob()
     private val scope = CoroutineScope(job + Dispatchers.Main.immediate)
     private val prefs = appContext.getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
+    private val listeningHistory = ListeningHistoryStore(appContext)
 
     private val queueCtrl = PlaybackQueueController()
 
@@ -206,20 +211,25 @@ class MusicPlayerController(
         val (newQueue, _) = buildDeterministicQueue(currentAgentsPath = p)
         val q = queueCtrl.setQueue(newQueue, current = p)
 
-        transport.play(
-            MusicPlaybackRequest(
-                agentsPath = p,
-                uri = Uri.fromFile(file).toString(),
-                metadata =
-                    MusicMediaMetadata(
-                        title = metadata.title,
-                        artist = metadata.artist,
-                        album = metadata.album,
-                        durationMs = metadata.durationMs,
-                    ),
-                isLive = false,
+        try {
+            transport.play(
+                MusicPlaybackRequest(
+                    agentsPath = p,
+                    uri = Uri.fromFile(file).toString(),
+                    metadata =
+                        MusicMediaMetadata(
+                            title = metadata.title,
+                            artist = metadata.artist,
+                            album = metadata.album,
+                            durationMs = metadata.durationMs,
+                        ),
+                    isLive = false,
+                )
             )
-        )
+        } catch (t: Throwable) {
+            logErrorBestEffort(source = "music", item = buildMusicItem(p), code = "PlayFailed", message = sanitizeErrorMessage(t.message))
+            throw t
+        }
         applyVolumeToTransportNow()
         _state.update {
             it.copy(
@@ -243,6 +253,8 @@ class MusicPlayerController(
                 errorMessage = null,
             )
         }
+
+        logEventBestEffort(source = "music", action = "play", item = buildMusicItem(p), userInitiated = true)
     }
 
     suspend fun playAgentsRadioNow(agentsPathInput: String) {
@@ -264,20 +276,26 @@ class MusicPlayerController(
         val (newQueue, _) = buildRadioQueueNow(currentAgentsPath = p)
         val q = queueCtrl.setQueue(newQueue, current = p)
 
-        transport.play(
-            MusicPlaybackRequest(
-                agentsPath = p,
-                uri = station.streamUrl,
-                metadata =
-                    MusicMediaMetadata(
-                        title = station.name,
-                        artist = station.country ?: station.language,
-                        album = "Radio",
-                        durationMs = null,
-                    ),
-                isLive = true,
+        val radioItem = buildRadioItem(path = p, station = station)
+        try {
+            transport.play(
+                MusicPlaybackRequest(
+                    agentsPath = p,
+                    uri = station.streamUrl,
+                    metadata =
+                        MusicMediaMetadata(
+                            title = station.name,
+                            artist = station.country ?: station.language,
+                            album = "Radio",
+                            durationMs = null,
+                        ),
+                    isLive = true,
+                )
             )
-        )
+        } catch (t: Throwable) {
+            logErrorBestEffort(source = "radio", item = radioItem, code = "PlayFailed", message = sanitizeErrorMessage(t.message))
+            throw t
+        }
         applyVolumeToTransportNow()
         _state.update {
             it.copy(
@@ -301,9 +319,12 @@ class MusicPlayerController(
                 errorMessage = null,
             )
         }
+
+        logEventBestEffort(source = "radio", action = "play", item = radioItem, userInitiated = true)
     }
 
     suspend fun pauseNow() {
+        val before = _state.value
         transport.pause()
         _state.update {
             it.copy(
@@ -312,9 +333,11 @@ class MusicPlayerController(
                 errorMessage = null,
             )
         }
+        logEventBestEffortFromState(action = "pause", before = before)
     }
 
     suspend fun resumeNow() {
+        val before = _state.value
         transport.resume()
         applyVolumeToTransportNow()
         _state.update {
@@ -324,9 +347,11 @@ class MusicPlayerController(
                 errorMessage = null,
             )
         }
+        logEventBestEffortFromState(action = "resume", before = before)
     }
 
     suspend fun stopNow() {
+        val before = _state.value
         transport.stop()
         queueCtrl.clear()
         _state.update {
@@ -337,6 +362,7 @@ class MusicPlayerController(
                 isMuted = isMuted,
             )
         }
+        logEventBestEffortFromState(action = "stop", before = before)
     }
 
     suspend fun seekToNow(positionMs: Long) {
@@ -570,5 +596,87 @@ class MusicPlayerController(
         } catch (_: Throwable) {
             null
         }
+    }
+
+    private fun buildMusicItem(agentsPath: String) =
+        buildJsonObject {
+            put("path", JsonPrimitive(toWorkspacePath(agentsPath)))
+        }
+
+    private fun buildRadioItem(
+        path: String,
+        station: RadioStationFileV1,
+    ) = buildJsonObject {
+        put("stationId", JsonPrimitive(station.id))
+        put("radioFilePath", JsonPrimitive(toWorkspacePath(path)))
+        put("name", JsonPrimitive(station.name))
+        put("country", station.country?.let { JsonPrimitive(it) } ?: JsonNull)
+    }
+
+    private fun logEventBestEffort(
+        source: String,
+        action: String,
+        item: kotlinx.serialization.json.JsonObject,
+        userInitiated: Boolean,
+    ) {
+        try {
+            listeningHistory.appendEvent(source = source, action = action, item = item, userInitiated = userInitiated)
+        } catch (_: Throwable) {
+            // best-effort
+        }
+    }
+
+    private fun logErrorBestEffort(
+        source: String,
+        item: kotlinx.serialization.json.JsonObject,
+        code: String,
+        message: String?,
+    ) {
+        try {
+            listeningHistory.appendEvent(
+                source = source,
+                action = "error",
+                item = item,
+                userInitiated = true,
+                errorCode = code,
+                errorMessage = message,
+            )
+        } catch (_: Throwable) {
+            // best-effort
+        }
+    }
+
+    private fun logEventBestEffortFromState(
+        action: String,
+        before: MusicNowPlayingState,
+    ) {
+        val p = before.agentsPath?.takeIf { it.isNotBlank() } ?: return
+        val isRadio = before.isLive && p.lowercase().endsWith(".radio") && isInRadiosTree(p)
+        val source = if (isRadio) "radio" else "music"
+        val item =
+            if (isRadio) {
+                buildJsonObject {
+                    put("radioFilePath", JsonPrimitive(toWorkspacePath(p)))
+                    put("name", before.title?.let { JsonPrimitive(it) } ?: JsonNull)
+                    put("country", before.artist?.let { JsonPrimitive(it) } ?: JsonNull)
+                }
+            } else {
+                buildMusicItem(p)
+            }
+        logEventBestEffort(source = source, action = action, item = item, userInitiated = true)
+    }
+
+    private fun toWorkspacePath(agentsPath: String): String {
+        val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
+        return p.removePrefix(".agents/").trimStart('/')
+    }
+
+    private fun sanitizeErrorMessage(message: String?): String? {
+        val m = message?.trim().orEmpty()
+        if (m.isBlank()) return null
+        val lower = m.lowercase()
+        if (lower.contains("http://") || lower.contains("https://")) return null
+        if (lower.contains("token=") || lower.contains("apikey") || lower.contains("api_key")) return null
+        return m.take(200)
     }
 }

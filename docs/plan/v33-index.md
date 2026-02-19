@@ -43,4 +43,5 @@
 
 ## Review（Evidence）
 
-- Unit tests：`.\gradlew.bat :app:testDebugUnitTest`（完成后填写日期与结果）
+- Unit tests：`.\gradlew.bat :app:testDebugUnitTest` ✅（2026-02-19）
+- Install debug（smoke）：`.\gradlew.bat :app:installDebug` ✅（2026-02-19，installed on 1 device）

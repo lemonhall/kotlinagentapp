@@ -8,6 +8,7 @@ import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.irc.IrcCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.ledger.LedgerCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.music.MusicCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.qqmail.QqMailCommand
+import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.radio.RadioCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.rss.RssCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.ssh.SshCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.stock.StockCommand
@@ -30,6 +31,7 @@ internal object TerminalCommands {
                 SshCommand(appContext),
                 IrcCommand(appContext),
                 MusicCommand(appContext),
+                RadioCommand(appContext),
             ),
         )
     }
