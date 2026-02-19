@@ -166,219 +166,237 @@ class MusicPlayerController(
     }
 
     suspend fun statusSnapshot(): MusicNowPlayingState {
-        val st = _state.value
-        val playing = transport.isPlaying()
-        val pos = transport.currentPositionMs().coerceAtLeast(0L)
-        val dur = transport.durationMs()?.takeIf { it > 0L } ?: st.durationMs
-        val q = queueCtrl.snapshot()
-        val qi = q.index
-        val qs = q.items.size.takeIf { it > 0 }
-        val playbackState =
-            when {
-                st.playbackState == MusicPlaybackState.Error -> MusicPlaybackState.Error
-                st.playbackState == MusicPlaybackState.Stopped -> MusicPlaybackState.Stopped
-                st.agentsPath.isNullOrBlank() -> MusicPlaybackState.Idle
-                playing -> MusicPlaybackState.Playing
-                else -> MusicPlaybackState.Paused
-            }
-        return st.copy(
-            isPlaying = playing,
-            positionMs = pos,
-            durationMs = dur,
-            playbackState = playbackState,
-            queueIndex = qi,
-            queueSize = qs,
-            playbackMode = playbackMode,
-            volume = volume,
-            isMuted = isMuted,
-        )
+        return withContext(Dispatchers.Main.immediate) {
+            val st = _state.value
+            val playing = transport.isPlaying()
+            val pos = transport.currentPositionMs().coerceAtLeast(0L)
+            val dur = transport.durationMs()?.takeIf { it > 0L } ?: st.durationMs
+            val q = queueCtrl.snapshot()
+            val qi = q.index
+            val qs = q.items.size.takeIf { it > 0 }
+            val playbackState =
+                when {
+                    st.playbackState == MusicPlaybackState.Error -> MusicPlaybackState.Error
+                    st.playbackState == MusicPlaybackState.Stopped -> MusicPlaybackState.Stopped
+                    st.agentsPath.isNullOrBlank() -> MusicPlaybackState.Idle
+                    playing -> MusicPlaybackState.Playing
+                    else -> MusicPlaybackState.Paused
+                }
+            st.copy(
+                isPlaying = playing,
+                positionMs = pos,
+                durationMs = dur,
+                playbackState = playbackState,
+                queueIndex = qi,
+                queueSize = qs,
+                playbackMode = playbackMode,
+                volume = volume,
+                isMuted = isMuted,
+            )
+        }
     }
 
     suspend fun playAgentsMp3Now(agentsPathInput: String) {
-        val p = normalizeAgentsPathInput(agentsPathInput)
-        if (!isInMusicsTree(p)) {
-            _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 musics/ 目录下的 mp3") }
-            throw IllegalArgumentException("path not allowed: $agentsPathInput")
-        }
-
-        val warning = computeNotificationWarning()
-        val file = File(appContext.filesDir, p)
-        val (metadata, extras) =
-            withContext(ioDispatcher) {
-                metadataReader.readBestEffort(file) to extrasReader.readBestEffort(file)
+        withContext(Dispatchers.Main.immediate) {
+            val p = normalizeAgentsPathInput(agentsPathInput)
+            if (!isInMusicsTree(p)) {
+                _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 musics/ 目录下的 mp3") }
+                throw IllegalArgumentException("path not allowed: $agentsPathInput")
             }
 
-        val (newQueue, _) = buildDeterministicQueue(currentAgentsPath = p)
-        val q = queueCtrl.setQueue(newQueue, current = p)
+            val warning = computeNotificationWarning()
+            val file = File(appContext.filesDir, p)
+            val (metadata, extras) =
+                withContext(ioDispatcher) {
+                    metadataReader.readBestEffort(file) to extrasReader.readBestEffort(file)
+                }
 
-        try {
-            transport.play(
-                MusicPlaybackRequest(
-                    agentsPath = p,
-                    uri = Uri.fromFile(file).toString(),
-                    metadata =
-                        MusicMediaMetadata(
-                            title = metadata.title,
-                            artist = metadata.artist,
-                            album = metadata.album,
-                            durationMs = metadata.durationMs,
-                        ),
-                    isLive = false,
+            val (newQueue, _) = buildDeterministicQueue(currentAgentsPath = p)
+            val q = queueCtrl.setQueue(newQueue, current = p)
+
+            try {
+                transport.play(
+                    MusicPlaybackRequest(
+                        agentsPath = p,
+                        uri = Uri.fromFile(file).toString(),
+                        metadata =
+                            MusicMediaMetadata(
+                                title = metadata.title,
+                                artist = metadata.artist,
+                                album = metadata.album,
+                                durationMs = metadata.durationMs,
+                            ),
+                        isLive = false,
+                    )
                 )
-            )
-        } catch (t: Throwable) {
-            logErrorBestEffort(source = "music", item = buildMusicItem(p), code = "PlayFailed", message = sanitizeErrorMessage(t.message))
-            throw t
-        }
-        applyVolumeToTransportNow()
-        _state.update {
-            it.copy(
-                agentsPath = p,
-                isLive = false,
-                title = metadata.title,
-                artist = metadata.artist,
-                album = metadata.album,
-                durationMs = metadata.durationMs,
-                positionMs = 0L,
-                isPlaying = true,
-                playbackState = MusicPlaybackState.Playing,
-                queueIndex = q.index,
-                queueSize = q.items.size.takeIf { it > 0 },
-                playbackMode = playbackMode,
-                volume = volume,
-                isMuted = isMuted,
-                coverArtBytes = extras.coverArtBytes,
-                lyrics = extras.lyrics,
-                warningMessage = warning,
-                errorMessage = null,
-            )
-        }
+            } catch (t: Throwable) {
+                logErrorBestEffort(source = "music", item = buildMusicItem(p), code = "PlayFailed", message = sanitizeErrorMessage(t.message))
+                throw t
+            }
+            applyVolumeToTransportNow()
+            _state.update {
+                it.copy(
+                    agentsPath = p,
+                    isLive = false,
+                    title = metadata.title,
+                    artist = metadata.artist,
+                    album = metadata.album,
+                    durationMs = metadata.durationMs,
+                    positionMs = 0L,
+                    isPlaying = true,
+                    playbackState = MusicPlaybackState.Playing,
+                    queueIndex = q.index,
+                    queueSize = q.items.size.takeIf { it > 0 },
+                    playbackMode = playbackMode,
+                    volume = volume,
+                    isMuted = isMuted,
+                    coverArtBytes = extras.coverArtBytes,
+                    lyrics = extras.lyrics,
+                    warningMessage = warning,
+                    errorMessage = null,
+                )
+            }
 
-        logEventBestEffort(source = "music", action = "play", item = buildMusicItem(p), userInitiated = true)
+            logEventBestEffort(source = "music", action = "play", item = buildMusicItem(p), userInitiated = true)
+        }
     }
 
     suspend fun playAgentsRadioNow(agentsPathInput: String) {
-        val p = normalizeAgentsPathInput(agentsPathInput)
-        if (!isInRadiosTree(p) || !p.lowercase().endsWith(".radio")) {
-            _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 radios/ 目录下的 .radio") }
-            throw IllegalArgumentException("path not allowed: $agentsPathInput")
-        }
-
-        val warning = computeNotificationWarning()
-        val file = File(appContext.filesDir, p)
-        val raw =
-            withContext(ioDispatcher) {
-                if (!file.exists() || !file.isFile) error("not a file: $p")
-                file.readText(Charsets.UTF_8)
+        withContext(Dispatchers.Main.immediate) {
+            val p = normalizeAgentsPathInput(agentsPathInput)
+            if (!isInRadiosTree(p) || !p.lowercase().endsWith(".radio")) {
+                _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 radios/ 目录下的 .radio") }
+                throw IllegalArgumentException("path not allowed: $agentsPathInput")
             }
-        val station = RadioStationFileV1.parse(raw)
 
-        val (newQueue, _) = buildRadioQueueNow(currentAgentsPath = p)
-        val q = queueCtrl.setQueue(newQueue, current = p)
+            val warning = computeNotificationWarning()
+            val file = File(appContext.filesDir, p)
+            val raw =
+                withContext(ioDispatcher) {
+                    if (!file.exists() || !file.isFile) error("not a file: $p")
+                    file.readText(Charsets.UTF_8)
+                }
+            val station = RadioStationFileV1.parse(raw)
 
-        val radioItem = buildRadioItem(path = p, station = station)
-        try {
-            transport.play(
-                MusicPlaybackRequest(
-                    agentsPath = p,
-                    uri = station.streamUrl,
-                    metadata =
-                        MusicMediaMetadata(
-                            title = station.name,
-                            artist = station.country ?: station.language,
-                            album = "Radio",
-                            durationMs = null,
-                        ),
-                    isLive = true,
+            val (newQueue, _) = buildRadioQueueNow(currentAgentsPath = p)
+            val q = queueCtrl.setQueue(newQueue, current = p)
+
+            val radioItem = buildRadioItem(path = p, station = station)
+            try {
+                transport.play(
+                    MusicPlaybackRequest(
+                        agentsPath = p,
+                        uri = station.streamUrl,
+                        metadata =
+                            MusicMediaMetadata(
+                                title = station.name,
+                                artist = station.country ?: station.language,
+                                album = "Radio",
+                                durationMs = null,
+                            ),
+                        isLive = true,
+                    )
                 )
-            )
-        } catch (t: Throwable) {
-            logErrorBestEffort(source = "radio", item = radioItem, code = "PlayFailed", message = sanitizeErrorMessage(t.message))
-            throw t
-        }
-        applyVolumeToTransportNow()
-        _state.update {
-            it.copy(
-                agentsPath = p,
-                isLive = true,
-                title = station.name,
-                artist = station.country ?: station.language,
-                album = "Radio",
-                durationMs = null,
-                positionMs = 0L,
-                isPlaying = true,
-                playbackState = MusicPlaybackState.Playing,
-                queueIndex = q.index,
-                queueSize = q.items.size.takeIf { it > 0 },
-                playbackMode = playbackMode,
-                volume = volume,
-                isMuted = isMuted,
-                coverArtBytes = null,
-                lyrics = null,
-                warningMessage = warning,
-                errorMessage = null,
-            )
-        }
+            } catch (t: Throwable) {
+                logErrorBestEffort(source = "radio", item = radioItem, code = "PlayFailed", message = sanitizeErrorMessage(t.message))
+                throw t
+            }
+            applyVolumeToTransportNow()
+            _state.update {
+                it.copy(
+                    agentsPath = p,
+                    isLive = true,
+                    title = station.name,
+                    artist = station.country ?: station.language,
+                    album = "Radio",
+                    durationMs = null,
+                    positionMs = 0L,
+                    isPlaying = true,
+                    playbackState = MusicPlaybackState.Playing,
+                    queueIndex = q.index,
+                    queueSize = q.items.size.takeIf { it > 0 },
+                    playbackMode = playbackMode,
+                    volume = volume,
+                    isMuted = isMuted,
+                    coverArtBytes = null,
+                    lyrics = null,
+                    warningMessage = warning,
+                    errorMessage = null,
+                )
+            }
 
-        logEventBestEffort(source = "radio", action = "play", item = radioItem, userInitiated = true)
+            logEventBestEffort(source = "radio", action = "play", item = radioItem, userInitiated = true)
+        }
     }
 
     suspend fun pauseNow() {
-        val before = _state.value
-        transport.pause()
-        _state.update {
-            it.copy(
-                isPlaying = false,
-                playbackState = if (it.agentsPath.isNullOrBlank()) MusicPlaybackState.Idle else MusicPlaybackState.Paused,
-                errorMessage = null,
-            )
+        withContext(Dispatchers.Main.immediate) {
+            val before = _state.value
+            transport.pause()
+            _state.update {
+                it.copy(
+                    isPlaying = false,
+                    playbackState = if (it.agentsPath.isNullOrBlank()) MusicPlaybackState.Idle else MusicPlaybackState.Paused,
+                    errorMessage = null,
+                )
+            }
+            logEventBestEffortFromState(action = "pause", before = before)
         }
-        logEventBestEffortFromState(action = "pause", before = before)
     }
 
     suspend fun resumeNow() {
-        val before = _state.value
-        transport.resume()
-        applyVolumeToTransportNow()
-        _state.update {
-            it.copy(
-                isPlaying = true,
-                playbackState = if (it.agentsPath.isNullOrBlank()) MusicPlaybackState.Idle else MusicPlaybackState.Playing,
-                errorMessage = null,
-            )
+        withContext(Dispatchers.Main.immediate) {
+            val before = _state.value
+            transport.resume()
+            applyVolumeToTransportNow()
+            _state.update {
+                it.copy(
+                    isPlaying = true,
+                    playbackState = if (it.agentsPath.isNullOrBlank()) MusicPlaybackState.Idle else MusicPlaybackState.Playing,
+                    errorMessage = null,
+                )
+            }
+            logEventBestEffortFromState(action = "resume", before = before)
         }
-        logEventBestEffortFromState(action = "resume", before = before)
     }
 
     suspend fun stopNow() {
-        val before = _state.value
-        transport.stop()
-        queueCtrl.clear()
-        _state.update {
-            MusicNowPlayingState(
-                playbackState = MusicPlaybackState.Stopped,
-                playbackMode = playbackMode,
-                volume = volume,
-                isMuted = isMuted,
-            )
+        withContext(Dispatchers.Main.immediate) {
+            val before = _state.value
+            transport.stop()
+            queueCtrl.clear()
+            _state.update {
+                MusicNowPlayingState(
+                    playbackState = MusicPlaybackState.Stopped,
+                    playbackMode = playbackMode,
+                    volume = volume,
+                    isMuted = isMuted,
+                )
+            }
+            logEventBestEffortFromState(action = "stop", before = before)
         }
-        logEventBestEffortFromState(action = "stop", before = before)
     }
 
     suspend fun seekToNow(positionMs: Long) {
-        val ms = positionMs.coerceAtLeast(0L)
-        transport.seekTo(ms)
-        _state.update { it.copy(positionMs = ms, errorMessage = null) }
+        withContext(Dispatchers.Main.immediate) {
+            val ms = positionMs.coerceAtLeast(0L)
+            transport.seekTo(ms)
+            _state.update { it.copy(positionMs = ms, errorMessage = null) }
+        }
     }
 
     suspend fun nextNow() {
-        val next = queueCtrl.manualNextIndex() ?: return
-        playQueueIndexNow(next)
+        withContext(Dispatchers.Main.immediate) {
+            val next = queueCtrl.manualNextIndex() ?: return@withContext
+            playQueueIndexNow(next)
+        }
     }
 
     suspend fun prevNow() {
-        val prev = queueCtrl.manualPrevIndex() ?: return
-        playQueueIndexNow(prev)
+        withContext(Dispatchers.Main.immediate) {
+            val prev = queueCtrl.manualPrevIndex() ?: return@withContext
+            playQueueIndexNow(prev)
+        }
     }
 
     private fun isInMusicsTree(agentsPath: String): Boolean {

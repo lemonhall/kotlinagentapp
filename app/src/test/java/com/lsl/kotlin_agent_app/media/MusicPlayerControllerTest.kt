@@ -1,9 +1,14 @@
 package com.lsl.kotlin_agent_app.media
 
+import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -170,6 +175,50 @@ class MusicPlayerControllerTest {
             assertEquals(true, controller.state.value.isPlaying)
             assertEquals("https://example.com/stream", transport.lastPlayed?.uri)
             assertEquals(true, transport.lastPlayed?.isLive)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun playAgentsMp3Now_calledFromBackground_runsTransportOnMainImmediate() = runTest {
+        val ctx = RuntimeEnvironment.getApplication()
+
+        class RecordingTransport : MusicTransport {
+            var lastPlayInterceptor: ContinuationInterceptor? = null
+            override suspend fun connect() = Unit
+
+            override suspend fun play(request: MusicPlaybackRequest) {
+                lastPlayInterceptor = currentCoroutineContext()[ContinuationInterceptor]
+            }
+
+            override suspend fun pause() = Unit
+            override suspend fun resume() = Unit
+            override suspend fun stop() = Unit
+            override suspend fun seekTo(positionMs: Long) = Unit
+            override fun currentPositionMs(): Long = 0L
+            override fun durationMs(): Long? = null
+            override fun isPlaying(): Boolean = false
+            override suspend fun setVolume(volume: Float) = Unit
+            override fun volume(): Float? = null
+            override fun setListener(listener: MusicTransportListener?) = Unit
+        }
+
+        val transport = RecordingTransport()
+        val controller =
+            MusicPlayerController(
+                ctx,
+                transport = transport,
+                metadataReader = Mp3MetadataReader(Mp3MetadataExtractor { RawMp3Metadata(title = "Song", artist = "Me", durationMs = 5000L) }),
+                ioDispatcher = Dispatchers.Main,
+            )
+
+        try {
+            withContext(Dispatchers.Default) {
+                controller.playAgentsMp3Now(".agents/workspace/musics/a.mp3")
+            }
+
+            assertSame(Dispatchers.Main.immediate, transport.lastPlayInterceptor)
         } finally {
             controller.close()
         }
