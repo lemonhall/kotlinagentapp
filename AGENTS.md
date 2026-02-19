@@ -22,6 +22,9 @@
 
 - 单测默认开启 Configuration Cache；第一次会慢一些，后续会明显变快。
 - 如需更快（多核并行跑 UT）：`.\gradlew.bat :app:testDebugUnitTest -PtestMaxParallelForks=4`
+- 日常省时间跑法：
+  - 指定单测：`.\gradlew.bat :app:testDebugUnitTest --tests "com.lsl.kotlin_agent_app.ExampleUnitTest"`
+  - 只验编译：`.\gradlew.bat :app:compileDebugUnitTestKotlin`
 - 如果遇到 “另一个程序正在使用此文件”：先执行 `.\gradlew.bat --stop` 再重试。
 
 ## 本地环境（Windows 11 + PowerShell 7.x）
