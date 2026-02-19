@@ -355,6 +355,9 @@ class OpenAgenticSdkChatAgent(
                 当需要操作文件或加载技能时，优先使用工具：Read / Write / Edit / List / Glob / Grep / Skill。
                 当需要执行"伪终端/白名单 CLI"命令时，使用：terminal_exec（注意：这不是 bash，不支持管道/重定向/多命令）。
                 当需要查询或抓取网页信息时，使用：WebSearch / WebFetch（也可理解为 web_search / web_fetch）。
+
+                内置技能命名提示（避免“知道有技能但叫不出名字”）：
+                - 用户提到“radio/电台/收音机/来点XX音乐 radio”等电台意图时：先 `Skill(name="radio-cli")` 加载技能，并严格按其中《电台发现流程（必须遵守）》处理模糊选台（通常需要先 `radio sync countries`，再 fav list → last_played → Task(explore)+Grep 索引 → play）。不要默认要求用户先提供 `.radio` 文件路径或 stream URL。
                 
                 当需要在大量文件、大型 JSON 索引或深层目录中搜索/筛选/提取信息时，**必须**使用子会话工具：
                 - `Task(agent="explore", prompt="<具体的搜索/提取指令>")`

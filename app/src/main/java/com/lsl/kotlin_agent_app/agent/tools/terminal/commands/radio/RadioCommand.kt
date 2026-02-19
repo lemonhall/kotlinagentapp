@@ -7,6 +7,7 @@ import com.lsl.kotlin_agent_app.agent.tools.terminal.TerminalCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.TerminalCommandOutput
 import com.lsl.kotlin_agent_app.media.MusicPlaybackState
 import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
+import com.lsl.kotlin_agent_app.radios.RadioRepository
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import com.lsl.kotlin_agent_app.radios.RadioPathNaming
 import java.io.File
@@ -40,6 +41,7 @@ internal class RadioCommand(
 ) : TerminalCommand {
     private val ctx = appContext.applicationContext
     private val ws = AgentsWorkspace(ctx)
+    private val radioRepo = RadioRepository(ws)
 
     override val name: String = "radio"
     override val description: String = "Radio player control plane (status/play/pause/resume/stop)."
@@ -77,6 +79,7 @@ internal class RadioCommand(
                 "resume" -> handleResume()
                 "stop" -> handleStop()
                 "fav" -> handleFav(argv)
+                "sync" -> handleSync(argv)
                 else -> invalidArgs("unknown subcommand: $subRaw")
             }
         } catch (t: NotInRadiosDir) {
@@ -136,6 +139,123 @@ internal class RadioCommand(
                 errorMessage = t.message,
             )
         }
+    }
+
+    private suspend fun handleSync(argv: List<String>): TerminalCommandOutput {
+        val target = argv.getOrNull(2)?.trim()?.lowercase().orEmpty()
+        val force = argv.any { it.trim().equals("--force", ignoreCase = true) }
+        return when (target) {
+            "countries" -> handleSyncCountries(force = force)
+            "stations" -> handleSyncStations(argv, force = force)
+            else -> invalidArgs("Usage: radio sync (countries|stations) [--force]")
+        }
+    }
+
+    private suspend fun handleSyncCountries(force: Boolean): TerminalCommandOutput {
+        ws.ensureInitialized()
+        val out = radioRepo.syncCountries(force = force)
+        if (!out.ok) {
+            return TerminalCommandOutput(
+                exitCode = 2,
+                stdout = "",
+                stderr = (out.message ?: "sync countries failed"),
+                errorCode = "SyncFailed",
+                errorMessage = out.message,
+            )
+        }
+
+        val idx = radioRepo.readCountriesIndexOrNull()
+        val count = idx?.countries?.size ?: 0
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("command", JsonPrimitive("radio sync countries" + if (force) " --force" else ""))
+                put("force", JsonPrimitive(force))
+                put("countries_count", JsonPrimitive(count))
+            }
+        return TerminalCommandOutput(exitCode = 0, stdout = "synced countries: $count", result = result)
+    }
+
+    private suspend fun handleSyncStations(
+        argv: List<String>,
+        force: Boolean,
+    ): TerminalCommandOutput {
+        ws.ensureInitialized()
+
+        // Ensure countries index exists (needed for --cc and for directory validation).
+        val countries = radioRepo.syncCountries(force = false)
+        if (!countries.ok) {
+            return TerminalCommandOutput(
+                exitCode = 2,
+                stdout = "",
+                stderr = (countries.message ?: "sync countries failed"),
+                errorCode = "SyncCountriesFailed",
+                errorMessage = countries.message,
+            )
+        }
+
+        val rawDir = optionalFlagValueRest(argv, "--dir")
+        val rawCc = optionalFlagValueRest(argv, "--cc")
+        if (rawDir.isNullOrBlank() && rawCc.isNullOrBlank()) {
+            return invalidArgs("Usage: radio sync stations (--dir <country-dir> | --cc <CC>) [--force]")
+        }
+        if (!rawDir.isNullOrBlank() && !rawCc.isNullOrBlank()) {
+            return invalidArgs("radio sync stations: provide only one of --dir or --cc")
+        }
+
+        val dir =
+            if (!rawDir.isNullOrBlank()) {
+                rawDir.trim()
+            } else {
+                val cc = rawCc!!.trim().uppercase()
+                if (!Regex("^[A-Z]{2}$").matches(cc)) {
+                    return invalidArgs("radio sync stations: invalid --cc (expected ISO 3166-1 alpha-2, e.g. EG)")
+                }
+                val idx = radioRepo.readCountriesIndexOrNull()
+                val entry = idx?.countries?.firstOrNull { (it.code ?: "").trim().uppercase() == cc }
+                if (entry == null) {
+                    return TerminalCommandOutput(
+                        exitCode = 2,
+                        stdout = "",
+                        stderr = "unknown country code: $cc",
+                        errorCode = "CountryNotFound",
+                        errorMessage = "unknown country code: $cc",
+                    )
+                }
+                entry.dir
+            }
+
+        val out = radioRepo.syncStationsForCountryDir(countryDirName = dir, force = force)
+        if (!out.ok) {
+            return TerminalCommandOutput(
+                exitCode = 2,
+                stdout = "",
+                stderr = (out.message ?: "sync stations failed"),
+                errorCode = "SyncFailed",
+                errorMessage = out.message,
+            )
+        }
+
+        val stationsIndexPath = "workspace/radios/$dir/.stations.index.json"
+        val radiosCount =
+            runCatching {
+                ws.listDir("${RadioRepository.RADIOS_DIR}/$dir").count {
+                    it.type == com.lsl.kotlin_agent_app.agent.AgentsDirEntryType.File &&
+                        it.name.lowercase(java.util.Locale.ROOT).endsWith(".radio")
+                }
+            }.getOrDefault(0)
+
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("command", JsonPrimitive("radio sync stations" + if (force) " --force" else ""))
+                put("force", JsonPrimitive(force))
+                put("dir", JsonPrimitive(dir))
+                put("stations_index_path", JsonPrimitive(stationsIndexPath))
+                put("radios_count", JsonPrimitive(radiosCount))
+            }
+
+        return TerminalCommandOutput(exitCode = 0, stdout = "synced stations: $dir radios=$radiosCount", result = result)
     }
 
     private suspend fun handleStatus(): TerminalCommandOutput {
@@ -401,6 +521,8 @@ internal class RadioCommand(
                           radio fav add [--in <agents-path> | --in_b64 <base64-utf8-path>]
                           radio fav rm [--in <agents-path> | --in_b64 <base64-utf8-path>]
                           radio fav list
+                          radio sync countries [--force]
+                          radio sync stations (--dir <country-dir> | --cc <CC>) [--force]
                         
                         Help:
                           radio --help
@@ -416,6 +538,8 @@ internal class RadioCommand(
                         "radio stop",
                         "radio fav add",
                         "radio fav list",
+                        "radio sync countries",
+                        "radio sync stations --cc EG",
                     )
                 }
                 "status" -> "Usage: radio status" to listOf("radio status")
@@ -438,6 +562,15 @@ internal class RadioCommand(
                         """.trimIndent()
                     u to listOf("radio fav list", "radio fav add", "radio fav rm")
                 }
+                "sync" -> {
+                    val u =
+                        """
+                        Usage:
+                          radio sync countries [--force]
+                          radio sync stations (--dir <country-dir> | --cc <CC>) [--force]
+                        """.trimIndent()
+                    u to listOf("radio sync countries", "radio sync stations --cc EG", "radio sync stations --dir EG__Egypt --force")
+                }
                 else -> return invalidArgs("unknown subcommand: $sub")
             }
 
@@ -456,6 +589,7 @@ internal class RadioCommand(
                         add(JsonPrimitive("resume"))
                         add(JsonPrimitive("stop"))
                         add(JsonPrimitive("fav"))
+                        add(JsonPrimitive("sync"))
                     },
                 )
                 if (sub == null || sub == "play") {

@@ -9,6 +9,14 @@ description: 通过 `terminal_exec` 控制/查询电台播放器状态，以及�
 
 为 App 内置 Radio 电台播放器提供"堆外控制面"（可审计、可测试）：用 `terminal_exec` 执行 `radio ...` 命令查询/控制播放状态。
 
+## 🔴 必读：模糊选台（最常见）
+
+当用户说“来点 XXX 的音乐/电台，radio”“收听国内新闻 radio”等 **未给出精确 `.radio` 路径** 的口语化需求时：
+
+1) **不要**回复“radio 不支持搜索所以做不了”。（`radio` 命令确实没有 `search` 子命令，但本技能要求用索引 + `explore` 完成发现。）
+2) **必须**按本文档的《电台发现流程（必须遵守）》走：先 `radio fav list` → 再读 `workspace/radios/.last_played.json` → 再 `Task(agent="explore", ...)` 用 `Grep` 搜索索引 → 拿到候选 `.radio` 路径后 `radio play`。
+3) 仅当 explore 结果为 0 或明确不存在该国家目录时，才引导用户换关键词或改需求；不要让用户“自己先给 stream url / 自己先写 .radio”作为默认路径。
+
 ## 电台库结构
 
 电台文件存放在 `workspace/radios/` 下，按国家分目录：
@@ -93,6 +101,17 @@ workspace/radios/
 - `exit_code=0`
 - `radio fav list` 的 `result.favorites[]` 返回 `path/name/id/country`
 
+### 懒加载同步（国家/电台索引）
+
+> 重要：很多国家目录的 `.stations.index.json` / `.radio` 文件是**懒加载**生成的（例如你从未在 Files 里点进过该国家目录）。
+> 当需要“按意图选台”时，应先用 `radio sync ...` 生成索引与 `.radio` 文件，再进入 explore 搜索流程。
+
+使用工具 `terminal_exec` 执行：
+
+- `radio sync countries`（拉取/刷新国家索引，72h TTL；通常很快）
+- `radio sync stations --cc EG`（按国家代码拉取该国电台并生成 `.stations.index.json` 与 `.radio` 文件）
+- `radio sync stations --dir EG__Egypt --force`（按国家目录强制刷新）
+
 ## 常见用语映射
 
 用户描述电台时经常使用口语化表达，必须正确映射到国家代码：
@@ -111,6 +130,13 @@ workspace/radios/
 ## 电台发现流程（必须遵守）
 
 当用户请求播放某个电台但未给出精确 `.radio` 文件路径时，**必须使用 `explore` 子 agent** 完成电台发现。主 agent 禁止自行读取或扫描 `workspace/radios/` 下的任何文件。
+
+### Step -1：确保索引已生成（自动）
+
+目标：避免“索引/电台文件尚未懒加载生成”导致 explore 无法 Grep。
+
+1) **直接**用 `terminal_exec` 执行 `radio sync countries`（无需 Read 文件系统；72h TTL 缓存，重复执行开销很低）。
+2) 如果用户明确提到国家/地区（或你能稳定判断国家代码），可提前执行 `radio sync stations --cc <CC>` 以确保 `.stations.index.json` 存在。
 
 ### Step 0：读取收藏夹（快速路径）
 
@@ -153,6 +179,10 @@ workspace/radios/
 >    - `before_context>=6`
 > 返回最多 10 条结果，每条格式：`- <name> — <path>`（必须是 `workspace/radios/**.radio`）。
 
+补充（必须遵守）：
+- 如果 Grep 报告 `workspace/radios/.countries.index.json` 不存在/为空：直接返回“countries 索引缺失”，提示主 agent 先执行 `radio sync countries`，然后主 agent **自动重试**本 Step 1。
+- 如果 Grep 报告 `workspace/radios/{dir}/.stations.index.json` 不存在/为空：直接返回“stations 索引缺失 + dir={dir}”，提示主 agent 执行 `radio sync stations --dir {dir}`，然后主 agent **自动重试**本 Step 1。
+
 示例——用户说"收听国内的新闻 radio"：
 
 > 用 `Grep` 在 `workspace/radios/.countries.index.json` 搜索：`\"code\"\\s*:\\s*\"CN\"`，并设置 `before_context>=6`，从 before_context 中提取 `dir=CN__China`；
@@ -171,6 +201,7 @@ workspace/radios/
 - 返回 0 条结果：告知用户未找到匹配电台，建议换个关键词。
 - explore 报告国家不存在：告知用户"当前电台库中没有该国家的电台"。
 - explore 返回错误或超时：告知用户"电台搜索失败"，不要回退到主 agent 自行扫描。
+- 若 explore 返回“索引缺失”的提示：主 agent **必须先执行对应的 `radio sync ...`**，然后自动重试 Step 1（不需要用户额外确认）。
 
 ### Step 3：播放
 

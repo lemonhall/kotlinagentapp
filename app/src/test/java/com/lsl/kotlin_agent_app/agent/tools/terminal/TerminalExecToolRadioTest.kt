@@ -3,12 +3,16 @@ package com.lsl.kotlin_agent_app.agent.tools.terminal
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.media.MusicPlayerController
 import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
+import com.lsl.kotlin_agent_app.radios.RadioBrowserClientTestHooks
+import com.lsl.kotlin_agent_app.radios.RadioBrowserHttpResponse
+import com.lsl.kotlin_agent_app.radios.RadioBrowserTransport
 import com.lsl.kotlin_agent_app.radios.RadioPathNaming
 import java.io.File
 import java.util.Base64
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.HttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,6 +41,8 @@ class TerminalExecToolRadioTest {
                     "radio help resume",
                     "radio stop --help",
                     "radio help stop",
+                    "radio sync --help",
+                    "radio help sync",
                 )
             for (cmd in forms) {
                 val out = tool.exec(cmd)
@@ -260,5 +266,59 @@ class TerminalExecToolRadioTest {
             val out = tool.exec("radio fav add")
             assertTrue(out.exitCode != 0)
             assertEquals("NotPlayingRadio", out.errorCode)
+        }
+
+    @Test
+    fun radio_sync_countries_and_stations_roundtrip() =
+        runTerminalExecToolTest(
+            setup = { context ->
+                val radiosRoot = File(context.filesDir, ".agents/workspace/radios")
+                radiosRoot.deleteRecursively()
+                AgentsWorkspace(context).ensureInitialized()
+
+                val fake =
+                    object : RadioBrowserTransport {
+                        override suspend fun get(url: HttpUrl): RadioBrowserHttpResponse {
+                            val path = url.encodedPath
+                            val body =
+                                when {
+                                    path == "/json/countries" ->
+                                        """
+                                        [
+                                          {"name":"Egypt","stationcount":2,"iso_3166_1":"EG"}
+                                        ]
+                                        """.trimIndent()
+
+                                    path.startsWith("/json/stations/bycountry/") ->
+                                        """
+                                        [
+                                          {"stationuuid":"uuid-1","name":"Egypt Station 1","url_resolved":"https://example.com/eg1","country":"Egypt","votes":10},
+                                          {"stationuuid":"uuid-2","name":"Egypt Station 2","url_resolved":"https://example.com/eg2","country":"Egypt","votes":20}
+                                        ]
+                                        """.trimIndent()
+
+                                    else -> "[]"
+                                }
+                            return RadioBrowserHttpResponse(statusCode = 200, bodyText = body, headers = emptyMap())
+                        }
+                    }
+
+                RadioBrowserClientTestHooks.install(fake);
+                {
+                    RadioBrowserClientTestHooks.clear()
+                }
+            },
+        ) { tool ->
+            val outCountries = tool.exec("radio sync countries --force")
+            assertEquals(0, outCountries.exitCode)
+            assertEquals("1", outCountries.result!!["countries_count"]!!.jsonPrimitive.content)
+
+            val outStations = tool.exec("radio sync stations --cc EG --force")
+            assertEquals(0, outStations.exitCode)
+            assertEquals("EG__Egypt", outStations.result!!["dir"]!!.jsonPrimitive.content)
+            assertEquals("2", outStations.result!!["radios_count"]!!.jsonPrimitive.content)
+
+            val idx = File(outStations.filesDir, ".agents/workspace/radios/EG__Egypt/.stations.index.json")
+            assertTrue("stations index should exist", idx.exists())
         }
 }
