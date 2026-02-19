@@ -2,6 +2,15 @@ package com.lsl.kotlin_agent_app.agent
 
 import android.content.Context
 import com.lsl.kotlin_agent_app.BuildConfig
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.FileNasSmbMountsProvider
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.NasSmbClient
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.NasSmbClients
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.NasSmbErrorCode
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.NasSmbMountConfig
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.NasSmbMountConfigLoader
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.NasSmbVfs
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.NasSmbVfsException
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.SmbjNasSmbClient
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -21,10 +30,19 @@ enum class AgentsDirEntryType {
 
 class AgentsWorkspace(
     context: Context,
+    private val nasSmbClient: NasSmbClient = SmbjNasSmbClient(),
 ) {
     private val appContext = context.applicationContext
     private val filesRoot: File = appContext.filesDir
     private val agentsRoot: File = File(filesRoot, ".agents")
+
+    private val nasSmbEnvFile: File = File(filesRoot, ".agents/nas_smb/secrets/.env")
+    private val nasSmbMountLoader = NasSmbMountConfigLoader()
+    private val nasSmbVfs =
+        NasSmbVfs(
+            mountsProvider = FileNasSmbMountsProvider(envFile = nasSmbEnvFile, loader = nasSmbMountLoader),
+            client = nasSmbClient,
+        )
 
     fun ensureInitialized() {
         mkdirsIfMissing(".agents")
@@ -35,6 +53,10 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents/workspace/musics")
         mkdirsIfMissing(".agents/workspace/radios")
         mkdirsIfMissing(".agents/workspace/radios/favorites")
+
+        // PRD-0033: nas_smb VFS mount (App-internal mount).
+        mkdirsIfMissing(".agents/nas_smb")
+        mkdirsIfMissing(".agents/nas_smb/secrets")
 
         // Best-effort: missing asset must not break the rest.
         // In Debug builds, keep bundled skills synced to avoid stale/partial copies across app reinstalls.
@@ -79,6 +101,14 @@ class AgentsWorkspace(
             assetEnvExamplePath = "builtin_skills/irc-cli/secrets/env.example",
         )
 
+        // Create NAS SMB secrets template file once (never overwrite user's local secrets).
+        ensureBundledNasSmbEnvFileIfMissing(
+            assetEnvExamplePath = "builtin_nas_smb/secrets/env.example",
+        )
+
+        // Best-effort: materialize mount placeholder directories based on secrets/.env.
+        syncNasSmbMountPlaceholders()
+
         installBundledFile(targetPath = ".agents/sessions/README.md", assetPath = "builtin_sessions/README.md", overwrite = overwrite)
     }
 
@@ -100,7 +130,135 @@ class AgentsWorkspace(
         installBundledFile(targetPath = envPath, assetPath = assetEnvExamplePath, overwrite = true)
     }
 
+    private fun ensureBundledNasSmbEnvFileIfMissing(
+        assetEnvExamplePath: String,
+    ) {
+        val envPath = ".agents/nas_smb/secrets/.env"
+        val env = resolveAgentsPath(envPath)
+        if (env.exists() && env.isFile) return
+        // Best-effort: seed .env from bundled example (so the user can edit in Files tab).
+        installBundledFile(targetPath = envPath, assetPath = assetEnvExamplePath, overwrite = true)
+    }
+
+    private data class NasSmbResolvedDir(
+        val mountName: String,
+        val relDir: String,
+    )
+
+    private data class NasSmbResolvedFile(
+        val mountName: String,
+        val relPath: String,
+    )
+
+    private fun resolveNasSmbDirOrNull(normalized: String): NasSmbResolvedDir? {
+        if (normalized == ".agents/nas_smb") return null
+        if (!normalized.startsWith(".agents/nas_smb/")) return null
+        val segs = normalized.split('/')
+        if (segs.size < 3) return null
+        val mountName = segs[2]
+        if (mountName == "secrets") return null
+        val rel = if (segs.size <= 3) "" else segs.subList(3, segs.size).joinToString("/")
+        return NasSmbResolvedDir(mountName = mountName, relDir = rel)
+    }
+
+    private fun resolveNasSmbFileOrNull(normalized: String): NasSmbResolvedFile? {
+        if (!normalized.startsWith(".agents/nas_smb/")) return null
+        val segs = normalized.split('/')
+        if (segs.size < 4) return null
+        val mountName = segs[2]
+        if (mountName == "secrets") return null
+        // Treat marker metadata file as local.
+        if (segs.last() == ".mount.json") return null
+        val rel = segs.subList(3, segs.size).joinToString("/")
+        if (rel.isBlank()) return null
+        return NasSmbResolvedFile(mountName = mountName, relPath = rel)
+    }
+
+    private fun resolveNasSmbAnyPathOrNull(normalized: String): NasSmbResolvedFile? {
+        if (!normalized.startsWith(".agents/nas_smb/")) return null
+        val segs = normalized.split('/')
+        if (segs.size < 3) return null
+        val mountName = segs[2]
+        if (mountName == "secrets") return null
+        if (segs.last() == ".mount.json") return null
+        val rel = if (segs.size <= 3) "" else segs.subList(3, segs.size).joinToString("/")
+        return NasSmbResolvedFile(mountName = mountName, relPath = rel)
+    }
+
+    private fun syncNasSmbMountPlaceholders() {
+        val nasDir = ".agents/nas_smb"
+        try {
+            val mounts = nasSmbVfs.mountsByName().values.toList().sortedBy { it.mountName }
+            for (m in mounts) {
+                val mountDirPath = "$nasDir/${m.mountName}"
+                mkdirsIfMissing(mountDirPath)
+                val metaPath = "$mountDirPath/.mount.json"
+                val meta = renderMountMeta(m)
+                try {
+                    val f = resolveAgentsPath(metaPath)
+                    if (!f.exists() || f.readText(Charsets.UTF_8) != meta) {
+                        f.writeText(meta, Charsets.UTF_8)
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+            try {
+                deletePath("$nasDir/config_error.txt", recursive = false)
+            } catch (_: Throwable) {
+            }
+        } catch (t: Throwable) {
+            val msg =
+                when (t) {
+                    is NasSmbVfsException -> "${t.errorCode}: ${t.message}"
+                    else -> (t.message ?: "Unknown error")
+                }
+            try {
+                writeTextFile("$nasDir/config_error.txt", "NAS SMB config error:\n$msg\n")
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun renderMountMeta(mount: NasSmbMountConfig): String {
+        val remoteDir = mount.remoteDir.ifBlank { "/" }
+        val ro = mount.readOnly
+        val id = mount.id
+        val name = mount.mountName
+        return """
+            {
+              "version": 1,
+              "id": "${escapeJson(id)}",
+              "mount_name": "${escapeJson(name)}",
+              "share": "${escapeJson(mount.share)}",
+              "remote_dir": "${escapeJson(remoteDir)}",
+              "read_only": $ro
+            }
+        """.trimIndent() + "\n"
+    }
+
+    private fun escapeJson(s: String): String {
+        return s
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+    }
+
     fun listDir(path: String): List<AgentsDirEntry> {
+        val normalized = normalizeAgentsPath(path)
+        val nas = resolveNasSmbDirOrNull(normalized)
+        if (nas != null) {
+            val entries = nasSmbVfs.listDir(nas.mountName, nas.relDir)
+            return entries
+                .map { e ->
+                    AgentsDirEntry(
+                        name = e.name,
+                        type = if (e.isDirectory) AgentsDirEntryType.Dir else AgentsDirEntryType.File,
+                    )
+                }
+                .sortedWith(compareBy<AgentsDirEntry>({ it.type != AgentsDirEntryType.Dir }, { it.name.lowercase() }))
+        }
         val dir = resolveAgentsPath(path)
         if (!dir.exists() || !dir.isDirectory) return emptyList()
         val children = dir.listFiles().orEmpty()
@@ -126,6 +284,11 @@ class AgentsWorkspace(
     }
 
     fun readTextFile(path: String, maxBytes: Long = 256 * 1024): String {
+        val normalized = normalizeAgentsPath(path)
+        val nas = resolveNasSmbFileOrNull(normalized)
+        if (nas != null) {
+            return nasSmbVfs.readTextFile(nas.mountName, nas.relPath, maxBytes = maxBytes)
+        }
         val f = resolveAgentsPath(path)
         if (!f.exists() || !f.isFile) error("Not a file: $path")
         val len = f.length()
@@ -147,6 +310,12 @@ class AgentsWorkspace(
     }
 
     fun writeTextFile(path: String, content: String) {
+        val normalized = normalizeAgentsPath(path)
+        val nas = resolveNasSmbFileOrNull(normalized)
+        if (nas != null) {
+            nasSmbVfs.writeTextFile(nas.mountName, nas.relPath, content)
+            return
+        }
         val f = resolveAgentsPath(path)
         val parent = f.parentFile ?: error("Invalid path: $path")
         if (!parent.exists()) parent.mkdirs()
@@ -154,11 +323,23 @@ class AgentsWorkspace(
     }
 
     fun mkdir(path: String) {
+        val normalized = normalizeAgentsPath(path)
+        val nas = resolveNasSmbDirOrNull(normalized)
+        if (nas != null) {
+            nasSmbVfs.mkdirs(nas.mountName, nas.relDir)
+            return
+        }
         val f = resolveAgentsPath(path)
         if (!f.exists()) f.mkdirs()
     }
 
     fun deletePath(path: String, recursive: Boolean) {
+        val normalized = normalizeAgentsPath(path)
+        val nas = resolveNasSmbAnyPathOrNull(normalized)
+        if (nas != null) {
+            nasSmbVfs.delete(nas.mountName, nas.relPath, recursive = recursive)
+            return
+        }
         val f = resolveAgentsPath(path)
         if (!f.exists()) return
         if (f.isFile) {
@@ -314,4 +495,5 @@ class AgentsWorkspace(
         if (!target.path.startsWith(agentsCanonical.path)) error("Path escapes .agents root: $path")
         return target
     }
+
 }

@@ -34,5 +34,4 @@
 
 ## Review（Evidence）
 
-- Unit tests：`.\gradlew.bat :app:testDebugUnitTest`（待补）
-
+- 2026-02-19：Unit tests：`.\gradlew.bat :app:testDebugUnitTest` ✅（exit code=0）

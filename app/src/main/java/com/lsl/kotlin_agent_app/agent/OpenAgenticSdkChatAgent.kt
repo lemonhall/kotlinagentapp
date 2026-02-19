@@ -62,6 +62,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.security.MessageDigest
 import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
+import com.lsl.kotlin_agent_app.agent.vfs.AgentsVfsFileSystem
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.NasSmbVfs
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.OkioNasSmbMountsProvider
+import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.SmbjNasSmbClient
 
 class OpenAgenticSdkChatAgent(
     context: Context,
@@ -88,7 +92,13 @@ class OpenAgenticSdkChatAgent(
 
         val agentsRoot = File(appContext.filesDir, ".agents")
         val rootPath = agentsRoot.absolutePath.replace('\\', '/').toPath()
-        val fileSystem = FileSystem.SYSTEM
+        val baseFileSystem = FileSystem.SYSTEM
+        val nasSmbVfs =
+            NasSmbVfs(
+                mountsProvider = OkioNasSmbMountsProvider(fileSystem = baseFileSystem, agentsRoot = rootPath),
+                client = SmbjNasSmbClient(),
+            )
+        val fileSystem = AgentsVfsFileSystem(delegate = baseFileSystem, agentsRoot = rootPath, nasSmbVfs = nasSmbVfs)
 
         val tools =
             ToolRegistry(
