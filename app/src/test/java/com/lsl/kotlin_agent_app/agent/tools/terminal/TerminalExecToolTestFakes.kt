@@ -114,6 +114,7 @@ internal class FakeMusicTransport : MusicTransport {
     @Volatile private var vol: Float = 1.0f
 
     @Volatile var lastPlayedAgentsPath: String? = null
+    @Volatile var lastPlayedUri: String? = null
     @Volatile var playCalls: Int = 0
 
     override suspend fun connect() {
@@ -123,6 +124,7 @@ internal class FakeMusicTransport : MusicTransport {
     override suspend fun play(request: MusicPlaybackRequest) {
         playCalls += 1
         lastPlayedAgentsPath = request.agentsPath
+        lastPlayedUri = request.uri
         playWhenReady = true
         playing = true
         playbackState = MusicTransportPlaybackState.Ready
@@ -146,6 +148,7 @@ internal class FakeMusicTransport : MusicTransport {
         playbackState = MusicTransportPlaybackState.Idle
         posMs = 0L
         lastPlayedAgentsPath = null
+        lastPlayedUri = null
     }
 
     override suspend fun seekTo(positionMs: Long) {

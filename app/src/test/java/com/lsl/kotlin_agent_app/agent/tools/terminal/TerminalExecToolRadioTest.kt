@@ -7,6 +7,9 @@ import com.lsl.kotlin_agent_app.radios.RadioBrowserClientTestHooks
 import com.lsl.kotlin_agent_app.radios.RadioBrowserHttpResponse
 import com.lsl.kotlin_agent_app.radios.RadioBrowserTransport
 import com.lsl.kotlin_agent_app.radios.RadioPathNaming
+import com.lsl.kotlin_agent_app.radios.StreamUrlResolverHttpResponse
+import com.lsl.kotlin_agent_app.radios.StreamUrlResolverTestHooks
+import com.lsl.kotlin_agent_app.radios.StreamUrlResolverTransport
 import java.io.File
 import java.util.Base64
 import kotlinx.serialization.json.jsonArray
@@ -117,6 +120,10 @@ class TerminalExecToolRadioTest {
             val outStatus1 = tool.exec("radio status")
             assertEquals(0, outStatus1.exitCode)
             assertEquals("playing", outStatus1.result!!["state"]!!.jsonPrimitive.content)
+            val transport1 = outStatus1.result!!["transport"]!!.jsonObject
+            assertTrue("transport.playback_state should exist", transport1["playback_state"] != null)
+            assertTrue("transport.play_when_ready should exist", transport1["play_when_ready"] != null)
+            assertTrue("transport.is_playing should exist", transport1["is_playing"] != null)
             val station1 = outStatus1.result!!["station"]!!.jsonObject
             assertEquals("workspace/radios/test1.radio", station1["path"]!!.jsonPrimitive.content)
             assertEquals("radio-browser:test-1", station1["id"]!!.jsonPrimitive.content)
@@ -135,6 +142,112 @@ class TerminalExecToolRadioTest {
             val outStatus2 = tool.exec("radio status")
             assertEquals(0, outStatus2.exitCode)
             assertEquals("stopped", outStatus2.result!!["state"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun radio_play_supportsAwaitMs_andReturnsVerifyObject() =
+        runTerminalExecToolTest(
+            setup = { context ->
+                val ws = AgentsWorkspace(context)
+                ws.ensureInitialized()
+                val radioJson =
+                    """
+                    {
+                      "schema": "kotlin-agent-app/radio-station@v1",
+                      "id": "radio-browser:test-1",
+                      "name": "Test Station 1",
+                      "streamUrl": "https://example.com/live?token=SECRET",
+                      "country": "Testland",
+                      "faviconUrl": "https://example.com/favicon.png"
+                    }
+                    """.trimIndent()
+                val f = File(context.filesDir, ".agents/workspace/radios/test1.radio")
+                f.parentFile?.mkdirs()
+                f.writeText(radioJson, Charsets.UTF_8)
+
+                MusicPlayerControllerProvider.resetForTests()
+                MusicPlayerControllerProvider.installAppContext(context)
+                MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                    MusicPlayerController(ctx, transport = FakeMusicTransport())
+                }
+                {
+                    MusicPlayerControllerProvider.resetForTests()
+                }
+            },
+        ) { tool ->
+            val outPlay = tool.exec("radio play --in workspace/radios/test1.radio --await_ms 10")
+            assertEquals(0, outPlay.exitCode)
+
+            val verify = outPlay.result!!["play"]!!.jsonObject["verify"]!!.jsonObject
+            assertEquals("playing", verify["outcome"]!!.jsonPrimitive.content)
+            assertTrue("polls should be >= 1", verify["polls"]!!.jsonPrimitive.content.toInt() >= 1)
+        }
+
+    @Test
+    fun radio_play_resolvesPls_andPlaysFirstCandidateUrl() =
+        run {
+            val transportHolder = arrayOfNulls<FakeMusicTransport>(1)
+        runTerminalExecToolTest(
+            setup = { context ->
+                val ws = AgentsWorkspace(context)
+                ws.ensureInitialized()
+                val radioJson =
+                    """
+                    {
+                      "schema": "kotlin-agent-app/radio-station@v1",
+                      "id": "radio-browser:test-pls",
+                      "name": "Playlist Station",
+                      "streamUrl": "https://example.com/list.pls",
+                      "country": "Testland",
+                      "faviconUrl": "https://example.com/favicon.png"
+                    }
+                    """.trimIndent()
+                val f = File(context.filesDir, ".agents/workspace/radios/test_pls.radio")
+                f.parentFile?.mkdirs()
+                f.writeText(radioJson, Charsets.UTF_8)
+
+                val transport = FakeMusicTransport()
+                transportHolder[0] = transport
+
+                StreamUrlResolverTestHooks.install(
+                    object : StreamUrlResolverTransport {
+                        override suspend fun get(url: HttpUrl): StreamUrlResolverHttpResponse {
+                            val body =
+                                """
+                                [playlist]
+                                NumberOfEntries=2
+                                File1=https://cdn.example.com/live1.mp3
+                                File2=https://cdn.example.com/live2.aac
+                                """.trimIndent()
+                            return StreamUrlResolverHttpResponse(
+                                statusCode = 200,
+                                finalUrl = url,
+                                contentType = "audio/x-scpls",
+                                bodyText = body,
+                                redirectCount = 0,
+                            )
+                        }
+                    }
+                )
+
+                MusicPlayerControllerProvider.resetForTests()
+                MusicPlayerControllerProvider.installAppContext(context)
+                MusicPlayerControllerProvider.factoryOverride = { ctx ->
+                    MusicPlayerController(ctx, transport = transport)
+                }
+                {
+                    StreamUrlResolverTestHooks.clear()
+                    MusicPlayerControllerProvider.resetForTests()
+                }
+            },
+        ) { tool ->
+            val outPlay = tool.exec("radio play --in workspace/radios/test_pls.radio")
+            assertEquals(0, outPlay.exitCode)
+
+            assertEquals("playing", outPlay.result!!["state"]!!.jsonPrimitive.content)
+            val transport = transportHolder[0] ?: error("missing test transport")
+            assertEquals("https://cdn.example.com/live1.mp3", transport.lastPlayedUri)
+        }
         }
 
     @Test

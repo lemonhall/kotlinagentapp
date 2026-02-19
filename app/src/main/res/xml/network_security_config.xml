@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      Radio Browser 生态里仍有大量 http:// 的公开音频流；为避免 Android 9+ 设备上批量
+      “Source error（cleartext not permitted）”，这里通过可审计的 config 显式放开 cleartext。
+
+      安全权衡：
+      - 仅用于“公开音频流”场景；http 明文传输可能被中间人篡改/劫持。
+      - 未来若要收紧，可改为 domain-config 白名单或按 buildType 区分。
+    -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

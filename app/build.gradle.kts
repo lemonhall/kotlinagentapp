@@ -152,6 +152,7 @@ dependencies {
     implementation("com.sun.mail:android-activation:1.6.7")
     implementation("com.hierynomus:smbj:0.11.5")
     implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.session)
 
     implementation(platform(libs.androidx.compose.bom))

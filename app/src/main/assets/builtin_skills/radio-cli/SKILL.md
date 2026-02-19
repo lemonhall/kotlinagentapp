@@ -34,7 +34,7 @@ workspace/radios/
     _STATUS.md
 ```
 
-## Commands（v35）
+## Commands（v37）
 
 ### Help
 
@@ -57,12 +57,13 @@ workspace/radios/
 - `exit_code=0`
 - `result.state` 为 `idle|playing|paused|stopped|error`
 - 播放电台时 `result.station.path` 为 `workspace/radios/**.radio`
+- `result.transport` 为结构化 transport 状态（例如 `playback_state/play_when_ready/is_playing/media_id`），用于稳定判定“是否还在缓冲/是否真的开始出声”。
 
 ### 播放控制（仅允许 radios/ 子树）
 
 使用工具 `terminal_exec` 执行（示例）：
 
-- `radio play --in workspace/radios/CN__China/中国之声__a1b2c3d4e5.radio`
+- `radio play --in workspace/radios/CN__China/中国之声__a1b2c3d4e5.radio --await_ms 4000`（推荐：播放后等待/验证窗口）
 - `radio play --in "workspace/radios/EG__Egypt/Egyptian Radio__6254b05b33.radio"`（路径含空格/Unicode 时用双引号）
 - `radio play --in_b64 <base64-utf8-path>`（推荐：彻底规避空格/Unicode/转义问题）
 - `radio pause`
@@ -81,6 +82,7 @@ workspace/radios/
 期望：
 - `exit_code=0`
 - `radio play` 成功后：`radio status` 的 `result.state=playing`
+- 若传入 `--await_ms`：`radio play` 的 `result.play.verify.outcome` 为 `playing|error|timeout`（timeout 表示仍在缓冲/不确定，但不得误报 idle）。
 
 ### 收藏（Favorites）
 
@@ -214,8 +216,10 @@ workspace/radios/
 
 很多电台 URL 会失效/被墙/需要特殊 User-Agent/发生重定向，播放器可能报 `Source error`（或 `ERROR_CODE_IO_*`、HTTP 403/404 等）。为了减少用户挫败感：
 
-1) 每次 `radio play` 后，**必须**立刻调用 `radio status` 做验证（必要时可重复 2-3 次，以便覆盖“网络加载/缓冲”窗口）。
-2) 若 `radio status` 返回 `result.state=error`，或 `result.error_message` 包含下列任一关键词：
+1) 每次播放优先用 `radio play ... --await_ms 4000`（覆盖“网络加载/缓冲”窗口），并以结构化字段做判定：
+   - 若 `result.play.verify.outcome=error` 或 `result.state=error`：视为“坏台”
+   - 若 `result.play.verify.outcome=timeout` 且 `result.transport.play_when_ready=true`：视为“仍在缓冲/不确定”，可以再 `radio status` 观察 1-2 次，但不要频繁 pause/resume
+2) 若 `radio status` 返回 `result.state=error`，或 `result.error_message` 包含下列任一关键词（用于诊断/兜底）：
    - `Source error`
    - `ERROR_CODE_IO_`
    - `http 4` / `http 5` / `403` / `404`

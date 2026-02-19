@@ -7,6 +7,8 @@ import androidx.core.app.NotificationManagerCompat
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.listening_history.ListeningHistoryStore
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
+import com.lsl.kotlin_agent_app.radios.StreamResolutionClassification
+import com.lsl.kotlin_agent_app.radios.StreamUrlResolver
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +39,7 @@ class MusicPlayerController(
     private val listeningHistory = ListeningHistoryStore(appContext)
 
     private val queueCtrl = PlaybackQueueController()
+    private val streamUrlResolver = StreamUrlResolver()
 
     private var playbackMode: MusicPlaybackMode =
         prefs.getString(AppPrefsKeys.MUSIC_PLAYBACK_MODE, null)
@@ -173,7 +176,9 @@ class MusicPlayerController(
         scope.launch { runCatching { toggleMuteNow() } }
     }
 
-    suspend fun statusSnapshot(): MusicNowPlayingState {
+    suspend fun statusSnapshot(): MusicNowPlayingState = statusSnapshotWithTransport().nowPlaying
+
+    suspend fun statusSnapshotWithTransport(): MusicStatusSnapshot {
         return withContext(Dispatchers.Main.immediate) {
             runCatching { transport.connect() }
             val st = _state.value
@@ -193,19 +198,21 @@ class MusicPlayerController(
                 }
             val playbackState = computePlaybackState(st2, snap)
             val isPlaying = snap.isPlaying || (snap.playWhenReady && playbackState == MusicPlaybackState.Playing)
-            st.copy(
-                agentsPath = st2.agentsPath,
-                isLive = st2.isLive,
-                isPlaying = isPlaying,
-                positionMs = pos,
-                durationMs = dur,
-                playbackState = playbackState,
-                queueIndex = qi,
-                queueSize = qs,
-                playbackMode = playbackMode,
-                volume = volume,
-                isMuted = isMuted,
-            )
+            val nowPlaying =
+                st.copy(
+                    agentsPath = st2.agentsPath,
+                    isLive = st2.isLive,
+                    isPlaying = isPlaying,
+                    positionMs = pos,
+                    durationMs = dur,
+                    playbackState = playbackState,
+                    queueIndex = qi,
+                    queueSize = qs,
+                    playbackMode = playbackMode,
+                    volume = volume,
+                    isMuted = isMuted,
+                )
+            MusicStatusSnapshot(nowPlaying = nowPlaying, transport = snap)
         }
     }
 
@@ -289,7 +296,10 @@ class MusicPlayerController(
         }
     }
 
-    suspend fun playAgentsRadioNow(agentsPathInput: String) {
+    suspend fun playAgentsRadioNow(
+        agentsPathInput: String,
+        streamUrlOverride: String? = null,
+    ) {
         withContext(Dispatchers.Main.immediate) {
             val p = normalizeAgentsPathInput(agentsPathInput)
             if (!isInRadiosTree(p) || !p.lowercase().endsWith(".radio")) {
@@ -310,11 +320,27 @@ class MusicPlayerController(
             val q = queueCtrl.setQueue(newQueue, current = p)
 
             val radioItem = buildRadioItem(path = p, station = station)
+            val urlToPlay =
+                if (!streamUrlOverride.isNullOrBlank()) {
+                    streamUrlOverride.trim()
+                } else {
+                    val resolved =
+                        withContext(ioDispatcher) {
+                            runCatching { streamUrlResolver.resolve(station.streamUrl) }.getOrNull()
+                        }
+                    when {
+                        resolved == null -> station.streamUrl
+                        resolved.classification == StreamResolutionClassification.Hls -> resolved.finalUrl
+                        resolved.candidates.isNotEmpty() -> resolved.candidates.first()
+                        resolved.finalUrl.isNotBlank() -> resolved.finalUrl
+                        else -> station.streamUrl
+                    }
+                }
             try {
                 transport.play(
                     MusicPlaybackRequest(
                         agentsPath = p,
-                        uri = station.streamUrl,
+                        uri = urlToPlay,
                         metadata =
                             MusicMediaMetadata(
                                 title = station.name,

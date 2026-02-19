@@ -1,6 +1,7 @@
 package com.lsl.kotlin_agent_app.agent.tools.terminal.commands.radio
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Base64
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.agent.tools.terminal.TerminalCommand
@@ -10,11 +11,18 @@ import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 import com.lsl.kotlin_agent_app.radios.RadioRepository
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import com.lsl.kotlin_agent_app.radios.RadioPathNaming
+import com.lsl.kotlin_agent_app.radios.StreamResolutionClassification
+import com.lsl.kotlin_agent_app.radios.StreamUrlResolver
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 
 internal class NotInRadiosDir(
     message: String,
@@ -42,6 +50,7 @@ internal class RadioCommand(
     private val ctx = appContext.applicationContext
     private val ws = AgentsWorkspace(ctx)
     private val radioRepo = RadioRepository(ws)
+    private val streamUrlResolver = StreamUrlResolver()
 
     override val name: String = "radio"
     override val description: String = "Radio player control plane (status/play/pause/resume/stop)."
@@ -260,8 +269,10 @@ internal class RadioCommand(
 
     private suspend fun handleStatus(): TerminalCommandOutput {
         val ctrl = MusicPlayerControllerProvider.get()
-        val st = ctrl.statusSnapshot()
-        val isRadio = st.isLive && !st.agentsPath.isNullOrBlank() && st.agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(st.agentsPath)
+        val snap = ctrl.statusSnapshotWithTransport()
+        val st = snap.nowPlaying
+        val tr = snap.transport
+        val isRadio = !st.agentsPath.isNullOrBlank() && st.agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(st.agentsPath)
 
         val stationObj =
             if (!isRadio) {
@@ -300,6 +311,18 @@ internal class RadioCommand(
                 put("state", JsonPrimitive(state))
                 put("station", stationObj)
                 put("position_ms", JsonPrimitive(st.positionMs))
+                put(
+                    "transport",
+                    buildJsonObject {
+                        put("is_connected", JsonPrimitive(tr.isConnected))
+                        put("playback_state", JsonPrimitive(tr.playbackState.name.lowercase()))
+                        put("play_when_ready", JsonPrimitive(tr.playWhenReady))
+                        put("is_playing", JsonPrimitive(tr.isPlaying))
+                        put("media_id", tr.mediaId?.let { JsonPrimitive(it) } ?: JsonNull)
+                        put("position_ms", JsonPrimitive(tr.positionMs))
+                        put("duration_ms", tr.durationMs?.let { JsonPrimitive(it) } ?: JsonNull)
+                    },
+                )
                 put("warning_message", st.warningMessage?.let { JsonPrimitive(it) } ?: JsonNull)
                 put("error_message", st.errorMessage?.let { JsonPrimitive(it) } ?: JsonNull)
             }
@@ -316,20 +339,142 @@ internal class RadioCommand(
         if (!f.exists() || !f.isFile) throw NotFound("文件不存在：$rawIn")
 
         val ctrl = MusicPlayerControllerProvider.get()
-        try {
-            ctrl.playAgentsRadioNow(agentsPath)
-        } catch (t: Throwable) {
-            val msg = t.message.orEmpty()
-            when {
-                msg.contains("invalid .radio", ignoreCase = true) -> throw InvalidRadio("非法 .radio：$rawIn")
-                msg.contains("not a file", ignoreCase = true) -> throw NotFound("文件不存在：$rawIn")
-                msg.contains("not found", ignoreCase = true) -> throw NotFound("文件不存在：$rawIn")
-                msg.contains("path not allowed", ignoreCase = true) -> throw NotInRadiosDir("仅允许 radios/ 目录下的 .radio：$rawIn")
-                else -> throw IllegalArgumentException(t.message ?: "播放失败")
+
+        val awaitMs = parseAwaitMsOrNull(argv) ?: 0L
+
+        val station =
+            withContext(Dispatchers.IO) {
+                runCatching { RadioStationFileV1.parse(f.readText(Charsets.UTF_8)) }.getOrNull()
+            } ?: throw InvalidRadio("非法 .radio：$rawIn")
+
+        val resolved =
+            withContext(Dispatchers.IO) {
+                runCatching { streamUrlResolver.resolve(station.streamUrl) }.getOrNull()
             }
+
+        val attemptUrls =
+            buildList {
+                if (resolved != null) {
+                    when {
+                        resolved.classification == StreamResolutionClassification.Hls ->
+                            add(resolved.finalUrl.trim().ifBlank { station.streamUrl })
+
+                        resolved.candidates.isNotEmpty() -> addAll(resolved.candidates)
+                        resolved.finalUrl.isNotBlank() -> add(resolved.finalUrl)
+                    }
+                }
+                add(station.streamUrl)
+            }.map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(10)
+
+        var verify: JsonObject? = null
+        var attemptedUrl: String? = null
+
+        for ((idx, url) in attemptUrls.withIndex()) {
+            attemptedUrl = url
+            try {
+                ctrl.playAgentsRadioNow(agentsPath, streamUrlOverride = url)
+            } catch (t: Throwable) {
+                val msg = t.message.orEmpty()
+                when {
+                    msg.contains("invalid .radio", ignoreCase = true) -> throw InvalidRadio("非法 .radio：$rawIn")
+                    msg.contains("not a file", ignoreCase = true) -> throw NotFound("文件不存在：$rawIn")
+                    msg.contains("not found", ignoreCase = true) -> throw NotFound("文件不存在：$rawIn")
+                    msg.contains("path not allowed", ignoreCase = true) -> throw NotInRadiosDir("仅允许 radios/ 目录下的 .radio：$rawIn")
+                    else -> throw IllegalArgumentException(t.message ?: "播放失败")
+                }
+            }
+
+            if (awaitMs > 0L) {
+                val waited = awaitPlaybackOrError(awaitMs = awaitMs)
+                verify =
+                    buildJsonObject {
+                        put("await_ms", JsonPrimitive(awaitMs))
+                        put("elapsed_ms", JsonPrimitive(waited.elapsedMs))
+                        put("polls", JsonPrimitive(waited.polls))
+                        put("outcome", JsonPrimitive(waited.outcome))
+                        put("attempt_index", JsonPrimitive(idx))
+                        put("attempts_total", JsonPrimitive(attemptUrls.size))
+                    }
+                if (waited.outcome == "error" && idx + 1 < attemptUrls.size) {
+                    continue
+                }
+            }
+
+            break
         }
 
-        return handleStatus().copy(stdout = "playing: ${rawIn.trim()}")
+        val base = handleStatus().copy(stdout = "playing: ${rawIn.trim()}")
+        val baseResult = base.result as? JsonObject ?: base.result?.jsonObject
+        val merged =
+            if (baseResult == null) {
+                null
+            } else {
+                buildJsonObject {
+                    for ((k, v) in baseResult) put(k, v)
+                    put(
+                        "play",
+                        buildJsonObject {
+                            put("in", JsonPrimitive(rawIn.trim()))
+                            put("attempted_url", attemptedUrl?.let { JsonPrimitive(it) } ?: JsonNull)
+                            put(
+                                "resolution",
+                                resolved?.let { r ->
+                                    buildJsonObject {
+                                        put("final_url", JsonPrimitive(r.finalUrl))
+                                        put("classification", JsonPrimitive(r.classification.name))
+                                        put(
+                                            "candidates",
+                                            buildJsonArray {
+                                                for (c in r.candidates) add(JsonPrimitive(c))
+                                            },
+                                        )
+                                    }
+                                } ?: JsonNull,
+                            )
+                            put("verify", verify ?: JsonNull)
+                        },
+                    )
+                }
+            }
+
+        return base.copy(result = merged)
+    }
+
+    private data class AwaitPlaybackResult(
+        val outcome: String,
+        val elapsedMs: Long,
+        val polls: Int,
+    )
+
+    private suspend fun awaitPlaybackOrError(awaitMs: Long): AwaitPlaybackResult {
+        val ctrl = MusicPlayerControllerProvider.get()
+        val start = SystemClock.elapsedRealtime()
+        var polls = 0
+        while (true) {
+            val elapsed = SystemClock.elapsedRealtime() - start
+            if (elapsed >= awaitMs) {
+                return AwaitPlaybackResult(outcome = "timeout", elapsedMs = elapsed, polls = polls)
+            }
+            val snap = ctrl.statusSnapshotWithTransport()
+            polls += 1
+            if (snap.nowPlaying.playbackState == MusicPlaybackState.Error) {
+                return AwaitPlaybackResult(outcome = "error", elapsedMs = elapsed, polls = polls)
+            }
+            if (snap.transport.isPlaying) {
+                return AwaitPlaybackResult(outcome = "playing", elapsedMs = elapsed, polls = polls)
+            }
+            delay(200)
+        }
+    }
+
+    private fun parseAwaitMsOrNull(argv: List<String>): Long? {
+        val raw = optionalFlagValueRest(argv, "--await_ms") ?: return null
+        val n = raw.trim().toLongOrNull() ?: throw IllegalArgumentException("invalid --await_ms: $raw")
+        if (n < 0L) throw IllegalArgumentException("--await_ms must be >= 0")
+        return n.coerceAtMost(30_000L)
     }
 
     private suspend fun handleFav(argv: List<String>): TerminalCommandOutput {
@@ -349,7 +494,7 @@ internal class RadioCommand(
             if (rawIn.isNullOrBlank()) {
                 val st = MusicPlayerControllerProvider.get().statusSnapshot()
                 val p = st.agentsPath?.trim().orEmpty()
-                val isRadio = st.isLive && p.endsWith(".radio", ignoreCase = true) && isInRadiosTree(p)
+                val isRadio = p.endsWith(".radio", ignoreCase = true) && isInRadiosTree(p)
                 if (!isRadio) throw NotPlayingRadio("no active radio playback")
                 p
             } else {
@@ -402,7 +547,7 @@ internal class RadioCommand(
             if (rawIn.isNullOrBlank()) {
                 val st = MusicPlayerControllerProvider.get().statusSnapshot()
                 val p = st.agentsPath?.trim().orEmpty()
-                val isRadio = st.isLive && p.endsWith(".radio", ignoreCase = true) && isInRadiosTree(p)
+                val isRadio = p.endsWith(".radio", ignoreCase = true) && isInRadiosTree(p)
                 if (!isRadio) throw NotPlayingRadio("no active radio playback")
                 p
             } else {
@@ -502,7 +647,7 @@ internal class RadioCommand(
 
     private suspend fun ensurePlayingRadio() {
         val st = MusicPlayerControllerProvider.get().statusSnapshot()
-        val isRadio = st.isLive && !st.agentsPath.isNullOrBlank() && st.agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(st.agentsPath)
+        val isRadio = !st.agentsPath.isNullOrBlank() && st.agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(st.agentsPath)
         if (!isRadio) throw NotPlayingRadio("no active radio playback")
     }
 
@@ -514,7 +659,7 @@ internal class RadioCommand(
                         """
                         Usage:
                           radio status
-                          radio play (--in <agents-path> | --in_b64 <base64-utf8-path>)
+                          radio play (--in <agents-path> | --in_b64 <base64-utf8-path>) [--await_ms <ms>]
                           radio pause
                           radio resume
                           radio stop
@@ -544,10 +689,11 @@ internal class RadioCommand(
                 }
                 "status" -> "Usage: radio status" to listOf("radio status")
                 "play" ->
-                    "Usage: radio play (--in <agents-path> | --in_b64 <base64-utf8-path>)" to
+                    "Usage: radio play (--in <agents-path> | --in_b64 <base64-utf8-path>) [--await_ms <ms>]" to
                         listOf(
                             "radio play --in workspace/radios/demo.radio",
                             "radio play --in \"workspace/radios/EG__Egypt/Egyptian Radio__6254b05b33.radio\"",
+                            "radio play --in workspace/radios/demo.radio --await_ms 4000",
                         )
                 "pause" -> "Usage: radio pause" to listOf("radio pause")
                 "resume" -> "Usage: radio resume" to listOf("radio resume")
@@ -608,6 +754,13 @@ internal class RadioCommand(
                                     put("name", JsonPrimitive("--in_b64"))
                                     put("required", JsonPrimitive(false))
                                     put("description", JsonPrimitive("Base64-encoded UTF-8 path for input .radio file within workspace/radios/. Use when you cannot reliably quote/escape spaces or Unicode."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--await_ms"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Optional wait window after play. During this window, the command will poll transport status until isPlaying=true or error. Default: 0. Max: 30000."))
                                 },
                             )
                         },
