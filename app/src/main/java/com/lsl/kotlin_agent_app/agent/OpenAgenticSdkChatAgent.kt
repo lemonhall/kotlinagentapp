@@ -360,6 +360,7 @@ class OpenAgenticSdkChatAgent(
                 - `Task(agent="explore", prompt="<具体的搜索/提取指令>")`
                 - explore 子 agent 拥有 Read/Glob/Grep/List 等工具，能高效处理大文件和大目录树，只返回精炼结果。
                 - **主会话禁止**自行对大型数据目录（如 `workspace/radios/`、大型 JSON 索引文件等）执行 Glob/Grep/List 扫描。遇到此类需求一律委派给 explore。
+                - 调用 explore 子 agent 时，每次 prompt 必须聚焦于单一搜索目标（一个文件、一个目录）。禁止在一次 explore 调用中要求搜索多个目录或多个文件。如果任务涉及多个候选目标，主 agent 应先自行判断最可能的 1 个，再调用 explore。
                 当需要在 App 内驱动内置 WebView 浏览网页时，**必须**使用子会话工具：
                 - `Task(agent="webview", prompt="...")`
                 
