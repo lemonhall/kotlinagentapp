@@ -3,15 +3,20 @@ package com.lsl.kotlin_agent_app.media
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.lsl.kotlin_agent_app.MainActivity
-
+import com.lsl.kotlin_agent_app.BuildConfig
+ 
 class MusicPlaybackService : MediaSessionService() {
 
     private var player: ExoPlayer? = null
@@ -21,8 +26,20 @@ class MusicPlaybackService : MediaSessionService() {
         super.onCreate()
         setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
 
+        val ua =
+            "kotlin-agent-app/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.SDK_INT})"
+        val http =
+            DefaultHttpDataSource.Factory()
+                .setUserAgent(ua)
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15_000)
+                .setReadTimeoutMs(20_000)
+        val dataSourceFactory = DefaultDataSource.Factory(this, http)
+        val mediaSourceFactory = DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory)
+
         val p =
             ExoPlayer.Builder(this)
+                .setMediaSourceFactory(mediaSourceFactory)
                 .build()
                 .apply {
                     val aa =
@@ -74,4 +91,3 @@ class MusicPlaybackService : MediaSessionService() {
         }
     }
 }
-

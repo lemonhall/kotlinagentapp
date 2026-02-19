@@ -30,7 +30,7 @@ class Media3MusicTransport(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                listener?.onPlayerError(error.message)
+                listener?.onPlayerError(formatPlaybackException(error))
             }
 
             override fun onMetadata(metadata: Metadata) {
@@ -59,6 +59,7 @@ class Media3MusicTransport(
         val item =
             MediaItem.Builder()
                 .setUri(Uri.parse(request.uri))
+                .setMediaId(request.agentsPath)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(md.title)
@@ -102,6 +103,43 @@ class Media3MusicTransport(
 
     override fun isPlaying(): Boolean = controller?.isPlaying == true
 
+    override fun snapshot(): MusicTransportSnapshot {
+        val c = controller
+        if (c == null) {
+            return MusicTransportSnapshot(
+                isConnected = false,
+                playbackState = MusicTransportPlaybackState.Unknown,
+                playWhenReady = false,
+                isPlaying = false,
+                mediaId = null,
+                positionMs = 0L,
+                durationMs = null,
+            )
+        }
+
+        val ps =
+            when (c.playbackState) {
+                Player.STATE_IDLE -> MusicTransportPlaybackState.Idle
+                Player.STATE_BUFFERING -> MusicTransportPlaybackState.Buffering
+                Player.STATE_READY -> MusicTransportPlaybackState.Ready
+                Player.STATE_ENDED -> MusicTransportPlaybackState.Ended
+                else -> MusicTransportPlaybackState.Unknown
+            }
+
+        val dur = c.duration.takeIf { it > 0L }
+        val mediaId = c.currentMediaItem?.mediaId?.trim()?.ifBlank { null }
+
+        return MusicTransportSnapshot(
+            isConnected = true,
+            playbackState = ps,
+            playWhenReady = c.playWhenReady,
+            isPlaying = c.isPlaying,
+            mediaId = mediaId,
+            positionMs = c.currentPosition.coerceAtLeast(0L),
+            durationMs = dur,
+        )
+    }
+
     override suspend fun setVolume(volume: Float) {
         connect()
         controller?.volume = volume.coerceIn(0f, 1f)
@@ -111,5 +149,37 @@ class Media3MusicTransport(
 
     override fun setListener(listener: MusicTransportListener?) {
         this.listener = listener
+    }
+
+    private fun formatPlaybackException(error: PlaybackException): String {
+        val code = runCatching { error.errorCodeName }.getOrNull()?.trim().orEmpty()
+        val msg = error.message?.trim().orEmpty()
+        val root = rootCauseOrNull(error.cause)
+        val rootType = root?.javaClass?.simpleName?.trim().orEmpty()
+        val rootMsg = root?.message?.trim().orEmpty()
+
+        val parts =
+            listOfNotNull(
+                code.ifBlank { null },
+                msg.ifBlank { null },
+                (rootType.ifBlank { null })?.let { t ->
+                    val m = rootMsg.takeIf { it.isNotBlank() }?.let { ": ${it.take(160)}" }.orEmpty()
+                    "cause=$t$m"
+                },
+            )
+
+        return parts.joinToString(" | ").ifBlank { "player error" }
+    }
+
+    private fun rootCauseOrNull(t: Throwable?): Throwable? {
+        var cur = t ?: return null
+        var i = 0
+        while (true) {
+            val next = cur.cause ?: return cur
+            if (next === cur) return cur
+            cur = next
+            i += 1
+            if (i >= 16) return cur
+        }
     }
 }

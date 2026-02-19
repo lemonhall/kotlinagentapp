@@ -46,6 +46,17 @@ class DashboardMusicPlaybackPersistenceTest {
             playing = false
         }
         override suspend fun seekTo(positionMs: Long) = Unit
+        override fun snapshot(): com.lsl.kotlin_agent_app.media.MusicTransportSnapshot {
+            return com.lsl.kotlin_agent_app.media.MusicTransportSnapshot(
+                isConnected = true,
+                playbackState = com.lsl.kotlin_agent_app.media.MusicTransportPlaybackState.Ready,
+                playWhenReady = playing,
+                isPlaying = playing,
+                mediaId = null,
+                positionMs = 1234L,
+                durationMs = 5000L,
+            )
+        }
         override fun currentPositionMs(): Long = 1234L
         override fun durationMs(): Long? = 5000L
         override fun isPlaying(): Boolean = playing

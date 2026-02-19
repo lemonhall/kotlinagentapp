@@ -28,6 +28,8 @@ class MusicPlayerControllerTest {
     private class FakeTransport : MusicTransport {
         var lastPlayed: MusicPlaybackRequest? = null
         var playing: Boolean = false
+        var playWhenReady: Boolean = false
+        var playbackState: MusicTransportPlaybackState = MusicTransportPlaybackState.Idle
         var pos: Long = 0L
         var dur: Long? = null
         var vol: Float = 1.0f
@@ -37,28 +39,46 @@ class MusicPlayerControllerTest {
 
         override suspend fun play(request: MusicPlaybackRequest) {
             lastPlayed = request
+            playWhenReady = true
             playing = true
+            playbackState = MusicTransportPlaybackState.Ready
             pos = 0L
             dur = request.metadata.durationMs
         }
 
         override suspend fun pause() {
+            playWhenReady = false
             playing = false
         }
 
         override suspend fun resume() {
+            playWhenReady = true
             playing = true
         }
 
         override suspend fun stop() {
+            playWhenReady = false
             playing = false
             lastPlayed = null
+            playbackState = MusicTransportPlaybackState.Idle
             pos = 0L
             dur = null
         }
 
         override suspend fun seekTo(positionMs: Long) {
             pos = positionMs
+        }
+
+        override fun snapshot(): MusicTransportSnapshot {
+            return MusicTransportSnapshot(
+                isConnected = true,
+                playbackState = playbackState,
+                playWhenReady = playWhenReady,
+                isPlaying = playing,
+                mediaId = lastPlayed?.agentsPath,
+                positionMs = pos,
+                durationMs = dur,
+            )
         }
 
         override fun currentPositionMs(): Long = pos
@@ -181,6 +201,44 @@ class MusicPlayerControllerTest {
     }
 
     @Test
+    fun statusSnapshot_bufferingTreatsAsPlaying() = runTest {
+        val ctx = RuntimeEnvironment.getApplication()
+        val transport = FakeTransport()
+        val controller =
+            MusicPlayerController(
+                ctx,
+                transport = transport,
+                metadataReader = Mp3MetadataReader(Mp3MetadataExtractor { null }),
+                ioDispatcher = Dispatchers.Main,
+            )
+
+        val path = ".agents/workspace/radios/test.radio"
+        val file = File(ctx.filesDir, path)
+        file.parentFile?.mkdirs()
+        file.writeText(
+            """
+            {"schema":"kotlin-agent-app/radio-station@v1","id":"radio-browser:uuid-123","name":"Station","streamUrl":"https://example.com/stream"}
+            """.trimIndent(),
+            Charsets.UTF_8
+        )
+
+        try {
+            controller.playAgentsRadio(path)
+            testScheduler.runCurrent()
+
+            // Simulate: user calls status immediately while player is preparing/buffering.
+            transport.playing = false
+            transport.playWhenReady = true
+            transport.playbackState = MusicTransportPlaybackState.Buffering
+
+            val st = controller.statusSnapshot()
+            assertEquals(MusicPlaybackState.Playing, st.playbackState)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun playAgentsMp3Now_calledFromBackground_runsTransportOnMainImmediate() = runTest {
         val ctx = RuntimeEnvironment.getApplication()
 
@@ -196,6 +254,17 @@ class MusicPlayerControllerTest {
             override suspend fun resume() = Unit
             override suspend fun stop() = Unit
             override suspend fun seekTo(positionMs: Long) = Unit
+            override fun snapshot(): MusicTransportSnapshot {
+                return MusicTransportSnapshot(
+                    isConnected = true,
+                    playbackState = MusicTransportPlaybackState.Idle,
+                    playWhenReady = false,
+                    isPlaying = false,
+                    mediaId = null,
+                    positionMs = 0L,
+                    durationMs = null,
+                )
+            }
             override fun currentPositionMs(): Long = 0L
             override fun durationMs(): Long? = null
             override fun isPlaying(): Boolean = false

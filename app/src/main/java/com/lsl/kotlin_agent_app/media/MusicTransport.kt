@@ -14,6 +14,24 @@ data class MusicPlaybackRequest(
     val isLive: Boolean = false,
 )
 
+enum class MusicTransportPlaybackState {
+    Idle,
+    Buffering,
+    Ready,
+    Ended,
+    Unknown,
+}
+
+data class MusicTransportSnapshot(
+    val isConnected: Boolean,
+    val playbackState: MusicTransportPlaybackState,
+    val playWhenReady: Boolean,
+    val isPlaying: Boolean,
+    val mediaId: String?,
+    val positionMs: Long,
+    val durationMs: Long?,
+)
+
 interface MusicTransport {
     suspend fun connect()
     suspend fun play(request: MusicPlaybackRequest)
@@ -22,6 +40,7 @@ interface MusicTransport {
     suspend fun stop()
     suspend fun seekTo(positionMs: Long)
 
+    fun snapshot(): MusicTransportSnapshot
     fun currentPositionMs(): Long
     fun durationMs(): Long?
     fun isPlaying(): Boolean

@@ -16,6 +16,8 @@ import com.lsl.kotlin_agent_app.agent.tools.tts.TtsTimeout
 import com.lsl.kotlin_agent_app.agent.tools.tts.TtsVoiceSummary
 import com.lsl.kotlin_agent_app.media.MusicPlaybackRequest
 import com.lsl.kotlin_agent_app.media.MusicTransport
+import com.lsl.kotlin_agent_app.media.MusicTransportPlaybackState
+import com.lsl.kotlin_agent_app.media.MusicTransportSnapshot
 import okhttp3.HttpUrl
 import java.util.UUID
 
@@ -105,6 +107,8 @@ internal class CapturingRssTransport(
 
 internal class FakeMusicTransport : MusicTransport {
     @Volatile private var playing: Boolean = false
+    @Volatile private var playWhenReady: Boolean = false
+    @Volatile private var playbackState: MusicTransportPlaybackState = MusicTransportPlaybackState.Idle
     @Volatile private var posMs: Long = 0L
     @Volatile private var durMs: Long? = 60_000L
     @Volatile private var vol: Float = 1.0f
@@ -119,26 +123,45 @@ internal class FakeMusicTransport : MusicTransport {
     override suspend fun play(request: MusicPlaybackRequest) {
         playCalls += 1
         lastPlayedAgentsPath = request.agentsPath
+        playWhenReady = true
         playing = true
+        playbackState = MusicTransportPlaybackState.Ready
         posMs = 0L
         durMs = request.metadata.durationMs ?: durMs
     }
 
     override suspend fun pause() {
+        playWhenReady = false
         playing = false
     }
 
     override suspend fun resume() {
+        playWhenReady = true
         playing = true
     }
 
     override suspend fun stop() {
+        playWhenReady = false
         playing = false
+        playbackState = MusicTransportPlaybackState.Idle
         posMs = 0L
+        lastPlayedAgentsPath = null
     }
 
     override suspend fun seekTo(positionMs: Long) {
         posMs = positionMs.coerceAtLeast(0L)
+    }
+
+    override fun snapshot(): MusicTransportSnapshot {
+        return MusicTransportSnapshot(
+            isConnected = true,
+            playbackState = playbackState,
+            playWhenReady = playWhenReady,
+            isPlaying = playing,
+            mediaId = lastPlayedAgentsPath,
+            positionMs = posMs,
+            durationMs = durMs,
+        )
     }
 
     override fun currentPositionMs(): Long = posMs
@@ -236,4 +259,3 @@ internal fun fakeExchangeRateLatestCnyJson(nextUpdateUtc: String): String {
             }
         """.trimIndent()
 }
-

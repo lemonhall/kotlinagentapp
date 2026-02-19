@@ -86,17 +86,25 @@ class MusicPlayerController(
         scope.launch {
             while (isActive) {
                 delay(500)
-                val pos = transport.currentPositionMs().coerceAtLeast(0L)
-                val dur = transport.durationMs()?.takeIf { it > 0L }
+                val snap = transport.snapshot()
+                val pos = snap.positionMs.coerceAtLeast(0L)
+                val dur = snap.durationMs?.takeIf { it > 0L }
                 val q = queueCtrl.snapshot()
                 _state.update { st ->
-                    if (st.agentsPath.isNullOrBlank()) st
-                    else st.copy(
+                    val recoveredAgentsPath = st.agentsPath?.trim()?.ifBlank { null } ?: snap.mediaId?.trim()?.ifBlank { null }
+                    if (recoveredAgentsPath == null) return@update st
+
+                    val isLiveRecovered = recoveredAgentsPath.lowercase().endsWith(".radio")
+                    val nextSt = st.copy(agentsPath = recoveredAgentsPath, isLive = st.isLive || isLiveRecovered)
+
+                    val playbackState = computePlaybackState(nextSt, snap)
+                    val isPlaying = snap.isPlaying || (snap.playWhenReady && playbackState == MusicPlaybackState.Playing)
+
+                    nextSt.copy(
                         positionMs = pos,
-                        durationMs = dur ?: st.durationMs,
-                        isPlaying = transport.isPlaying(),
-                        playbackState =
-                            if (transport.isPlaying()) MusicPlaybackState.Playing else MusicPlaybackState.Paused,
+                        durationMs = dur ?: nextSt.durationMs,
+                        isPlaying = isPlaying,
+                        playbackState = playbackState,
                         queueIndex = q.index,
                         queueSize = q.items.size.takeIf { it > 0 },
                     )
@@ -167,23 +175,28 @@ class MusicPlayerController(
 
     suspend fun statusSnapshot(): MusicNowPlayingState {
         return withContext(Dispatchers.Main.immediate) {
+            runCatching { transport.connect() }
             val st = _state.value
-            val playing = transport.isPlaying()
-            val pos = transport.currentPositionMs().coerceAtLeast(0L)
-            val dur = transport.durationMs()?.takeIf { it > 0L } ?: st.durationMs
+            val snap = transport.snapshot()
+            val pos = snap.positionMs.coerceAtLeast(0L)
+            val dur = snap.durationMs?.takeIf { it > 0L } ?: st.durationMs
             val q = queueCtrl.snapshot()
             val qi = q.index
             val qs = q.items.size.takeIf { it > 0 }
-            val playbackState =
-                when {
-                    st.playbackState == MusicPlaybackState.Error -> MusicPlaybackState.Error
-                    st.playbackState == MusicPlaybackState.Stopped -> MusicPlaybackState.Stopped
-                    st.agentsPath.isNullOrBlank() -> MusicPlaybackState.Idle
-                    playing -> MusicPlaybackState.Playing
-                    else -> MusicPlaybackState.Paused
+            val recoveredAgentsPath = st.agentsPath?.trim()?.ifBlank { null } ?: snap.mediaId?.trim()?.ifBlank { null }
+            val isLiveRecovered = recoveredAgentsPath?.lowercase()?.endsWith(".radio") == true
+            val st2 =
+                if (recoveredAgentsPath == null) {
+                    st
+                } else {
+                    st.copy(agentsPath = recoveredAgentsPath, isLive = st.isLive || isLiveRecovered)
                 }
+            val playbackState = computePlaybackState(st2, snap)
+            val isPlaying = snap.isPlaying || (snap.playWhenReady && playbackState == MusicPlaybackState.Playing)
             st.copy(
-                isPlaying = playing,
+                agentsPath = st2.agentsPath,
+                isLive = st2.isLive,
+                isPlaying = isPlaying,
                 positionMs = pos,
                 durationMs = dur,
                 playbackState = playbackState,
@@ -193,6 +206,21 @@ class MusicPlayerController(
                 volume = volume,
                 isMuted = isMuted,
             )
+        }
+    }
+
+    private fun computePlaybackState(
+        st: MusicNowPlayingState,
+        snap: MusicTransportSnapshot,
+    ): MusicPlaybackState {
+        return when {
+            st.playbackState == MusicPlaybackState.Error -> MusicPlaybackState.Error
+            st.playbackState == MusicPlaybackState.Stopped -> MusicPlaybackState.Stopped
+            st.agentsPath.isNullOrBlank() -> MusicPlaybackState.Idle
+            !snap.isConnected -> st.playbackState
+            snap.isPlaying -> MusicPlaybackState.Playing
+            snap.playWhenReady -> MusicPlaybackState.Playing // preparing/buffering: treat as playing-in-progress
+            else -> MusicPlaybackState.Paused
         }
     }
 

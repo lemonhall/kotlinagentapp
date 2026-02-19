@@ -210,6 +210,18 @@ workspace/radios/
 - `radio play --in "<path>"`（推荐：路径里有空格/Unicode 时必须加双引号）
 - `radio play --in_b64 <base64-utf8-path>`（最稳：彻底规避空格/Unicode/转义问题）
 
+#### 播放验证 + 跳过坏台（必须）
+
+很多电台 URL 会失效/被墙/需要特殊 User-Agent/发生重定向，播放器可能报 `Source error`（或 `ERROR_CODE_IO_*`、HTTP 403/404 等）。为了减少用户挫败感：
+
+1) 每次 `radio play` 后，**必须**立刻调用 `radio status` 做验证（必要时可重复 2-3 次，以便覆盖“网络加载/缓冲”窗口）。
+2) 若 `radio status` 返回 `result.state=error`，或 `result.error_message` 包含下列任一关键词：
+   - `Source error`
+   - `ERROR_CODE_IO_`
+   - `http 4` / `http 5` / `403` / `404`
+   - `UnknownHost` / `timeout` / `SSL`
+   则视为“坏台”，不要继续在该台上 `resume/pause` 反复折腾；应直接从 candidates 里换下一个继续 `radio play`（最多连续跳过 3 个，避免死循环）。
+
 ### Step 4：写入记忆（播放成功后）
 
 每次 `radio play` 成功并确认状态为 `playing` 后，更新 `workspace/radios/.last_played.json`，用于下一次快速路径。
