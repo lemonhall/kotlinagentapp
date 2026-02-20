@@ -427,8 +427,12 @@ class FilesViewModel(
                         "inbox" to "📥",
                         "musics" to "🎵",
                         "radios" to "📻",
-                        "radio_recordings" to "📻",
+                        "radio_recordings" to "📼",
                         "recordings" to "🎙",
+                        "irc" to "🗨️",
+                        "ledger" to "📒",
+                        "qqmail" to "📧",
+                        "ssh" to "💻",
                     )
                 RadioRepository.RADIOS_DIR ->
                     mapOf(
@@ -463,7 +467,7 @@ class FilesViewModel(
                     e.copy(
                         displayName = "radio_recordings（录制）",
                         subtitle = "录制会话与 10min 切片产物",
-                        iconEmoji = "📻",
+                        iconEmoji = "📼",
                     )
                 } else if (e.type == AgentsDirEntryType.Dir && e.name == "recordings") {
                     e.copy(
