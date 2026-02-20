@@ -1,12 +1,13 @@
-# v41 Plan：Radio 离线翻译（TranslationWorker + `translation.json` + 边录边转）
+# v41 Plan：Radio 离线翻译（录完自动转录+翻译 Pipeline）
 
 ## Goal
 
-在 v40 转录基础上，交付离线翻译闭环：
+在 v40 转录基础上，交付"录完即出译文"的完整闭环：
 
-- 将 `chunk_NNN.transcript.json` 翻译为 `chunk_NNN.translation.json`（时间戳对齐）
-- 支持"录制完成后自动转录+翻译"与"边录边转"
-- 一个 task 对应一个语言对（source→target），多语言翻译创建多个 task
+- 录制开始前设定好目标语言
+- 录制结束后自动触发：转录 → 翻译，串行 pipeline，无需手动干预
+- 也支持对已有录音手动触发翻译（长按菜单）
+- 翻译结果与转录 segment 时间戳对齐，双语对照展示
 
 ## PRD Trace
 
@@ -16,167 +17,387 @@
 
 做（v41）：
 
-- `TranslationClient` 接口抽象 + `OpenAiTranslationClient` 第一个实现
-- `TranslationWorker`（LLM 翻译，按 segment 批处理，每批 10-20 segments，含上下文窗口）
-- translation 落盘 schema 固化（与 transcript segment 对齐：同 id/startSec/endSec）
-- 录制 meta 支持 `transcriptRequest`（自动转录/翻译参数）
-- "边录边转"模式：
-  - 修改 v40 的 `SessionStillRecording` 硬拒绝为"允许但需确认"：CLI 需加 `--streaming` flag
-  - `transcriptRequest.autoStart=true` 触发时自动进入 streaming 模式
-  - TaskManager 知道 chunk 列表动态增长，持续轮询新 chunk
-- CLI：`radio transcript start` 扩展 `--target_lang` 参数（必做，非可选）
+- 录制设置 UI：开始录制前选择"是否翻译"及目标语言，写入 `_meta.json`
+- 录制结束回调：自动启动转录 → 翻译串行 pipeline
+- `TranslationClient` 接口 + `OpenAgenticTranslationClient`（Response API / SSE）
+- `TranslationWorker`：读 transcript.json → 调 LLM → 写 translation.json
+- translation.json schema（与 transcript segment 对齐）
+- UI：长按录音目录手动触发翻译 + 目标语言选择 + 进度展示 + 双语对照查看
+- CLI：`radio translate start --session <sid> --target_lang zh`
 
 不做（v41）：
 
+- 不做边录边转（录制中不触发任何处理）
 - 不做语言学习 UI（v42）
-- 不做实时翻译管线（v44+）
-- 不做术语表/摘要增强（后续版本追加）
+- 不做术语表/摘要增强
+
+## 核心流程
+
+```
+录制开始
+  └→ 用户设定：targetLanguage = "zh"（写入 _meta.json）
+录制结束
+  └→ 自动触发 Pipeline：
+       for each chunk:
+         1. ASR 转录 → chunk_NNN.transcript.json
+         2. 如果有 targetLanguage：LLM 翻译 → chunk_NNN.translation.json
+       pipeline 完成 → 更新 _meta.json state
+```
+
+就是一个简单的 for 循环，没有事件总线，没有 SharedFlow，没有动态感知。
+录完了，chunks 列表是确定的，挨个处理就完事。
+
+## _meta.json 扩展
+
+```json
+{
+  "schema": "kotlin-agent-app/radio-recording-meta@v1",
+  "sessionId": "rec_20260220_142137_f8jxmg",
+  "state": "completed",
+  "stationId": "nhk_r1",
+  "totalChunks": 6,
+  "pipeline": {
+    "targetLanguage": "zh",
+    "transcriptState": "completed",
+    "translationState": "running",
+    "transcribedChunks": 6,
+    "translatedChunks": 3,
+    "failedChunks": 0,
+    "lastError": null
+  }
+}
+```
+
+pipeline 字段：
+- `targetLanguage`：用户选的目标语言，`null` 表示只转录不翻译
+- `transcriptState` / `translationState`：`pending` → `running` → `completed` / `failed`
+- 进度字段都是简单的计数器
+
+不再有独立的 translation task 目录和 `_task.json`。pipeline 状态直接挂在 `_meta.json` 上，因为一个 session 就一条 pipeline。
+
+## 目录结构（简化）
+
+```
+radio_recordings/
+  rec_20260220_142137_f8jxmg/
+    _meta.json                         # 含 pipeline 状态
+    chunk_001.ogg
+    chunk_002.ogg
+    transcripts/
+      chunk_001.transcript.json
+      chunk_002.transcript.json
+    translations/
+      chunk_001.translation.json       # 翻译结果
+      chunk_002.translation.json
+```
+
+不再有 `tx_xxx/` `tl_xxx/` 这些 task 子目录。转录结果平铺在 `transcripts/` 下，翻译结果平铺在 `translations/` 下。一个 session 一个语言对，简单直接。
+
+如果用户想换一个目标语言重新翻译？删掉 `translations/` 目录，改 `_meta.json` 的 `targetLanguage`，重新跑就行。不需要多 task 并存的复杂性。
+
+## Translation Chunk Schema
+
+不变，和之前一样：
+
+```json
+{
+  "schema": "kotlin-agent-app/radio-translation-chunk@v1",
+  "sessionId": "rec_20260220_142137_f8jxmg",
+  "chunkIndex": 1,
+  "sourceLanguage": "ja",
+  "targetLanguage": "zh",
+  "segments": [
+    {
+      "id": 0,
+      "startMs": 0,
+      "endMs": 11920,
+      "sourceText": "七款馬年生肖テーマの陶磁器が初お目見え...",
+      "translatedText": "七款马年生肖主题陶瓷首次亮相...",
+      "emotion": "neutral"
+    }
+  ]
+}
+```
 
 ## 翻译抽象层
 
 ```kotlin
 interface TranslationClient {
-    /**
-     * 批量翻译 segments。
-     * @param context 前一批最后 2-3 句，用于提高连贯性（可为空）
-     */
     suspend fun translateBatch(
         segments: List<TranscriptSegment>,
-        context: List<TranscriptSegment>,
+        context: List<TranslatedSegment>,
         sourceLanguage: String,
         targetLanguage: String,
-    ): TranslationBatchResult
+    ): List<TranslatedSegment>
 }
-
-data class TranslationBatchResult(
-    val translatedSegments: List<TranslatedSegment>,
-)
 
 data class TranslatedSegment(
     val id: Int,
-    val startSec: Double,
-    val endSec: Double,
+    val startMs: Long,
+    val endMs: Long,
     val sourceText: String,
     val translatedText: String,
+    val emotion: String?,
 )
 ```
 
-v41 交付 `OpenAiTranslationClient` 实现（复用 app 已有的 LLM 调用通道，但走独立队列，不与 Chat 对话抢并发）；后续可插入阿里云通义、火山豆包等实现。
+## OpenAgenticTranslationClient
 
-## 批处理策略
+复用 openAgentic SDK 通道，走 Response API（SSE 流式接口），复用已有的流式解析能力。独立 agent 实例，不与 Chat 抢并发。
 
-- 每批 10-20 个 segments（约 30-60 秒内容）
-- 每批 prompt 包含前一批最后 2-3 句作为 context，提高跨批连贯性
-- 超过 LLM token 限制时自动拆分为更小的批次
-- 单批失败最多重试 3 次，超过则标记该批 segments 为 failed，继续下一批
+## Pipeline 实现
 
-## 语言对口径
+```kotlin
+class RecordingPipeline(
+    private val asrClient: AliyunQwenAsrClient,
+    private val translationClient: TranslationClient,
+    private val store: RecordingStore,
+) {
+    suspend fun run(sessionId: String) {
+        val meta = store.loadMeta(sessionId)
+        val chunks = store.listChunks(sessionId)
 
-一个 task 对应一个语言对（source→target）。用户想同时生成 ja→zh 和 ja→en 两份翻译，需创建两个 task，各自独立目录、独立进度。VFS 结构清晰：
+        // Phase 1: 转录
+        store.updatePipelineState(sessionId, transcriptState = "running")
+        for (chunk in chunks) {
+            if (store.hasTranscript(sessionId, chunk.index)) continue  // 断点续跑
+            val transcript = asrClient.transcribe(chunk.file)
+            store.saveTranscript(sessionId, chunk.index, transcript)
+            store.incrementTranscribedChunks(sessionId)
+        }
+        store.updatePipelineState(sessionId, transcriptState = "completed")
 
-```
-transcripts/
-  tx_abc_ja2zh/
-    _task.json          # sourceLanguage=ja, targetLanguage=zh
-    chunk_001.transcript.json
-    chunk_001.translation.json
-  tx_abc_ja2en/
-    _task.json          # sourceLanguage=ja, targetLanguage=en
-    chunk_001.transcript.json
-    chunk_001.translation.json
-```
+        // Phase 2: 翻译（如果设了 targetLanguage）
+        val targetLang = meta.pipeline?.targetLanguage ?: return
+        store.updatePipelineState(sessionId, translationState = "running")
+        var context = emptyList<TranslatedSegment>()
+        for (chunk in chunks) {
+            if (store.hasTranslation(sessionId, chunk.index)) continue
+            val transcript = store.loadTranscript(sessionId, chunk.index)
+            val translated = translateChunk(transcript.segments, context, meta.detectedLanguage, targetLang)
+            store.saveTranslation(sessionId, chunk.index, translated)
+            store.incrementTranslatedChunks(sessionId)
+            context = translated.takeLast(3)  // 下一个 chunk 的上下文
+        }
+        store.updatePipelineState(sessionId, translationState = "completed")
+    }
 
-注意：同一 session 的多个 task 共享转录结果（`transcript.json` 内容相同），但各自独立落盘一份，避免跨目录引用的复杂性。
-
-## 边录边转模式
-
-v40 原有的 `SessionStillRecording` 硬拒绝逻辑调整为：
-
-- CLI 不带 `--streaming`：对 `state=recording` 的 session 仍然报 `SessionStillRecording`（保持 v40 默认行为安全）
-- CLI 带 `--streaming`：允许对 `state=recording` 的 session 创建转录任务，`_task.json` 标记 `mode=streaming`
-- `transcriptRequest.autoStart=true`：录制开始时自动创建 `mode=streaming` 任务，每产出一个新 `chunk_NNN.ogg`，TaskManager 自动将其加入队列
-
-streaming 模式下的 `_task.json` 额外字段：
-
-```json
-{
-  "mode": "streaming",
-  "totalChunks": null,
-  "knownChunks": 5,
-  "transcribedChunks": 3,
-  "translatedChunks": 2,
-  "waitingForMoreChunks": true
+    private suspend fun translateChunk(
+        segments: List<TranscriptSegment>,
+        context: List<TranslatedSegment>,
+        sourceLang: String,
+        targetLang: String,
+    ): List<TranslatedSegment> {
+        // 按 4000 字符动态分批
+        val batches = splitIntoBatches(segments, maxChars = 4000)
+        val results = mutableListOf<TranslatedSegment>()
+        var batchContext = context
+        for (batch in batches) {
+            val translated = translationClient.translateBatch(batch, batchContext, sourceLang, targetLang)
+            results.addAll(translated)
+            batchContext = translated.takeLast(3)
+        }
+        return results
+    }
 }
 ```
 
-`totalChunks=null` 表示总量未知（录制仍在进行）；录制完成后 TaskManager 收到通知，将 `totalChunks` 设为最终值，`waitingForMoreChunks=false`。
+这就是整个核心逻辑。一个 class，两个 phase，一个 for 循环。支持断点续跑（跳过已有的 transcript/translation 文件）。
 
-## Acceptance（硬 DoD）
+## 批处理策略
 
-- 对齐：`translation.json` 中每个 segment 必须带 `sourceText/translatedText`，且 `id/startSec/endSec` 与来源 transcript 严格一致。
-- 进度可解释：`_task.json` 中 `translatedChunks` 必须单调递增，失败 chunk 必须计入 `failedChunks` 并可继续后续 chunk。
-- 自动触发：录制会话 `_meta.json.transcriptRequest.autoStart=true` 时，录制完成（或录制开始，若含 streaming 配置）会自动创建任务并进入队列。
-- 边录边转：`--streaming` 模式下，新 chunk 产出后 ≤30 秒内被 TaskManager 感知并加入队列。
-- CLI 完整性：`radio transcript start --session <sid> --source_lang ja --target_lang zh` 必须可用；不带 `--target_lang` 则只转录不翻译。
-- 多语言对：同一 session 可创建多个不同 target_lang 的 task，互不干扰。
-- CLI help：`radio transcript --help` 为 0。
+- 每批上限：约 4000 个源语言字符
+- context 窗口：前一批最后 3 句的原文+译文
+- 单批失败最多重试 3 次，超过则标记 failed，继续下一批
+- 跨 chunk 也传 context（上一个 chunk 最后 3 句），保持连贯性
 
-验证命令：
+## Prompt 设计
 
-- `.\gradlew.bat :app:testDebugUnitTest`
+### System Prompt
+
+```
+你是一位专业的广播节目翻译员。将以下广播转录文本从{sourceLanguage}翻译为{targetLanguage}。
+
+要求：
+1. 保持广播节目的语气和风格
+2. 人名、地名保留原文读音的对应翻译
+3. 不要合并或拆分 segment
+4. 口语化表达保持口语化
+5. 输出 JSON 数组：[{"id": 0, "translatedText": "..."}, ...]
+6. id 必须与输入严格一致
+
+上下文（前几句翻译，仅供参考）：
+{contextJson}
+```
+
+### User Prompt
+
+```json
+[{"id": 0, "text": "..."}, {"id": 1, "text": "..."}]
+```
+
+### Expected Response
+
+```json
+[{"id": 0, "translatedText": "..."}, {"id": 1, "translatedText": "..."}]
+```
+
+## 目标语言列表
+
+| 代码 | 语言 |
+|------|------|
+| zh | 中文 |
+| ja | 日语 |
+| ko | 韩语 |
+| en | 英语 |
+| fr | 法语 |
+| de | 德语 |
+| es | 西班牙语 |
+| ru | 俄语 |
+| it | 意大利语 |
+| ar | 阿拉伯语 |
+| pt | 葡萄牙语 |
+
+## UI 交互设计
+
+### 录制设置（开始录制前）
+
+```
+┌─────────────────────────────────────┐
+│  录制设置                            │
+│  ─────────────────────────────────── │
+│  电台：NHK Radio 1                   │
+│  ─────────────────────────────────── │
+│  ☑ 录完自动转录+翻译                 │
+│  目标语言：[中文 ▾]                   │
+│  ─────────────────────────────────── │
+│  [开始录制]                           │
+└─────────────────────────────────────┘
+```
+
+勾选后，录制结束时自动触发 pipeline。不勾选则只录制，后续可手动触发。
+
+### 长按菜单（手动触发）
+
+```
+┌─────────────────────────┐
+│  rec_20260220_142137     │
+│  ─────────────────────── │
+│  📝 转录                 │  ← v40 已有
+│  🌐 转录+翻译            │  ← v41 新增（一键触发完整 pipeline）
+│  ❌ 取消                  │
+└─────────────────────────┘
+```
+
+选"转录+翻译"后弹出语言选择器，选完直接跑 pipeline。
+选"转录"则只跑 Phase 1（v40 行为不变）。
+
+### 语言选择器
+
+```
+┌─────────────────────────┐
+│  选择目标语言             │
+│  ─────────────────────── │
+│  🇨🇳 中文                │
+│  🇯🇵 日语                │
+│  🇰🇷 韩语                │
+│  🇬🇧 英语                │
+│  🇫🇷 法语                │
+│  🇩🇪 德语                │
+│  🇪🇸 西班牙语            │
+│  🇷🇺 俄语                │
+│  🇮🇹 意大利语            │
+│  🇸🇦 阿拉伯语            │
+│  🇧🇷 葡萄牙语            │
+└─────────────────────────┘
+```
+
+### 进度展示
+
+```
+┌─────────────────────────────────────┐
+│  rec_20260220_142137                 │
+│  ─────────────────────────────────── │
+│  📝 转录  ████████████ 6/6 ✅       │
+│  🌐 翻译  ██████░░░░░░ 3/6          │
+└─────────────────────────────────────┘
+```
+
+### 翻译结果（双语对照）
+
+```
+┌─────────────────────────────────────┐
+│ [00:00 - 00:11]                      │
+│ 七款馬年生肖テーマの陶磁器が初...    │
+│ 七款马年生肖主题陶瓷首次亮相...      │
+│                                      │
+│ [00:12 - 00:19]                      │
+│ 中国陶磁芸術大師...                  │
+│ 中国陶瓷艺术大师...                  │
+└─────────────────────────────────────┘
+```
 
 ## 错误码集合
 
 | error_code | 含义 |
 |------------|------|
-| `InvalidArgs` | 参数缺失或非法（如 source_lang 与 target_lang 相同） |
-| `SessionNotFound` | sessionId 对应目录或 `_meta.json` 不存在 |
-| `SessionStillRecording` | session `state=recording` 且未指定 `--streaming` |
-| `SessionNoChunks` | session 存在但无 chunk 文件 |
-| `TaskNotFound` | taskId 对应目录或 `_task.json` 不存在 |
-| `TaskAlreadyExists` | 该 session 已有相同 source_lang + target_lang 的进行中任务 |
-| `TranscriptNotReady` | 该 chunk 的 transcript.json 尚未生成（翻译依赖转录） |
-| `TranslationAlreadyExists` | 该 chunk 的 translation.json 已存在（跳过） |
+| `InvalidArgs` | 参数缺失或非法（如 source 与 target 相同） |
+| `SessionNotFound` | session 不存在 |
+| `SessionStillRecording` | 录制中，不允许触发 pipeline |
+| `SessionNoChunks` | 无 chunk 文件 |
+| `PipelineAlreadyRunning` | pipeline 正在运行中 |
+| `TranscriptNotReady` | 某 chunk 转录未完成（翻译阶段遇到） |
 | `LlmNetworkError` | LLM API 网络不可达 |
 | `LlmRemoteError` | LLM API 返回非 2xx |
-| `LlmParseError` | LLM 返回内容无法解析为翻译结果 |
-| `LlmQuotaExceeded` | LLM API 配额耗尽 |
+| `LlmParseError` | LLM 返回无法解析 |
+| `LlmQuotaExceeded` | LLM 配额耗尽 |
 
 ## Files（规划）
 
-- 翻译抽象层（建议独立子包，未来其他模块可复用）：
-  - `app/src/main/java/com/lsl/kotlin_agent_app/translation/*`
-    - `TranslationClient.kt`（接口）
-    - `TranslationBatchResult.kt` / `TranslatedSegment.kt`
-    - `OpenAiTranslationClient.kt`（第一个实现）
-- 翻译 Worker（放在 v40 同包）：
-  - `app/src/main/java/com/lsl/kotlin_agent_app/radio_transcript/TranslationWorker.kt`
-  - `app/src/main/java/com/lsl/kotlin_agent_app/radio_transcript/TranslationChunkV1.kt`
-- 录制 meta 扩展：
-  - `app/src/main/java/com/lsl/kotlin_agent_app/radio_recordings/RecordingMetaV1.kt`（新增 `transcriptRequest` 字段）
-- v40 前置校验修改：
-  - `TranscriptTaskManager.kt`：`SessionStillRecording` 从硬拒绝改为"无 `--streaming` 时拒绝，有则允许"
+- Pipeline 核心：
+  - `app/.../radio_transcript/RecordingPipeline.kt`（转录+翻译串行 pipeline）
+- 翻译层：
+  - `app/.../translation/TranslationClient.kt`（接口）
+  - `app/.../translation/TranslationModels.kt`（TranslatedSegment）
+  - `app/.../translation/OpenAgenticTranslationClient.kt`
+  - `app/.../translation/TranslationPromptBuilder.kt`
+- Schema：
+  - `app/.../radio_transcript/TranslationChunkV1.kt`
+- _meta.json 扩展：
+  - `RecordingMetaV1.kt` 增加 `pipeline` 字段
 - CLI：
-  - `app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/terminal/commands/radio/RadioCommand.kt`
-    - `radio transcript start` 扩展 `--target_lang` 和 `--streaming` 参数
+  - `RadioCommand.kt` 扩展 `radio translate start --session <sid> --target_lang zh`
+- UI：
+  - 录制设置页增加语言选项
+  - 长按菜单增加"转录+翻译"
+  - `TranslationLanguagePickerDialog.kt`
+  - 进度展示 + 双语对照 UI
 - Tests：
-  - MockWebServer + translation schema 对齐测试 + 批处理拆分测试 + streaming 模式测试
+  - `RecordingPipelineTest.kt`（完整 pipeline 流程、断点续跑、失败处理）
+  - `OpenAgenticTranslationClientTest.kt`（mock SSE）
+  - `TranslationPromptBuilderTest.kt`
+  - `TranslationBatchSplitTest.kt`
 
 ## Steps（Strict / TDD）
 
-1) Analysis：确定翻译 prompt 的最小稳定口径（输入：segments[] + context[] + language pair；输出：逐条翻译 JSON）；确定批处理大小（10-20 segments）与 context 窗口（前一批末尾 2-3 句）；确定多语言对的目录策略（独立落盘 vs 引用共享）。
-2) TDD Red：`TranslationClient` 接口 + `OpenAiTranslationClient` mock 测试 — 正常翻译、超时、限流、返回缺字段的鲁棒性。
-3) TDD Red：translation schema 对齐单测 — 输入 transcript segments，产出 translation segments，断言 id/startSec/endSec 严格一致。
-4) TDD Red：批处理拆分单测 — 验证 >20 segments 自动拆批、context 窗口正确传递。
-5) TDD Green：实现 `TranslationWorker` + 与 `TranscriptTaskManager` 的串行调度；每 chunk 翻译完成即落盘 `translation.json` 再更新 `_task.json`。
-6) TDD Red：自动触发测试 — `transcriptRequest.autoStart=true` + `targetLanguage` 存在时，录制完成回调创建含翻译的任务。
-7) TDD Red：边录边转测试 — `--streaming` 模式下，模拟新 chunk 产出，验证 TaskManager 感知并处理。
-8) TDD Green：修改 v40 的 `SessionStillRecording` 逻辑，实现 streaming 模式。
-9) Verify：UT 全绿；用 1 个短 chunk 做端到端（转录+翻译）手动验证（可选）。
+1. Analysis：确认 openAgentic Response API 的调用方式，确定 prompt 模板。
+2. TDD Red：`TranslationClient` + mock 测试。
+3. TDD Green：实现 `OpenAgenticTranslationClient`。
+4. TDD Red：`TranslationPromptBuilder` 测试。
+5. TDD Green：实现 prompt 拼装。
+6. TDD Red：`RecordingPipeline` 完整流程测试（mock ASR + mock LLM）。
+7. TDD Green：实现 pipeline。
+8. TDD Red：断点续跑测试（部分 chunk 已有 transcript/translation）。
+9. TDD Green：实现跳过逻辑。
+10. TDD Red：动态分批测试。
+11. TDD Green：实现分批。
+12. `RecordingMetaV1` 扩展 pipeline 字段。
+13. CLI 实现。
+14. UI 实现。
+15. Verify。
 
 ## Risks
 
-- 翻译一致性（术语、人名）：v41 先保证"可用"，术语表/摘要属于增强（后续版本追加）。
-- LLM 成本：10min chunk ≈ 数百 segments，每批 10-20 个，单个 chunk 可能需要 10-30 次 LLM 调用。测试必须用 mock。
-- 边录边转的 chunk 感知延迟：依赖文件系统轮询或 `RecordingService` 的回调通知，需在 Analysis 阶段确定机制。回答：用回调通知而非轮询。RecordingService 每完成一个 chunk 的 rename（chunk_NNN.ogg.tmp → chunk_NNN.ogg）时发一个事件（SharedFlow 或 BroadcastChannel），TranscriptTaskManager 订阅即可。轮询有延迟且浪费资源。
-- 多 task 共享 transcript 的目录策略：独立落盘
+- LLM 返回 JSON 格式不稳定：需要 robust parsing + 重试。测试用 mock。
+- 翻译一致性：v41 先保证可用，术语表后续增强。
+- 换语言重新翻译：需要清空 `translations/` 目录，UI 上要有确认提示。
