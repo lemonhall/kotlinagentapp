@@ -4,63 +4,61 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
-private val mdPrimary = Color(0xFF1B6B4A)
-private val mdOnPrimary = Color(0xFFFFFFFF)
-private val mdPrimaryContainer = Color(0xFFA7F5C8)
-private val mdOnPrimaryContainer = Color(0xFF002113)
-private val mdSecondary = Color(0xFF4E6355)
-private val mdOnSecondary = Color(0xFFFFFFFF)
-private val mdSecondaryContainer = Color(0xFFD0E8D6)
-private val mdOnSecondaryContainer = Color(0xFF0B1F14)
-private val mdTertiary = Color(0xFF3C6472)
-private val mdOnTertiary = Color(0xFFFFFFFF)
-private val mdSurface = Color(0xFFF6FBF3)
-private val mdOnSurface = Color(0xFF171D19)
-private val mdSurfaceVariant = Color(0xFFDCE5DB)
-private val mdOnSurfaceVariant = Color(0xFF414942)
-private val mdError = Color(0xFFBA1A1A)
-private val mdOnError = Color(0xFFFFFFFF)
-private val mdOutline = Color(0xFF717971)
+private val mdDarkBackground = Color(0xFF1A1A2E)
+private val mdDarkSurfaceVariant = Color(0xFF16213E)
+private val mdDarkOnBackground = Color(0xFFE7E1D9)
+private val mdDarkOnSurfaceVariant = Color(0xFFCDC6B4)
+
+private val mdAccent = Color(0xFFFFF44F)
+private val mdAccentContainer = Color(0xFFF0D000)
+private val mdAccentSoft = Color(0xFFE4C523)
+
+private val mdLightBackground = Color(0xFFFFFBFF)
+private val mdLightOnBackground = Color(0xFF1D1B16)
+private val mdLightPrimary = Color(0xFF6D5E00)
 
 val LightColorScheme =
     lightColorScheme(
-        primary = mdPrimary,
-        onPrimary = mdOnPrimary,
-        primaryContainer = mdPrimaryContainer,
-        onPrimaryContainer = mdOnPrimaryContainer,
-        secondary = mdSecondary,
-        onSecondary = mdOnSecondary,
-        secondaryContainer = mdSecondaryContainer,
-        onSecondaryContainer = mdOnSecondaryContainer,
-        tertiary = mdTertiary,
-        onTertiary = mdOnTertiary,
-        surface = mdSurface,
-        onSurface = mdOnSurface,
-        surfaceVariant = mdSurfaceVariant,
-        onSurfaceVariant = mdOnSurfaceVariant,
-        error = mdError,
-        onError = mdOnError,
-        outline = mdOutline,
+        primary = mdLightPrimary,
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = mdAccent,
+        onPrimaryContainer = mdLightOnBackground,
+        secondary = mdDarkSurfaceVariant,
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFE7E1D9),
+        onSecondaryContainer = mdLightOnBackground,
+        tertiary = mdDarkBackground,
+        onTertiary = Color(0xFFFFFFFF),
+        background = mdLightBackground,
+        onBackground = mdLightOnBackground,
+        surface = mdLightBackground,
+        onSurface = mdLightOnBackground,
+        surfaceVariant = Color(0xFFE7E1D9),
+        onSurfaceVariant = Color(0xFF3B382D),
+        outline = Color(0xFF7A745D),
+        error = Color(0xFFBA1A1A),
+        onError = Color(0xFFFFFFFF),
     )
 
 val DarkColorScheme =
     darkColorScheme(
-        primary = Color(0xFF8BD8A8),
-        onPrimary = Color(0xFF003822),
-        primaryContainer = Color(0xFF005234),
-        onPrimaryContainer = Color(0xFFA7F5C8),
-        secondary = Color(0xFFB5CCBB),
-        onSecondary = Color(0xFF203528),
-        secondaryContainer = Color(0xFF374B3E),
-        onSecondaryContainer = Color(0xFFD0E8D6),
-        tertiary = Color(0xFFA3CDDB),
-        onTertiary = Color(0xFF033541),
-        surface = Color(0xFF0F1511),
-        onSurface = Color(0xFFDFE4DD),
-        surfaceVariant = Color(0xFF414942),
-        onSurfaceVariant = Color(0xFFC0C9BF),
+        primary = mdAccent,
+        onPrimary = mdDarkBackground,
+        primaryContainer = mdAccentContainer,
+        onPrimaryContainer = mdDarkBackground,
+        secondary = mdAccentSoft,
+        onSecondary = mdDarkBackground,
+        secondaryContainer = mdDarkSurfaceVariant,
+        onSecondaryContainer = mdAccent,
+        tertiary = mdDarkOnBackground,
+        onTertiary = mdDarkBackground,
+        background = mdDarkBackground,
+        onBackground = mdDarkOnBackground,
+        surface = mdDarkBackground,
+        onSurface = mdDarkOnBackground,
+        surfaceVariant = mdDarkSurfaceVariant,
+        onSurfaceVariant = mdDarkOnSurfaceVariant,
+        outline = Color(0xFF6D6A7E),
         error = Color(0xFFFFB4AB),
         onError = Color(0xFF690005),
-        outline = Color(0xFF8B938A),
     )
-

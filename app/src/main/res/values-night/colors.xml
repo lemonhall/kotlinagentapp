@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- M3 Dark scheme - 深蓝 + 柠檬黄 -->
+    <color name="md_primary">#FFFFF44F</color>
+    <color name="md_on_primary">#FF1A1A2E</color>
+    <color name="md_primary_container">#FFF0D000</color>
+    <color name="md_on_primary_container">#FF1A1A2E</color>
+    <color name="md_secondary">#FFE4C523</color>
+    <color name="md_on_secondary">#FF1A1A2E</color>
+    <color name="md_secondary_container">#FF16213E</color>
+    <color name="md_on_secondary_container">#FFFFF44F</color>
+    <color name="md_tertiary">#FFE7E1D9</color>
+    <color name="md_on_tertiary">#FF1A1A2E</color>
+    <color name="md_surface">#FF1A1A2E</color>
+    <color name="md_on_surface">#FFE7E1D9</color>
+    <color name="md_surface_variant">#FF16213E</color>
+    <color name="md_on_surface_variant">#FFCDC6B4</color>
+    <color name="md_error">#FFFFB4AB</color>
+    <color name="md_on_error">#FF690005</color>
+    <color name="md_outline">#FF6D6A7E</color>
+</resources>
+

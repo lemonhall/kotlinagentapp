@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">kotlin-agent-app</string>
+    <string name="app_name">PAW</string>
     <string name="title_home">Chat</string>
     <string name="title_dashboard">Files</string>
     <string name="title_notifications">Settings</string>

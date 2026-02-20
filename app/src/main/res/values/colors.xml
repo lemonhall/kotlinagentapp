@@ -1,23 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- M3 Light scheme - 绿色科技感 -->
-    <color name="md_primary">#FF1B6B4A</color>
+    <!-- M3 Light scheme - 深蓝 + 柠檬黄 -->
+    <color name="md_primary">#FF6D5E00</color>
     <color name="md_on_primary">#FFFFFFFF</color>
-    <color name="md_primary_container">#FFA7F5C8</color>
-    <color name="md_on_primary_container">#FF002113</color>
-    <color name="md_secondary">#FF4E6355</color>
+    <color name="md_primary_container">#FFFFF44F</color>
+    <color name="md_on_primary_container">#FF1D1B16</color>
+    <color name="md_secondary">#FF16213E</color>
     <color name="md_on_secondary">#FFFFFFFF</color>
-    <color name="md_secondary_container">#FFD0E8D6</color>
-    <color name="md_on_secondary_container">#FF0B1F14</color>
-    <color name="md_tertiary">#FF3C6472</color>
+    <color name="md_secondary_container">#FFE7E1D9</color>
+    <color name="md_on_secondary_container">#FF1D1B16</color>
+    <color name="md_tertiary">#FF1A1A2E</color>
     <color name="md_on_tertiary">#FFFFFFFF</color>
-    <color name="md_surface">#FFF6FBF3</color>
-    <color name="md_on_surface">#FF171D19</color>
-    <color name="md_surface_variant">#FFDCE5DB</color>
-    <color name="md_on_surface_variant">#FF414942</color>
+    <color name="md_surface">#FFFFFBFF</color>
+    <color name="md_on_surface">#FF1D1B16</color>
+    <color name="md_surface_variant">#FFE7E1D9</color>
+    <color name="md_on_surface_variant">#FF3B382D</color>
     <color name="md_error">#FFBA1A1A</color>
     <color name="md_on_error">#FFFFFFFF</color>
-    <color name="md_outline">#FF717971</color>
+    <color name="md_outline">#FF7A745D</color>
+
+    <color name="ic_launcher_background">#1A1A2E</color>
 
     <!-- 旧色值保留，防止其他地方硬引用报错 -->
     <color name="purple_200">#FFBB86FC</color>

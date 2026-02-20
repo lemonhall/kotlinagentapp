@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1A1A2E"/>
+      <stop offset="100%" stop-color="#16213E"/>
+    </linearGradient>
+    <linearGradient id="lemon" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0%" stop-color="#FFF44F"/>
+      <stop offset="100%" stop-color="#F0D000"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" ry="108" fill="url(#bg)"/>
+  <circle cx="256" cy="224" r="110" fill="none" stroke="#FFF44F" stroke-width="2.5" opacity="0.15"/>
+  <circle cx="256" cy="224" r="158" fill="none" stroke="#FFF44F" stroke-width="2" opacity="0.09"/>
+  <circle cx="108" cy="132" r="18" fill="#FFF44F" opacity="0.55"/>
+  <circle cx="88" cy="210" r="12" fill="#FFF44F" opacity="0.45"/>
+  <circle cx="400" cy="138" r="15" fill="#FFF44F" opacity="0.5"/>
+  <circle cx="420" cy="216" r="10" fill="#FFF44F" opacity="0.4"/>
+  <circle cx="96" cy="328" r="14" fill="#FFF44F" opacity="0.48"/>
+  <circle cx="410" cy="320" r="16" fill="#FFF44F" opacity="0.52"/>
+  <circle cx="388" cy="386" r="11" fill="#FFF44F" opacity="0.4"/>
+  <circle cx="118" cy="390" r="12" fill="#FFF44F" opacity="0.42"/>
+  <circle cx="188" cy="96" r="10" fill="#FFF44F" opacity="0.4"/>
+  <circle cx="332" cy="92" r="12" fill="#FFF44F" opacity="0.45"/>
+  <path d="M152 224 Q256 76 360 224 Q256 372 152 224Z" fill="url(#lemon)"/>
+  <rect x="242" y="192" width="28" height="46" rx="14" ry="14" fill="#1A1A2E"/>
+  <path d="M230 228 Q230 260 256 260 Q282 260 282 228" fill="none" stroke="#1A1A2E" stroke-width="5.5" stroke-linecap="round"/>
+  <line x1="256" y1="260" x2="256" y2="276" stroke="#1A1A2E" stroke-width="5.5" stroke-linecap="round"/>
+  <line x1="242" y1="276" x2="270" y2="276" stroke="#1A1A2E" stroke-width="4.5" stroke-linecap="round"/>
+  <line x1="120" y1="200" x2="120" y2="248" stroke="#FFF44F" stroke-width="6" stroke-linecap="round" opacity="0.7"/>
+  <line x1="96" y1="214" x2="96" y2="234" stroke="#FFF44F" stroke-width="6" stroke-linecap="round" opacity="0.4"/>
+  <line x1="392" y1="200" x2="392" y2="248" stroke="#FFF44F" stroke-width="6" stroke-linecap="round" opacity="0.7"/>
+  <line x1="416" y1="214" x2="416" y2="234" stroke="#FFF44F" stroke-width="6" stroke-linecap="round" opacity="0.4"/>
+  <text x="256" y="446" font-family="system-ui, sans-serif" font-weight="900" font-size="76" fill="#FFF44F" text-anchor="middle" letter-spacing="18" opacity="0.9">PAW</text>
+</svg>
