@@ -43,6 +43,7 @@ internal class MicRecordingSession(
     private val bitrateBps = 128_000
 
     private var startRealtimeMs: Long = 0L
+    @Volatile private var stopRealtimeMs: Long? = null
     private var pausedAccumMs: Long = 0L
     private var pauseStartMs: Long? = null
     private var lastEmitMs: Long = 0L
@@ -66,7 +67,7 @@ internal class MicRecordingSession(
         if (paused) return
         paused = true
         pauseStartMs = android.os.SystemClock.elapsedRealtime()
-        emitState(level01 = 0f, state = "paused")
+        emitState(level01 = 0f, state = "paused", force = true)
     }
 
     fun resume() {
@@ -78,21 +79,26 @@ internal class MicRecordingSession(
             pausedAccumMs += (android.os.SystemClock.elapsedRealtime() - ps).coerceAtLeast(0L)
         }
         pauseStartMs = null
-        emitState(level01 = 0f, state = "recording")
+        emitState(level01 = 0f, state = "recording", force = true)
     }
 
     fun stop(cancelled: Boolean) {
         if (stopped) return
+        val now = android.os.SystemClock.elapsedRealtime()
         stopped = true
+        stopRealtimeMs = now
         cancelledStop = cancelled
-        paused = false
-        try {
-            thread?.join(1_500)
-        } catch (_: Throwable) {
+        pauseStartMs?.let { ps ->
+            pausedAccumMs += (now - ps).coerceAtLeast(0L)
+            pauseStartMs = null
         }
-        releaseWakeLock()
-        emitState(level01 = 0f, state = finalState())
-        notifyStoppedOnce()
+        paused = false
+        val t = thread
+        if (t == null || !t.isAlive) {
+            emitFinalState()
+            releaseWakeLock()
+            notifyStoppedOnce()
+        }
     }
 
     private fun runLoop() {
@@ -100,7 +106,7 @@ internal class MicRecordingSession(
             failedStop = true
             markFailed(code = "UnsupportedSdk", message = "recording requires API 29+ (Android 10)")
             stopped = true
-            emitState(level01 = 0f, state = finalState())
+            emitFinalState()
             releaseWakeLock()
             notifyStoppedOnce()
             return
@@ -116,7 +122,7 @@ internal class MicRecordingSession(
                 failedStop = true
                 markFailed(code = "MetaNotFound", message = t.message ?: "missing meta")
                 stopped = true
-                emitState(level01 = 0f, state = finalState())
+                emitFinalState()
                 releaseWakeLock()
                 notifyStoppedOnce()
                 return
@@ -126,7 +132,7 @@ internal class MicRecordingSession(
             failedStop = true
             markFailed(code = "InvalidMeta", message = "invalid meta json")
             stopped = true
-            emitState(level01 = 0f, state = finalState())
+            emitFinalState()
             releaseWakeLock()
             notifyStoppedOnce()
             return
@@ -148,7 +154,7 @@ internal class MicRecordingSession(
                 failedStop = true
                 markFailed(code = "AudioRecordInitFailed", message = t.message ?: "AudioRecord init failed")
                 stopped = true
-                emitState(level01 = 0f, state = finalState())
+                emitFinalState()
                 releaseWakeLock()
                 notifyStoppedOnce()
                 return
@@ -167,7 +173,7 @@ internal class MicRecordingSession(
         val buf = ByteArray(minBuf)
         try {
             audio.startRecording()
-            emitState(level01 = 0f, state = "recording")
+            emitState(level01 = 0f, state = "recording", force = true)
 
             while (!stopped) {
                 if (paused) {
@@ -222,7 +228,7 @@ internal class MicRecordingSession(
                 store.writeSessionMeta(sessionId, next)
             } catch (_: Throwable) {
             }
-            emitState(level01 = 0f, state = finalState())
+            emitFinalState()
             releaseWakeLock()
             notifyStoppedOnce()
         }
@@ -242,15 +248,21 @@ internal class MicRecordingSession(
     }
 
     private fun elapsedMs(): Long {
-        val now = android.os.SystemClock.elapsedRealtime()
+        val now = stopRealtimeMs ?: android.os.SystemClock.elapsedRealtime()
         val base = (now - startRealtimeMs).coerceAtLeast(0L)
         val pauseExtra = pauseStartMs?.let { ps -> (now - ps).coerceAtLeast(0L) } ?: 0L
         return (base - pausedAccumMs - pauseExtra).coerceAtLeast(0L)
     }
 
-    private fun emitState(level01: Float, state: String) {
+    private fun emitFinalState() {
+        emitState(level01 = 0f, state = finalState(), force = true)
+    }
+
+    private fun emitState(level01: Float, state: String, force: Boolean = false) {
         val now = android.os.SystemClock.elapsedRealtime()
-        if (lastEmitMs != 0L && (now - lastEmitMs) < 160) return
+        if (!force) {
+            if (lastEmitMs != 0L && (now - lastEmitMs) < 160) return
+        }
         lastEmitMs = now
         onState(
             RecorderRuntimeState(

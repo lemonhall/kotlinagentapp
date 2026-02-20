@@ -7,8 +7,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import androidx.core.app.ServiceCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.lsl.kotlin_agent_app.R
@@ -31,7 +33,7 @@ internal class RecorderService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification())
+        startAsMicrophoneForeground()
 
         when (intent?.action) {
             ACTION_START -> {
@@ -62,6 +64,20 @@ internal class RecorderService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun startAsMicrophoneForeground() {
+        val notif = buildNotification()
+        if (Build.VERSION.SDK_INT >= 29) {
+            ServiceCompat.startForeground(
+                this,
+                NOTIF_ID,
+                notif,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            )
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
+    }
+
     private fun startSession(sessionId: String) {
         if (sessions.containsKey(sessionId)) return
         if (sessions.size >= MAX_CONCURRENT) return
@@ -85,7 +101,7 @@ internal class RecorderService : Service() {
     }
 
     private fun stopSession(sessionId: String, cancelled: Boolean) {
-        val s = sessions.remove(sessionId) ?: return
+        val s = sessions[sessionId] ?: return
         s.stop(cancelled = cancelled)
     }
 
