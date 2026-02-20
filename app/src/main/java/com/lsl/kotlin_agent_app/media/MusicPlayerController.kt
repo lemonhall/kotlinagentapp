@@ -138,6 +138,15 @@ class MusicPlayerController(
         scope.launch { runCatching { playAgentsRadioNow(p) } }
     }
 
+    fun playAgentsRecordingOgg(agentsPath: String) {
+        val p = normalizeAgentsPathInput(agentsPath)
+        if (!isInRadioRecordingsTree(p) || !p.lowercase().endsWith(".ogg")) {
+            _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 radio_recordings/ 目录下的 .ogg") }
+            return
+        }
+        scope.launch { runCatching { playAgentsRecordingOggNow(p) } }
+    }
+
     fun togglePlayPause() {
         scope.launch {
             try {
@@ -383,6 +392,77 @@ class MusicPlayerController(
         }
     }
 
+    suspend fun playAgentsRecordingOggNow(agentsPathInput: String) {
+        withContext(Dispatchers.Main.immediate) {
+            val p = normalizeAgentsPathInput(agentsPathInput)
+            if (!isInRadioRecordingsTree(p) || !p.lowercase().endsWith(".ogg")) {
+                _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 radio_recordings/ 目录下的 .ogg") }
+                throw IllegalArgumentException("path not allowed: $agentsPathInput")
+            }
+
+            val warning = computeNotificationWarning()
+            val file = File(appContext.filesDir, p)
+            withContext(ioDispatcher) {
+                if (!file.exists() || !file.isFile) error("not a file: $p")
+            }
+
+            val sessionId =
+                p.replace('\\', '/')
+                    .removePrefix(".agents/workspace/radio_recordings/")
+                    .substringBefore('/')
+                    .trim()
+                    .ifBlank { null }
+
+            val (newQueue, _) = buildRecordingOggQueueNow(currentAgentsPath = p)
+            val q = queueCtrl.setQueue(newQueue, current = p)
+
+            try {
+                transport.play(
+                    MusicPlaybackRequest(
+                        agentsPath = p,
+                        uri = Uri.fromFile(file).toString(),
+                        metadata =
+                            MusicMediaMetadata(
+                                title = file.name,
+                                artist = "Recording",
+                                album = sessionId ?: "radio_recordings",
+                                durationMs = null,
+                            ),
+                        isLive = false,
+                    )
+                )
+            } catch (t: Throwable) {
+                logErrorBestEffort(source = "recording", item = buildMusicItem(p), code = "PlayFailed", message = sanitizeErrorMessage(t.message))
+                throw t
+            }
+            applyVolumeToTransportNow()
+            _state.update {
+                it.copy(
+                    agentsPath = p,
+                    isLive = false,
+                    title = file.name,
+                    artist = "Recording",
+                    album = sessionId ?: "radio_recordings",
+                    durationMs = null,
+                    positionMs = 0L,
+                    isPlaying = true,
+                    playbackState = MusicPlaybackState.Playing,
+                    queueIndex = q.index,
+                    queueSize = q.items.size.takeIf { it > 0 },
+                    playbackMode = playbackMode,
+                    volume = volume,
+                    isMuted = isMuted,
+                    coverArtBytes = null,
+                    lyrics = null,
+                    warningMessage = warning,
+                    errorMessage = null,
+                )
+            }
+
+            logEventBestEffort(source = "recording", action = "play", item = buildMusicItem(p), userInitiated = true)
+        }
+    }
+
     suspend fun pauseNow() {
         withContext(Dispatchers.Main.immediate) {
             val before = _state.value
@@ -463,6 +543,11 @@ class MusicPlayerController(
         return p == ".agents/workspace/radios" || p.startsWith(".agents/workspace/radios/")
     }
 
+    private fun isInRadioRecordingsTree(agentsPath: String): Boolean {
+        val p = agentsPath.replace('\\', '/').trim().trimStart('/')
+        return p == ".agents/workspace/radio_recordings" || p.startsWith(".agents/workspace/radio_recordings/")
+    }
+
     private fun normalizeAgentsPathInput(raw: String): String {
         val p0 = raw.replace('\\', '/').trim().trimStart('/')
         return when {
@@ -470,6 +555,7 @@ class MusicPlayerController(
             p0.startsWith("workspace/") -> ".agents/$p0"
             p0.startsWith("musics/") -> ".agents/workspace/$p0"
             p0.startsWith("radios/") -> ".agents/workspace/$p0"
+            p0.startsWith("radio_recordings/") -> ".agents/workspace/$p0"
             else -> p0
         }
     }
@@ -519,6 +605,25 @@ class MusicPlayerController(
         val candidates =
             if (items.isEmpty()) listOf(currentAgentsPath) else items
         val idx = candidates.indexOfFirst { it == currentAgentsPath }.takeIf { it >= 0 } ?: 0
+        return candidates to idx
+    }
+
+    private suspend fun buildRecordingOggQueueNow(currentAgentsPath: String): Pair<List<String>, Int> {
+        val normalized = currentAgentsPath.replace('\\', '/').trim().trimStart('/')
+        val parent = normalized.substringBeforeLast('/', missingDelimiterValue = normalized)
+        if (parent == normalized) return listOf(currentAgentsPath) to 0
+
+        val candidates =
+            withContext(ioDispatcher) {
+                val parentDir = File(appContext.filesDir, parent)
+                parentDir.listFiles().orEmpty()
+                    .filter { it.isFile && it.name.lowercase().endsWith(".ogg") }
+                    .map { f -> parent + "/" + f.name }
+                    .sortedBy { it.lowercase() }
+            }
+
+        if (candidates.isEmpty()) return listOf(currentAgentsPath) to 0
+        val idx = candidates.indexOfFirst { it == normalized }.takeIf { it >= 0 } ?: 0
         return candidates to idx
     }
 

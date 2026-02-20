@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Rule
 import org.junit.Test
@@ -288,6 +289,69 @@ class MusicPlayerControllerTest {
             }
 
             assertSame(Dispatchers.Main.immediate, transport.lastPlayInterceptor)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun playAgentsRecordingOgg_outsideRadioRecordings_isRejected() = runTest {
+        val ctx = RuntimeEnvironment.getApplication()
+        val transport = FakeTransport()
+        val controller =
+            MusicPlayerController(
+                ctx,
+                transport = transport,
+                metadataReader = Mp3MetadataReader(Mp3MetadataExtractor { null }),
+                ioDispatcher = kotlinx.coroutines.Dispatchers.Main,
+            )
+        try {
+            val m =
+                runCatching {
+                    controller.javaClass.getMethod("playAgentsRecordingOgg", String::class.java)
+                }.getOrNull()
+            assertNotNull("Missing API: playAgentsRecordingOgg(String)", m)
+
+            m!!.invoke(controller, ".agents/workspace/inbox/a.ogg")
+            testScheduler.runCurrent()
+
+            assertEquals("仅允许播放 radio_recordings/ 目录下的 .ogg", controller.state.value.errorMessage)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun playAgentsRecordingOgg_insideRadioRecordings_updatesState_andPlaysFileUri() = runTest {
+        val ctx = RuntimeEnvironment.getApplication()
+        val transport = FakeTransport()
+        val controller =
+            MusicPlayerController(
+                ctx,
+                transport = transport,
+                metadataReader = Mp3MetadataReader(Mp3MetadataExtractor { null }),
+                ioDispatcher = kotlinx.coroutines.Dispatchers.Main,
+            )
+
+        val path = ".agents/workspace/radio_recordings/session_1/chunk_001.ogg"
+        val file = File(ctx.filesDir, path)
+        file.parentFile?.mkdirs()
+        file.writeBytes(byteArrayOf(0x00, 0x01, 0x02))
+
+        try {
+            val m =
+                runCatching {
+                    controller.javaClass.getMethod("playAgentsRecordingOgg", String::class.java)
+                }.getOrNull()
+            assertNotNull("Missing API: playAgentsRecordingOgg(String)", m)
+
+            m!!.invoke(controller, path)
+            testScheduler.runCurrent()
+
+            assertEquals(path, controller.state.value.agentsPath)
+            assertEquals(false, controller.state.value.isLive)
+            assertEquals(true, controller.state.value.isPlaying)
+            assertEquals(android.net.Uri.fromFile(file).toString(), transport.lastPlayed?.uri)
         } finally {
             controller.close()
         }

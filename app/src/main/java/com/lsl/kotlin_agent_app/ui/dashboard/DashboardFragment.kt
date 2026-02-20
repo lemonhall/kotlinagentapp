@@ -129,6 +129,8 @@ class DashboardFragment : Fragment() {
                             musicController.playAgentsRadio(path)
                         } else if (isMp3Name(entry.name) && isInMusicsTree(path)) {
                             musicController.playAgentsMp3(path)
+                        } else if (isOggName(entry.name) && isInRadioRecordingsTree(path)) {
+                            musicController.playAgentsRecordingOgg(path)
                         } else {
                             filesViewModel.openFile(entry)
                         }
@@ -140,6 +142,7 @@ class DashboardFragment : Fragment() {
                     val relativePath = joinAgentsPath(cwd, entry.name)
                     val isMp3InMusics = (!isDir && isMp3Name(entry.name) && isInMusicsTree(relativePath))
                     val isRadioInRadios = (!isDir && isRadioName(entry.name) && isInRadiosTree(relativePath))
+                    val isOggInRadioRecordings = (!isDir && isOggName(entry.name) && isInRadioRecordingsTree(relativePath))
                     val isRadioInFavorites = isRadioInRadios && isInRadioFavorites(relativePath)
 
                     val actions =
@@ -150,6 +153,8 @@ class DashboardFragment : Fragment() {
                                 arrayOf("播放", "播放/暂停", "停止", "收藏", "分享", "剪切", "删除", "复制路径")
                             }
                         } else if (isMp3InMusics) {
+                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "删除", "复制路径")
+                        } else if (isOggInRadioRecordings) {
                             arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "删除", "复制路径")
                         } else if (isDir) {
                             val isSessionDir = (cwd == ".agents/sessions" && sidRx.matches(entry.name))
@@ -168,6 +173,7 @@ class DashboardFragment : Fragment() {
                                     when {
                                         isRadioName(entry.name) && isInRadiosTree(relativePath) -> musicController.playAgentsRadio(relativePath)
                                         isMp3Name(entry.name) && isInMusicsTree(relativePath) -> musicController.playAgentsMp3(relativePath)
+                                        isOggName(entry.name) && isInRadioRecordingsTree(relativePath) -> musicController.playAgentsRecordingOgg(relativePath)
                                         else -> Unit
                                     }
                                 "播放/暂停" -> musicController.togglePlayPause()
@@ -723,6 +729,10 @@ class DashboardFragment : Fragment() {
         return p == ".agents/workspace/musics" || p.startsWith(".agents/workspace/musics/")
     }
 
+    private fun isOggName(name: String): Boolean {
+        return name.trim().lowercase().endsWith(".ogg")
+    }
+
     private fun isRadioName(name: String): Boolean {
         return name.trim().lowercase().endsWith(".radio")
     }
@@ -730,6 +740,11 @@ class DashboardFragment : Fragment() {
     private fun isInRadiosTree(agentsPath: String): Boolean {
         val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
         return p == ".agents/workspace/radios" || p.startsWith(".agents/workspace/radios/")
+    }
+
+    private fun isInRadioRecordingsTree(agentsPath: String): Boolean {
+        val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
+        return p == ".agents/workspace/radio_recordings" || p.startsWith(".agents/workspace/radio_recordings/")
     }
 
     private fun isInRadioFavorites(agentsPath: String): Boolean {
