@@ -89,65 +89,80 @@ class SmbMediaContentProvider : ContentProvider() {
             }
 
         val mime = ticket.spec.mime
-        if (mime == SmbMediaMime.VIDEO_MP4) {
-            SmbMediaStreamingService.requestSessionOpened(ctx)
-        }
-
-        val reader = SmbMediaRuntime.readerFactory(ctx).open(ticket.spec.mountName, ticket.spec.remotePath)
-        val cache =
-            SmbPageCache(
-                reader = object : SmbPageCache.RandomAccessReader {
-                    override fun size(): Long = reader.size()
-                    override fun readAt(offset: Long, size: Int): ByteArray = reader.readAt(offset, size)
-                },
-                pageSizeBytes = 256 * 1024,
-                maxCacheBytes = 64 * 1024 * 1024,
-            )
-
-        val callback =
-            object : ProxyFileDescriptorCallback() {
-                private var released: Boolean = false
-
-                override fun onGetSize(): Long {
-                    try {
-                        return reader.size()
-                    } catch (t: Throwable) {
-                        throw ErrnoException("getSize", errnoFor(t))
-                    }
-                }
-
-                override fun onRead(
-                    offset: Long,
-                    size: Int,
-                    data: ByteArray,
-                ): Int {
-                    try {
-                        val total = reader.size()
-                        if (offset >= total) return -1
-                        val bytes = cache.read(offset = offset, size = size)
-                        if (bytes.isEmpty()) return -1
-                        bytes.copyInto(data, destinationOffset = 0, startIndex = 0, endIndex = bytes.size)
-                        return bytes.size
-                    } catch (t: Throwable) {
-                        throw ErrnoException("read", errnoFor(t))
-                    }
-                }
-
-                override fun onRelease() {
-                    if (released) return
-                    released = true
-                    try {
-                        reader.close()
-                    } catch (_: Throwable) {
-                    }
-                    if (mime == SmbMediaMime.VIDEO_MP4) {
-                        SmbMediaStreamingService.requestSessionReleased(ctx)
-                    }
-                }
+        var sessionOpened: Boolean = false
+        var reader: SmbRandomAccessReader? = null
+        try {
+            if (mime == SmbMediaMime.VIDEO_MP4) {
+                SmbMediaStreamingService.requestSessionOpened(ctx)
+                sessionOpened = true
             }
 
-        val sm = ctx.getSystemService(StorageManager::class.java) ?: throw FileNotFoundException("no storage manager")
-        return sm.openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, callback, proxyHandler())
+            val r = SmbMediaRuntime.readerFactory(ctx).open(ticket.spec.mountName, ticket.spec.remotePath)
+            reader = r
+            val cache =
+                SmbPageCache(
+                    reader = object : SmbPageCache.RandomAccessReader {
+                        override fun size(): Long = r.size()
+                        override fun readAt(offset: Long, size: Int): ByteArray = r.readAt(offset, size)
+                    },
+                    pageSizeBytes = 256 * 1024,
+                    maxCacheBytes = 64 * 1024 * 1024,
+                )
+
+            val callback =
+                object : ProxyFileDescriptorCallback() {
+                    private var released: Boolean = false
+
+                    override fun onGetSize(): Long {
+                        try {
+                            return r.size()
+                        } catch (t: Throwable) {
+                            throw ErrnoException("getSize", errnoFor(t))
+                        }
+                    }
+
+                    override fun onRead(
+                        offset: Long,
+                        size: Int,
+                        data: ByteArray,
+                    ): Int {
+                        try {
+                            val total = r.size()
+                            if (offset >= total) return -1
+                            val bytes = cache.read(offset = offset, size = size)
+                            if (bytes.isEmpty()) return -1
+                            bytes.copyInto(data, destinationOffset = 0, startIndex = 0, endIndex = bytes.size)
+                            return bytes.size
+                        } catch (t: Throwable) {
+                            throw ErrnoException("read", errnoFor(t))
+                        }
+                    }
+
+                    override fun onRelease() {
+                        if (released) return
+                        released = true
+                        try {
+                            r.close()
+                        } catch (_: Throwable) {
+                        }
+                        if (mime == SmbMediaMime.VIDEO_MP4) {
+                            SmbMediaStreamingService.requestSessionReleased(ctx)
+                        }
+                    }
+                }
+
+            val sm = ctx.getSystemService(StorageManager::class.java) ?: throw FileNotFoundException("no storage manager")
+            return sm.openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, callback, proxyHandler())
+        } catch (t: Throwable) {
+            try {
+                reader?.close()
+            } catch (_: Throwable) {
+            }
+            if (mime == SmbMediaMime.VIDEO_MP4 && sessionOpened) {
+                SmbMediaStreamingService.requestSessionReleased(ctx)
+            }
+            throw FileNotFoundException(t.message ?: "open failed").apply { initCause(t) }
+        }
     }
 
     override fun insert(

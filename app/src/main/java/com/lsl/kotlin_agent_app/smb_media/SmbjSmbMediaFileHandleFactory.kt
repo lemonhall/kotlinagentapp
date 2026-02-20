@@ -151,21 +151,40 @@ class SmbjSmbMediaFileHandleFactory(
         @Synchronized
         private fun ensureConnected() {
             if (disk != null) return
-            val conn = client.connect(mount.host, mount.port)
-            val auth =
-                if (mount.guest) {
-                    AuthenticationContext("", CharArray(0), mount.domain)
-                } else {
-                    AuthenticationContext(mount.username.orEmpty(), (mount.password ?: "").toCharArray(), mount.domain)
-                }
-            val sess = conn.authenticate(auth)
-            val sh = sess.connectShare(mount.share)
-            val d = sh as? DiskShare ?: throw SmbMediaException(SmbMediaErrorCode.ShareNotFound, "Not a disk share")
+            var conn: com.hierynomus.smbj.connection.Connection? = null
+            var sess: Session? = null
+            var sh: Share? = null
+            try {
+                conn = client.connect(mount.host, mount.port)
+                val auth =
+                    if (mount.guest) {
+                        AuthenticationContext("", CharArray(0), mount.domain)
+                    } else {
+                        AuthenticationContext(mount.username.orEmpty(), (mount.password ?: "").toCharArray(), mount.domain)
+                    }
+                sess = conn.authenticate(auth)
+                sh = sess.connectShare(mount.share)
+                val d = sh as? DiskShare ?: throw SmbMediaException(SmbMediaErrorCode.ShareNotFound, "Not a disk share")
 
-            connection = conn
-            session = sess
-            share = sh
-            disk = d
+                connection = conn
+                session = sess
+                share = sh
+                disk = d
+            } catch (t: Throwable) {
+                try {
+                    sh?.close()
+                } catch (_: Throwable) {
+                }
+                try {
+                    sess?.close()
+                } catch (_: Throwable) {
+                }
+                try {
+                    conn?.close()
+                } catch (_: Throwable) {
+                }
+                throw t
+            }
         }
 
         @Synchronized

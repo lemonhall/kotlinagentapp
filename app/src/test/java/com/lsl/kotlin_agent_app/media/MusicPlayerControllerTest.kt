@@ -7,6 +7,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import com.lsl.kotlin_agent_app.smb_media.SmbMediaUri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
@@ -369,7 +370,7 @@ class MusicPlayerControllerTest {
                 ioDispatcher = Dispatchers.Main,
             )
         val agentsPath = ".agents/nas_smb/home/musics/a.mp3"
-        val uri = "content://com.lsl.kotlin_agent_app.smbmedia/v1/t123/a.mp3"
+        val uri = SmbMediaUri.build(token = "t123", displayName = "a.mp3")
 
         try {
             controller.playNasSmbContentMp3(agentsPath = agentsPath, contentUriString = uri, displayName = "a.mp3")

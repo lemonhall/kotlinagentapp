@@ -1,7 +1,9 @@
 package com.lsl.kotlin_agent_app.smb_media
 
+import com.lsl.kotlin_agent_app.BuildConfig
+
 object SmbMediaUri {
-    const val AUTHORITY: String = "com.lsl.kotlin_agent_app.smbmedia"
+    val AUTHORITY: String = BuildConfig.APPLICATION_ID + ".smbmedia"
 
     fun build(
         token: String,
@@ -18,4 +20,3 @@ object SmbMediaUri {
         return "content://$AUTHORITY/v1/$t/$safeName"
     }
 }
-

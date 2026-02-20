@@ -17,6 +17,11 @@ object SmbMediaActions {
         displayName: String,
         musicController: MusicPlayerController,
     ) {
+        if (Build.VERSION.SDK_INT < 26) {
+            Toast.makeText(context, "系统版本过低：SMB 音频串流需要 Android 8.0+（API 26）", Toast.LENGTH_LONG).show()
+            return
+        }
+
         val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return
         val mime = SmbMediaMime.AUDIO_MPEG
 
@@ -74,13 +79,49 @@ object SmbMediaActions {
         grantToAllCandidates(context, intent, uri)
 
         try {
-            context.startActivity(intent)
-        } catch (_: Throwable) {
-            try {
-                context.startActivity(Intent.createChooser(intent, "打开视频"))
-            } catch (t: Throwable) {
-                Toast.makeText(context, t.message ?: "无法打开播放器", Toast.LENGTH_LONG).show()
+            context.startActivity(Intent.createChooser(intent, "打开视频"))
+        } catch (t: Throwable) {
+            Toast.makeText(context, t.message ?: "无法打开播放器", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun openNasSmbImageExternal(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+    ) {
+        if (Build.VERSION.SDK_INT < 26) {
+            Toast.makeText(context, "系统版本过低：SMB 图片预览需要 Android 8.0+（API 26）", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return
+        val mime = SmbMediaMime.fromFileNameOrNull(displayName) ?: "image/*"
+
+        val ticket =
+            SmbMediaRuntime.ticketStore(context).issue(
+                SmbMediaTicketSpec(
+                    mountName = ref.mountName,
+                    remotePath = ref.relPath,
+                    mime = mime,
+                    sizeBytes = -1L,
+                )
+            )
+        val uri = Uri.parse(SmbMediaUri.build(token = ticket.token, displayName = displayName))
+
+        val intent =
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = ClipData.newRawUri("SMB media", uri)
             }
+
+        grantToAllCandidates(context, intent, uri)
+
+        try {
+            context.startActivity(Intent.createChooser(intent, "打开图片"))
+        } catch (t: Throwable) {
+            Toast.makeText(context, t.message ?: "无法打开预览", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -101,4 +142,3 @@ object SmbMediaActions {
         }
     }
 }
-

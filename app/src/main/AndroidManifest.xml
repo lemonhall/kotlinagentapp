@@ -36,7 +36,7 @@
 
         <provider
             android:name=".smb_media.SmbMediaContentProvider"
-            android:authorities="com.lsl.kotlin_agent_app.smbmedia"
+            android:authorities="${applicationId}.smbmedia"
             android:exported="false"
             android:grantUriPermissions="true">
             <grant-uri-permission android:pathPrefix="/v1/" />

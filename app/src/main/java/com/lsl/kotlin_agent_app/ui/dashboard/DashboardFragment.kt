@@ -156,6 +156,16 @@ class DashboardFragment : Fragment() {
                                 agentsPath = path,
                                 displayName = display,
                             )
+                        } else if (isImageName(entry.name) && isInNasSmbTree(path)) {
+                            val display = entry.displayName ?: entry.name
+                            SmbMediaActions.openNasSmbImageExternal(
+                                context = requireContext(),
+                                agentsPath = path,
+                                displayName = display,
+                            )
+                        } else if (isImageName(entry.name)) {
+                            val display = entry.displayName ?: entry.name
+                            openAgentsImageExternal(path, displayName = display)
                         } else if (isOggName(entry.name) && isInRadioRecordingsTree(path)) {
                             musicController.playAgentsRecordingOgg(path)
                         } else {
@@ -1295,6 +1305,15 @@ class DashboardFragment : Fragment() {
         return name.trim().lowercase().endsWith(".mp4")
     }
 
+    private fun isImageName(name: String): Boolean {
+        val n = name.trim().lowercase()
+        return n.endsWith(".jpg") ||
+            n.endsWith(".jpeg") ||
+            n.endsWith(".png") ||
+            n.endsWith(".webp") ||
+            n.endsWith(".gif")
+    }
+
     private fun isInNasSmbTree(agentsPath: String): Boolean {
         val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
         if (p == ".agents/nas_smb") return true
@@ -1653,6 +1672,48 @@ class DashboardFragment : Fragment() {
             }
 
         startActivity(Intent.createChooser(intent, "分享文件"))
+    }
+
+    private fun openAgentsImageExternal(
+        agentsPath: String,
+        displayName: String,
+    ) {
+        val rel = agentsPath.replace('\\', '/').trim()
+        if (!rel.startsWith(".agents/")) return
+
+        val file = File(requireContext().filesDir, rel)
+        if (!file.exists() || !file.isFile) {
+            Toast.makeText(requireContext(), "文件不存在：$displayName", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val uri =
+            FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file,
+            )
+
+        val ext = file.extension.lowercase().takeIf { it.isNotBlank() }
+        val mimeFromMap =
+            ext?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+        val mime =
+            mimeFromMap
+                ?: URLConnection.guessContentTypeFromName(file.name)
+                ?: "image/*"
+
+        val intent =
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
+            }
+
+        try {
+            startActivity(Intent.createChooser(intent, "打开图片"))
+        } catch (t: Throwable) {
+            Toast.makeText(requireContext(), t.message ?: "无法打开预览", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun displayCwd(cwd: String): String {

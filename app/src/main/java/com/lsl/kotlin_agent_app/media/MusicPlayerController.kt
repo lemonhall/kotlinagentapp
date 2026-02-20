@@ -9,6 +9,7 @@ import com.lsl.kotlin_agent_app.listening_history.ListeningHistoryStore
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import com.lsl.kotlin_agent_app.radios.StreamResolutionClassification
 import com.lsl.kotlin_agent_app.radios.StreamUrlResolver
+import com.lsl.kotlin_agent_app.smb_media.SmbMediaUri
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -137,7 +138,7 @@ class MusicPlayerController(
         val p = normalizeAgentsPathInput(agentsPath)
         val uri = contentUriString.trim()
         val okPath = p.replace('\\', '/').trim().startsWith(".agents/nas_smb/")
-        val okUri = uri.startsWith("content://com.lsl.kotlin_agent_app.smbmedia/")
+        val okUri = uri.startsWith("content://${SmbMediaUri.AUTHORITY}/")
         if (!okPath || !okUri) {
             _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 nas_smb/ 下的 mp3（content://）") }
             return
