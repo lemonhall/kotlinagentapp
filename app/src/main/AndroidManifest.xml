@@ -73,6 +73,11 @@
             android:label="双语播放" />
 
         <activity
+            android:name=".ui.video_player.VideoPlayerActivity"
+            android:exported="false"
+            android:label="视频播放" />
+
+        <activity
             android:name=".recorder.RecorderActivity"
             android:exported="false"
             android:label="录音" />

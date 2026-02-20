@@ -66,6 +66,7 @@ import com.lsl.kotlin_agent_app.radio_transcript.RecordingPipelineManager
 import com.lsl.kotlin_agent_app.recordings.RecordingRoots
 import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
 import com.lsl.kotlin_agent_app.ui.bilingual_player.BilingualPlayerActivity
+import com.lsl.kotlin_agent_app.ui.video_player.VideoPlayerActivity
 
 class DashboardFragment : Fragment() {
 
@@ -151,11 +152,24 @@ class DashboardFragment : Fragment() {
                             )
                         } else if (isMp4Name(entry.name) && isInNasSmbTree(path)) {
                             val display = entry.displayName ?: entry.name
-                            SmbMediaActions.openNasSmbMp4External(
-                                context = requireContext(),
-                                agentsPath = path,
-                                displayName = display,
+                            val ref =
+                                SmbMediaActions.createNasSmbMp4Content(
+                                    context = requireContext(),
+                                    agentsPath = path,
+                                    displayName = display,
+                                ) ?: return@FilesEntryAdapter
+                            startActivity(
+                                VideoPlayerActivity.intentOf(
+                                    context = requireContext(),
+                                    uri = ref.uri,
+                                    displayName = display,
+                                    mime = ref.mime,
+                                    agentsPath = path,
+                                )
                             )
+                        } else if (isMp4Name(entry.name)) {
+                            val display = entry.displayName ?: entry.name
+                            openAgentsVideoInternal(path, displayName = display)
                         } else if (isImageName(entry.name) && isInNasSmbTree(path)) {
                             val display = entry.displayName ?: entry.name
                             SmbMediaActions.openNasSmbImageExternal(
@@ -1714,6 +1728,33 @@ class DashboardFragment : Fragment() {
         } catch (t: Throwable) {
             Toast.makeText(requireContext(), t.message ?: "无法打开预览", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun openAgentsVideoInternal(
+        agentsPath: String,
+        displayName: String,
+    ) {
+        val rel = agentsPath.replace('\\', '/').trim()
+        if (!rel.startsWith(".agents/")) return
+
+        val file = File(requireContext().filesDir, rel)
+        if (!file.exists() || !file.isFile) {
+            Toast.makeText(requireContext(), "文件不存在：$displayName", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val uri = Uri.fromFile(file)
+        val mime = "video/*"
+
+        startActivity(
+            VideoPlayerActivity.intentOf(
+                context = requireContext(),
+                uri = uri,
+                displayName = displayName,
+                mime = mime,
+                agentsPath = agentsPath,
+            )
+        )
     }
 
     private fun displayCwd(cwd: String): String {

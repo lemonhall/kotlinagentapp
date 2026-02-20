@@ -11,6 +11,11 @@ import com.lsl.kotlin_agent_app.media.MusicPlayerController
 
 object SmbMediaActions {
 
+    data class ContentRef(
+        val uri: Uri,
+        val mime: String,
+    )
+
     fun playNasSmbMp3(
         context: Context,
         agentsPath: String,
@@ -43,6 +48,32 @@ object SmbMediaActions {
         )
     }
 
+    fun createNasSmbMp4Content(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+    ): ContentRef? {
+        if (Build.VERSION.SDK_INT < 26) {
+            Toast.makeText(context, "系统版本过低：SMB 视频串流需要 Android 8.0+（API 26）", Toast.LENGTH_LONG).show()
+            return null
+        }
+
+        val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return null
+        val mime = SmbMediaMime.VIDEO_MP4
+
+        val ticket =
+            SmbMediaRuntime.ticketStore(context).issue(
+                SmbMediaTicketSpec(
+                    mountName = ref.mountName,
+                    remotePath = ref.relPath,
+                    mime = mime,
+                    sizeBytes = -1L,
+                )
+            )
+        val uri = Uri.parse(SmbMediaUri.build(token = ticket.token, displayName = displayName))
+        return ContentRef(uri = uri, mime = mime)
+    }
+
     fun openNasSmbMp4External(
         context: Context,
         agentsPath: String,
@@ -69,20 +100,12 @@ object SmbMediaActions {
 
         SmbMediaStreamingService.requestPrepare(context)
 
-        val intent =
-            Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mime)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                clipData = ClipData.newRawUri("SMB media", uri)
-            }
-
-        grantToAllCandidates(context, intent, uri)
-
-        try {
-            context.startActivity(Intent.createChooser(intent, "打开视频"))
-        } catch (t: Throwable) {
-            Toast.makeText(context, t.message ?: "无法打开播放器", Toast.LENGTH_LONG).show()
-        }
+        openContentExternal(
+            context = context,
+            uri = uri,
+            mime = mime,
+            chooserTitle = "打开视频",
+        )
     }
 
     fun openNasSmbImageExternal(
@@ -109,19 +132,33 @@ object SmbMediaActions {
             )
         val uri = Uri.parse(SmbMediaUri.build(token = ticket.token, displayName = displayName))
 
+        openContentExternal(
+            context = context,
+            uri = uri,
+            mime = mime,
+            chooserTitle = "打开图片",
+        )
+    }
+
+    fun openContentExternal(
+        context: Context,
+        uri: Uri,
+        mime: String,
+        chooserTitle: String,
+    ) {
         val intent =
             Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, mime)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                clipData = ClipData.newRawUri("SMB media", uri)
+                clipData = ClipData.newRawUri("media", uri)
             }
 
         grantToAllCandidates(context, intent, uri)
 
         try {
-            context.startActivity(Intent.createChooser(intent, "打开图片"))
+            context.startActivity(Intent.createChooser(intent, chooserTitle))
         } catch (t: Throwable) {
-            Toast.makeText(context, t.message ?: "无法打开预览", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, t.message ?: "无法打开", Toast.LENGTH_LONG).show()
         }
     }
 
