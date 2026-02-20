@@ -30,11 +30,11 @@
 
 | 决策点 | 结论 |
 |---|---|
-| 录制方案 | Media3 独立 Player 实例解码为 PCM，MediaCodec 编码为 AAC 写盘 |
+| 录制方案 | Media3 独立 Player 实例解码为 PCM，MediaCodec 编码为 Opus + MediaMuxer OGG 写盘（API 29+） |
 | 并发录制上限 | 最多 2 路 |
 | ASR 后端 | 仅云端（OpenAI Whisper API 优先，可扩展其他云端） |
 | 实时延迟目标 | 可接受 ≤ 10 秒（buffer 5–10 秒） |
-| 落盘音频格式 | 统一 AAC（`.m4a`），128kbps |
+| 落盘音频格式 | 统一 OGG Opus（`.ogg`），64kbps |
 | 译文播放模式（实时） | 双模式：①仅译文语音 ②原声（降音量）+ 译文交替 |
 
 ## 分层与交付版本
@@ -58,7 +58,7 @@ Layer 0: 既有 Radio 模块（已完成）                      — v38
   {session_id}/
     _meta.json
     _STATUS.md
-    chunk_001.m4a
+    chunk_001.ogg
     ...
     transcripts/
       _tasks.index.json
@@ -70,7 +70,7 @@ Layer 0: 既有 Radio 模块（已完成）                      — v38
         ...
         audio_bilingual/            # v42（可选）
           _task.json
-          chunk_001_bilingual.m4a
+          chunk_001_bilingual.ogg
           ...
 ```
 
@@ -106,16 +106,17 @@ Layer 0: 既有 Radio 模块（已完成）                      — v38
 ### v39（Layer 1：后台录制）
 
 - **REQ-0034-010（录制会话与并发上限）**：支持开始/停止录制；最多并发 2 路，超限必须返回 `MaxConcurrentRecordings`（或等价 error_code）。  
-- **REQ-0034-011（切片与格式）**：录制产物按 10 分钟切片写入 `.m4a`（AAC 128kbps）；每片必须可独立播放。  
+- **REQ-0034-011（切片与格式）**：录制产物按 10 分钟切片写入 `.ogg`（Opus 64kbps，OGG 封装，API 29+）；每片必须可独立播放。  
 - **REQ-0034-012（元信息与索引）**：每会话写入 `_meta.json` 与会话级 `_STATUS.md`；根索引 `.recordings.index.json` 为 pretty JSON（多行）。  
 - **REQ-0034-013（后台可靠性）**：切页签/锁屏/后台不中断（前台服务 + 通知栏状态）。  
 - **REQ-0034-014（CLI：radio record）**：新增 `radio record start|stop|status|list`（最小闭环可调整，但必须可审计、可测试、可解释）。  
+- **REQ-0034-015（录音回放）**（[已由 ECN-0005 变更]）：在 Files 进入 `radio_recordings/` 后，点击任意 `chunk_*.ogg` 必须可触发 App 内播放器直接播放（仅允许 `workspace/radio_recordings/**.ogg` 子树）。  
 
 ### v40（Layer 2a：离线转录）
 
 - **REQ-0034-050（任务模型与落盘）**：在会话目录创建 `transcripts/`，并以 `_tasks.index.json` + `{task_id}/_task.json` 表达状态；每 chunk 输出 `chunk_NNN.transcript.json`（含时间戳 segments）。  
 - **REQ-0034-051（后台慢任务）**：转录为后台慢任务（WorkManager）；App 被杀后可恢复；支持取消。  
-- **REQ-0034-052（Whisper API）**：调用云端 ASR（Whisper API 优先），音频上传 `.m4a`，并将错误归一为稳定 `error_code`（NetworkError/RemoteError/…）。  
+- **REQ-0034-052（Whisper API）**：调用云端 ASR（Whisper API 优先），音频上传 `.ogg`（Opus/OGG），并将错误归一为稳定 `error_code`（NetworkError/RemoteError/…）。  
 - **REQ-0034-053（CLI：radio transcript）**：新增 `radio transcript start|status|list|cancel`（受控输入）。  
 
 ### v41（Layer 2b：离线翻译）
@@ -154,4 +155,3 @@ Layer 0: 既有 Radio 模块（已完成）                      — v38
 
 1) `radio record/transcript/tts/live` 是否全部挂在既有 `RadioCommand.kt` 内，还是在 v39 先进行一次 CLI 结构重构（避免文件继续膨胀）。  
 2) 实时翻译落盘默认值：默认不落盘？（隐私与存储压力）；需要 Settings 总开关吗？  
-

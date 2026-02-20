@@ -1,6 +1,7 @@
 package com.lsl.kotlin_agent_app.agent.tools.terminal.commands.radio
 
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import android.util.Base64
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
@@ -13,7 +14,13 @@ import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import com.lsl.kotlin_agent_app.radios.RadioPathNaming
 import com.lsl.kotlin_agent_app.radios.StreamResolutionClassification
 import com.lsl.kotlin_agent_app.radios.StreamUrlResolver
+import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingService
+import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsPaths
+import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore
+import com.lsl.kotlin_agent_app.radio_recordings.RecordingsIndexV1
+import com.lsl.kotlin_agent_app.radio_recordings.RecordingMetaV1
 import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -89,6 +96,7 @@ internal class RadioCommand(
                 "stop" -> handleStop()
                 "fav" -> handleFav(argv)
                 "sync" -> handleSync(argv)
+                "record" -> handleRecord(argv)
                 else -> invalidArgs("unknown subcommand: $subRaw")
             }
         } catch (t: NotInRadiosDir) {
@@ -668,6 +676,10 @@ internal class RadioCommand(
                           radio fav list
                           radio sync countries [--force]
                           radio sync stations (--dir <country-dir> | --cc <CC>) [--force]
+                          radio record start [--in <agents-path> | --in_b64 <base64-utf8-path>]
+                          radio record stop (--session <session_id> | --all)
+                          radio record status [--session <session_id>]
+                          radio record list
                         
                         Help:
                           radio --help
@@ -685,6 +697,7 @@ internal class RadioCommand(
                         "radio fav list",
                         "radio sync countries",
                         "radio sync stations --cc EG",
+                        "radio record start --in workspace/radios/demo.radio",
                     )
                 }
                 "status" -> "Usage: radio status" to listOf("radio status")
@@ -717,6 +730,21 @@ internal class RadioCommand(
                         """.trimIndent()
                     u to listOf("radio sync countries", "radio sync stations --cc EG", "radio sync stations --dir EG__Egypt --force")
                 }
+                "record" -> {
+                    val u =
+                        """
+                        Usage:
+                          radio record start [--in <agents-path> | --in_b64 <base64-utf8-path>]
+                          radio record stop (--session <session_id> | --all)
+                          radio record status [--session <session_id>]
+                          radio record list
+                        """.trimIndent()
+                    u to listOf(
+                        "radio record start --in workspace/radios/demo.radio",
+                        "radio record status",
+                        "radio record list",
+                    )
+                }
                 else -> return invalidArgs("unknown subcommand: $sub")
             }
 
@@ -736,6 +764,7 @@ internal class RadioCommand(
                         add(JsonPrimitive("stop"))
                         add(JsonPrimitive("fav"))
                         add(JsonPrimitive("sync"))
+                        add(JsonPrimitive("record"))
                     },
                 )
                 if (sub == null || sub == "play") {
@@ -761,6 +790,40 @@ internal class RadioCommand(
                                     put("name", JsonPrimitive("--await_ms"))
                                     put("required", JsonPrimitive(false))
                                     put("description", JsonPrimitive("Optional wait window after play. During this window, the command will poll transport status until isPlaying=true or error. Default: 0. Max: 30000."))
+                                },
+                            )
+                        },
+                    )
+                } else if (sub == "record") {
+                    put(
+                        "flags",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--in"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Input .radio file within workspace/radios/ (defaults to current playing station)."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--in_b64"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Base64-encoded UTF-8 path for input .radio file within workspace/radios/."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--session"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Recording session id. Used by stop/status."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--all"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Stop all active recording sessions."))
                                 },
                             )
                         },
@@ -796,6 +859,324 @@ internal class RadioCommand(
                 )
             }
         return TerminalCommandOutput(exitCode = 0, stdout = stdout, result = result)
+    }
+
+    private suspend fun handleRecord(argv: List<String>): TerminalCommandOutput {
+        if (argv.size < 3) return help(sub = "record")
+        val action = argv[2].trim().lowercase(Locale.ROOT)
+        val store = RadioRecordingsStore(ws)
+        store.ensureRoot()
+
+        return when (action) {
+            "start" -> handleRecordStart(argv, store)
+            "stop" -> handleRecordStop(argv, store)
+            "status" -> handleRecordStatus(argv, store)
+            "list" -> handleRecordList(store)
+            else -> invalidArgs("unknown record action: ${argv[2]}")
+        }
+    }
+
+    private fun optionalFlagValueSingle(
+        argv: List<String>,
+        flag: String,
+    ): String? {
+        val idx = argv.indexOf(flag)
+        if (idx < 0 || idx + 1 >= argv.size) return null
+        return argv[idx + 1].trim().ifBlank { null }
+    }
+
+    private suspend fun handleRecordStart(
+        argv: List<String>,
+        store: RadioRecordingsStore,
+    ): TerminalCommandOutput {
+        if (Build.VERSION.SDK_INT < 29) {
+            return TerminalCommandOutput(
+                exitCode = 2,
+                stdout = "",
+                stderr = "recording requires API 29+ (Android 10)",
+                errorCode = "UnsupportedSdk",
+                errorMessage = "recording requires API 29+ (Android 10)",
+            )
+        }
+
+        val rawIn =
+            optionalInPathArg(argv)
+                ?: run {
+                    val ctrl = MusicPlayerControllerProvider.get()
+                    val st = ctrl.statusSnapshotWithTransport().nowPlaying
+                    st.agentsPath?.takeIf { it.isNotBlank() }
+                }
+                ?: throw IllegalArgumentException("missing required flag: --in or --in_b64 (or play a station first)")
+
+        val agentsPath = normalizeAgentsPathArg(rawIn)
+        if (!isInRadiosTree(agentsPath)) throw NotInRadiosDir("仅允许 radios/ 目录下的 .radio：$rawIn")
+        if (!agentsPath.lowercase(Locale.ROOT).endsWith(".radio")) throw NotRadioFile("仅允许 radios/ 目录下的 .radio：$rawIn")
+        val rf = File(ctx.filesDir, agentsPath)
+        if (!rf.exists() || !rf.isFile) throw NotFound("文件不存在：$rawIn")
+
+        val station =
+            try {
+                RadioStationFileV1.parse(rf.readText(Charsets.UTF_8))
+            } catch (t: Throwable) {
+                throw InvalidRadio(t.message ?: "invalid .radio")
+            }
+
+        val active = listActiveRecordingSessionIds(store)
+        if (active.size >= 2) {
+            val result =
+                buildJsonObject {
+                    put("ok", JsonPrimitive(false))
+                    put("command", JsonPrimitive("radio record start"))
+                    put("error_code", JsonPrimitive("MaxConcurrentRecordings"))
+                    put("error_message", JsonPrimitive("Already recording ${active.size} stations. Stop one before starting a new recording."))
+                    put(
+                        "active_sessions",
+                        buildJsonArray {
+                            for (sid in active) add(JsonPrimitive(sid))
+                        },
+                    )
+                }
+            return TerminalCommandOutput(
+                exitCode = 2,
+                stdout = "",
+                stderr = "Max concurrent recordings reached",
+                errorCode = "MaxConcurrentRecordings",
+                errorMessage = "already recording ${active.size} stations",
+                result = result,
+            )
+        }
+
+        val sessionId = store.allocateSessionId(prefix = "rec")
+        val sessionDir = RadioRecordingsPaths.sessionDir(sessionId)
+        ws.mkdir(sessionDir)
+
+        val nowIso = RecordingMetaV1.nowIso()
+        val meta =
+            RecordingMetaV1(
+                schema = RecordingMetaV1.SCHEMA_V1,
+                sessionId = sessionId,
+                station =
+                    RecordingMetaV1.Station(
+                        stationId = station.id,
+                        name = station.name,
+                        radioFilePath = toWorkspacePath(agentsPath),
+                        streamUrl = station.streamUrl,
+                    ),
+                chunkDurationMin = 10,
+                outputFormat = "ogg_opus_64kbps",
+                state = "pending",
+                createdAt = nowIso,
+                updatedAt = nowIso,
+                chunks = emptyList(),
+            )
+
+        store.writeSessionMeta(sessionId, meta)
+        store.writeSessionStatus(sessionId, ok = true, note = "pending")
+        store.updateRootStatus(ok = true, note = "pending_sessions=${active.size + 1}")
+
+        val prev = store.readIndexOrNull()
+        val sessions = ArrayList<RecordingsIndexV1.SessionEntry>()
+        sessions.add(
+            RecordingsIndexV1.SessionEntry(
+                sessionId = sessionId,
+                dir = sessionId,
+                stationName = station.name,
+                state = "pending",
+                startAt = nowIso,
+                chunksCount = 0,
+            ),
+        )
+        prev?.sessions?.forEach { sessions.add(it) }
+        val idx = RecordingsIndexV1(generatedAtSec = store.nowSec(), sessions = sessions)
+        store.writeIndex(idx)
+
+        RadioRecordingService.requestStart(ctx, sessionId)
+
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("command", JsonPrimitive("radio record start"))
+                put("session_id", JsonPrimitive(sessionId))
+                put("state", JsonPrimitive("pending"))
+                put("dir", JsonPrimitive("workspace/radio_recordings/$sessionId"))
+                put("meta_path", JsonPrimitive("workspace/radio_recordings/$sessionId/_meta.json"))
+                put("chunk_path", JsonPrimitive("workspace/radio_recordings/$sessionId/chunk_001.ogg"))
+                put(
+                    "station",
+                    buildJsonObject {
+                        put("id", JsonPrimitive(station.id))
+                        put("name", JsonPrimitive(station.name))
+                        put("path", JsonPrimitive(toWorkspacePath(agentsPath)))
+                    },
+                )
+            }
+
+        return TerminalCommandOutput(exitCode = 0, stdout = "recording starting: $sessionId", result = result)
+    }
+
+    private suspend fun handleRecordStop(
+        argv: List<String>,
+        store: RadioRecordingsStore,
+    ): TerminalCommandOutput {
+        val stopAll = argv.any { it == "--all" }
+        val session = optionalFlagValueSingle(argv, "--session")
+
+        val targets =
+            when {
+                stopAll -> listActiveRecordingSessionIds(store)
+                !session.isNullOrBlank() -> listOf(session.trim())
+                else -> throw IllegalArgumentException("missing required flag: --session or --all")
+            }
+
+        val stopped = mutableListOf<String>()
+        val notFound = mutableListOf<String>()
+
+        for (sid in targets) {
+            val metaPath = RadioRecordingsPaths.sessionMetaJson(sid)
+            if (!ws.exists(metaPath)) {
+                notFound.add(sid)
+                continue
+            }
+            val raw = ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+            val prev = RecordingMetaV1.parse(raw)
+            val nowIso = RecordingMetaV1.nowIso()
+            val next = prev.copy(state = "completed", updatedAt = nowIso)
+            store.writeSessionMeta(sid, next)
+            store.writeSessionStatus(sid, ok = true, note = "completed")
+            stopped.add(sid)
+        }
+
+        val prevIndex = store.readIndexOrNull()
+        if (prevIndex != null && stopped.isNotEmpty()) {
+            val nextSessions =
+                prevIndex.sessions.map { e ->
+                    if (stopped.contains(e.sessionId)) e.copy(state = "completed") else e
+                }
+            store.writeIndex(prevIndex.copy(generatedAtSec = store.nowSec(), sessions = nextSessions))
+        }
+
+        if (stopAll) {
+            RadioRecordingService.requestStopAll(ctx)
+        } else {
+            for (sid in stopped) {
+                RadioRecordingService.requestStop(ctx, sid)
+            }
+        }
+
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(notFound.isEmpty()))
+                put("command", JsonPrimitive("radio record stop"))
+                put(
+                    "stopped_sessions",
+                    buildJsonArray {
+                        for (sid in stopped) add(JsonPrimitive(sid))
+                    },
+                )
+                put(
+                    "not_found",
+                    buildJsonArray {
+                        for (sid in notFound) add(JsonPrimitive(sid))
+                    },
+                )
+            }
+
+        val ok = notFound.isEmpty()
+        return TerminalCommandOutput(
+            exitCode = if (ok) 0 else 2,
+            stdout = if (ok) "stopped ${stopped.size} session(s)" else "",
+            stderr = if (ok) "" else "some sessions not found",
+            errorCode = if (ok) null else "NotFound",
+            errorMessage = if (ok) null else "some sessions not found",
+            result = result,
+        )
+    }
+
+    private suspend fun handleRecordStatus(
+        argv: List<String>,
+        store: RadioRecordingsStore,
+    ): TerminalCommandOutput {
+        val session = optionalFlagValueSingle(argv, "--session")
+        if (!session.isNullOrBlank()) {
+            val sid = session.trim()
+            val metaPath = RadioRecordingsPaths.sessionMetaJson(sid)
+            if (!ws.exists(metaPath)) throw NotFound("session not found: $sid")
+            val raw = ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+            val meta = RecordingMetaV1.parse(raw)
+            val result =
+                buildJsonObject {
+                    put("ok", JsonPrimitive(true))
+                    put("command", JsonPrimitive("radio record status"))
+                    put("session_id", JsonPrimitive(sid))
+                    put("state", JsonPrimitive(meta.state))
+                    put("meta", meta.toJsonObject())
+                }
+            return TerminalCommandOutput(exitCode = 0, stdout = "record: ${meta.state}", result = result)
+        }
+
+        val active = listActiveRecordingSessionIds(store)
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("command", JsonPrimitive("radio record status"))
+                put(
+                    "active_sessions",
+                    buildJsonArray {
+                        for (sid in active) add(JsonPrimitive(sid))
+                    },
+                )
+            }
+        return TerminalCommandOutput(exitCode = 0, stdout = "active recordings: ${active.size}", result = result)
+    }
+
+    private suspend fun handleRecordList(store: RadioRecordingsStore): TerminalCommandOutput {
+        val idx = store.readIndexOrNull()
+        val result =
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("command", JsonPrimitive("radio record list"))
+                put("index_path", JsonPrimitive("workspace/radio_recordings/.recordings.index.json"))
+                put("count", JsonPrimitive(idx?.sessions?.size ?: 0))
+                put(
+                    "sessions",
+                    buildJsonArray {
+                        for (s in idx?.sessions.orEmpty()) {
+                            add(
+                                buildJsonObject {
+                                    put("session_id", JsonPrimitive(s.sessionId))
+                                    put("dir", JsonPrimitive("workspace/radio_recordings/${s.dir}"))
+                                    put("station_name", JsonPrimitive(s.stationName))
+                                    put("state", JsonPrimitive(s.state))
+                                    put("start_at", JsonPrimitive(s.startAt))
+                                    put("chunks_count", JsonPrimitive(s.chunksCount))
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        return TerminalCommandOutput(exitCode = 0, stdout = "recordings: ${idx?.sessions?.size ?: 0}", result = result)
+    }
+
+    private suspend fun listActiveRecordingSessionIds(store: RadioRecordingsStore): List<String> {
+        val idx = store.readIndexOrNull() ?: return emptyList()
+        val out = mutableListOf<String>()
+        for (s in idx.sessions) {
+            val sid = s.sessionId.trim()
+            if (sid.isBlank()) continue
+            val metaPath = RadioRecordingsPaths.sessionMetaJson(sid)
+            val raw =
+                try {
+                    if (!ws.exists(metaPath)) continue
+                    ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+                } catch (_: Throwable) {
+                    continue
+                }
+            val meta = runCatching { RecordingMetaV1.parse(raw) }.getOrNull() ?: continue
+            val st = meta.state.trim()
+            if (st == "recording" || st == "pending") out.add(sid)
+        }
+        return out
     }
 
     private fun invalidArgs(message: String): TerminalCommandOutput {

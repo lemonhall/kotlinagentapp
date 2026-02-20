@@ -7,6 +7,7 @@
 - UI：正在播放电台可一键开始/停止录制；后台/锁屏不中断  
 - CLI：`terminal_exec radio record ...` 可控、可审计、可测试  
 - VFS：产物落盘到 `workspace/radio_recordings/`，按 10min 切片
+- Playback：进入 `radio_recordings/` 可用 App 内播放器直接播放 `*.ogg`（ECN-0005）
 
 ## PRD Trace
 
@@ -24,6 +25,7 @@
   - 10min chunk 切片写盘 + 元信息落盘
 - CLI：`radio record start|stop|status|list`（最小闭环）
 - Files：在 `workspace/` 下把 `radio_recordings/` 目录"命名/简介"做轻度装饰（类似 radios）
+- Files：在 `radio_recordings/` 下点击 `*.ogg` 可用 App 内播放器直接播放（路径门禁，ECN-0005）
 
 不做（v39）：
 
@@ -58,6 +60,7 @@
 - 产物结构：录制开始后必须创建 `{session_id}/_meta.json` 与 `{session_id}/chunk_001.ogg`（允许短延迟）；录制停止后 `state=completed|cancelled|failed` 可解释。  
 - 切片策略：单会话 chunk 文件名连续（`chunk_001...`），chunk 时长目标 10min（允许最后一片不足）。  
 - 编码验证：产出的 `.ogg` 文件可被 Android MediaPlayer 正常播放，且可直接提交阿里云/火山引擎/OpenAI Whisper ASR 无需转码。
+- 回放验证：在 Files 进入 `radio_recordings/` 后，点击 `chunk_*.ogg` 必须触发 App 内播放器播放（ECN-0005）。
 - CLI help：`radio record --help` / `radio help record` 必须 `exit_code=0`。  
 
 验证命令（开发机）：
@@ -96,3 +99,5 @@
 - 音频管线复杂且难以纯单测覆盖：必须把"状态机/落盘/CLI"做成可单测，真机仅做最小冒烟。  
 - 并发与资源占用：2 路并发要严格限流并有可解释失败，避免 OOM/编码器占用冲突。  
 - Opus 编码器可用性：虽然 API 29+ 规范要求支持 Opus 编码，但部分厂商 ROM 可能存在实现差异。v39 第一个 step 应在目标设备（Nova 9）上做编码可行性验证，若不可用则回退到 AAC/.m4a 方案（AAC 除火山引擎流式 ASR 外均兼容，而流式 ASR 本身喂 PCM raw 不涉及容器格式）。
+- Opus 编码器可用性：虽然 API 29+ 规范要求支持 Opus 编码，但部分厂商 ROM 可能存在实现差异。v39 第一个 step 应在目标设备（Nova 9）上做编码可行性验证，若不可用则回退到 AAC/.m4a 方案（AAC 除火山引擎流式 ASR 外均兼容，而流式 ASR 本身喂 PCM raw 不涉及容器格式）。
+ - Opus 解码可用性（回放）：不同 ROM 对 OGG/Opus 解码支持可能存在差异；v39 增补的“App 内回放”需在 Nova 9 上留真机证据（ECN-0005）。

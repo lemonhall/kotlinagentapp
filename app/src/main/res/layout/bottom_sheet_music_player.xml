@@ -103,6 +103,17 @@
             android:contentDescription="停止"
             android:src="@drawable/ic_stop"
             android:tint="?attr/colorOnSurface" />
+
+        <ImageButton
+            android:id="@+id/sheet_record"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="录制"
+            android:src="@drawable/ic_record_24"
+            android:tint="?attr/colorError"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout

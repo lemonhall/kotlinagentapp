@@ -53,6 +53,7 @@ import com.lsl.kotlin_agent_app.media.lyrics.LrcParser
 import com.lsl.kotlin_agent_app.media.lyrics.LrcLine
 import com.lsl.kotlin_agent_app.radios.RadioPathNaming
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
+import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.radio.RadioCommand
 
 class DashboardFragment : Fragment() {
 
@@ -81,6 +82,8 @@ class DashboardFragment : Fragment() {
     private var sheetLastHighlightedIndex: Int = -1
     private var sheetIsSlidingVolume: Boolean = false
     private var lastPlaybackErrorToast: String? = null
+
+    private val recordingByAgentsPath = linkedMapOf<String, String>()
 
     private val importLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -253,6 +256,9 @@ class DashboardFragment : Fragment() {
         }
         binding.buttonMusicStop.setOnClickListener {
             musicController.stop()
+        }
+        binding.buttonMusicRecord.setOnClickListener {
+            toggleRecordingFromUi()
         }
         binding.textMusicSubtitle.setOnClickListener {
             val cur = musicController.state.value.playbackMode
@@ -447,6 +453,8 @@ class DashboardFragment : Fragment() {
             val tint = MaterialColors.getColor(binding.imageMusicCover, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.GRAY)
             binding.imageMusicCover.imageTintList = ColorStateList.valueOf(tint)
         }
+
+        updateRecordingButtons(st)
     }
 
     private fun modeLabel(mode: com.lsl.kotlin_agent_app.media.MusicPlaybackMode): String {
@@ -468,6 +476,7 @@ class DashboardFragment : Fragment() {
         sheet.sheetPlayPause.setOnClickListener { musicController.togglePlayPause() }
         sheet.sheetNext.setOnClickListener { musicController.next() }
         sheet.sheetStop.setOnClickListener { musicController.stop() }
+        sheet.sheetRecord.setOnClickListener { toggleRecordingFromUi() }
 
         sheet.sheetMode.setOnClickListener {
             val cur = musicController.state.value.playbackMode
@@ -521,6 +530,83 @@ class DashboardFragment : Fragment() {
         dialog.show()
     }
 
+    private fun toggleRecordingFromUi() {
+        val appContext = requireContext().applicationContext
+        val ctrl = MusicPlayerControllerProvider.get()
+        val st = ctrl.state.value
+        val agentsPath = st.agentsPath?.trim()?.ifBlank { null }
+        val isRadio = st.isLive && agentsPath != null && agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(agentsPath)
+        if (!isRadio || agentsPath == null) {
+            Toast.makeText(requireContext(), "仅在播放电台时可录制", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val existingSessionId = recordingByAgentsPath[agentsPath]
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val cmd = RadioCommand(appContext)
+                val out =
+                    withContext(Dispatchers.IO) {
+                        if (existingSessionId.isNullOrBlank()) {
+                            cmd.run(listOf("radio", "record", "start"), stdin = null)
+                        } else {
+                            cmd.run(listOf("radio", "record", "stop", "--session", existingSessionId), stdin = null)
+                        }
+                    }
+                if (out.exitCode != 0) {
+                    Toast.makeText(requireContext(), out.stderr.ifBlank { out.errorMessage ?: "录制失败" }, Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                if (existingSessionId.isNullOrBlank()) {
+                    val sid: String? =
+                        runCatching {
+                            out.result
+                                ?.jsonObject
+                                ?.get("session_id")
+                                ?.jsonPrimitive
+                                ?.content
+                                ?.trim()
+                                ?.ifBlank { null }
+                        }.getOrNull()
+                    if (sid != null) {
+                        recordingByAgentsPath[agentsPath] = sid
+                        Toast.makeText(requireContext(), "开始录制：${sid.takeLast(6)}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(requireContext(), "开始录制（无 session_id）", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    recordingByAgentsPath.remove(agentsPath)
+                    Toast.makeText(requireContext(), "已停止录制", Toast.LENGTH_SHORT).show()
+                }
+                updateRecordingButtons(st)
+            } catch (t: Throwable) {
+                Toast.makeText(requireContext(), "录制失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun updateRecordingButtons(st: com.lsl.kotlin_agent_app.media.MusicNowPlayingState) {
+        val agentsPath = st.agentsPath?.trim()?.ifBlank { null }
+        val isRadio = st.isLive && agentsPath != null && agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(agentsPath)
+        val isRecordingCurrent = isRadio && agentsPath != null && recordingByAgentsPath.containsKey(agentsPath)
+
+        binding.buttonMusicRecord.visibility = if (isRadio) View.VISIBLE else View.GONE
+        binding.buttonMusicRecord.setImageResource(
+            if (isRecordingCurrent) com.lsl.kotlin_agent_app.R.drawable.ic_stop else com.lsl.kotlin_agent_app.R.drawable.ic_record_24
+        )
+        binding.buttonMusicRecord.contentDescription = if (isRecordingCurrent) "停止录制" else "开始录制"
+
+        val sheet = musicSheetBinding
+        if (sheet != null && musicSheetDialog?.isShowing == true) {
+            sheet.sheetRecord.visibility = if (isRadio) View.VISIBLE else View.GONE
+            sheet.sheetRecord.setImageResource(
+                if (isRecordingCurrent) com.lsl.kotlin_agent_app.R.drawable.ic_stop else com.lsl.kotlin_agent_app.R.drawable.ic_record_24
+            )
+            sheet.sheetRecord.contentDescription = if (isRecordingCurrent) "停止录制" else "开始录制"
+        }
+    }
+
     private fun updateMusicSheetIfVisible(st: com.lsl.kotlin_agent_app.media.MusicNowPlayingState) {
         val sheet = musicSheetBinding ?: return
         if (musicSheetDialog?.isShowing != true) return
@@ -562,6 +648,8 @@ class DashboardFragment : Fragment() {
             val tint = MaterialColors.getColor(sheet.sheetCover, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.GRAY)
             sheet.sheetCover.imageTintList = ColorStateList.valueOf(tint)
         }
+
+        updateRecordingButtons(st)
 
         val rawLyrics = st.lyrics?.trim()?.ifBlank { null }
         if (rawLyrics == null) {

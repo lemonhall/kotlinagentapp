@@ -12,6 +12,11 @@ import com.lsl.kotlin_agent_app.agent.vfs.nas_smb.SmbjNasSmbClient
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 
 data class AgentsDirEntry(
     val name: String,
@@ -52,6 +57,36 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents/workspace/musics")
         mkdirsIfMissing(".agents/workspace/radios")
         mkdirsIfMissing(".agents/workspace/radios/favorites")
+        mkdirsIfMissing(".agents/workspace/radio_recordings")
+
+        // PRD-0034: root placeholders (Everything is FileSystem).
+        ensureTextFileIfMissing(
+            path = ".agents/workspace/radio_recordings/_STATUS.md",
+            content =
+                buildString {
+                    appendLine("# radio_recordings 状态")
+                    appendLine()
+                    appendLine("- ok: true")
+                    appendLine("- at: ${(System.currentTimeMillis() / 1000L).coerceAtLeast(0L)}")
+                    appendLine("- note: ready")
+                    appendLine()
+                    appendLine("提示：录制产物按会话目录落盘。")
+                },
+        )
+        ensureTextFileIfMissing(
+            path = ".agents/workspace/radio_recordings/.recordings.index.json",
+            content =
+                run {
+                    val prettyJson = Json { ignoreUnknownKeys = true; explicitNulls = false; prettyPrint = true }
+                    val obj =
+                        buildJsonObject {
+                            put("schema", JsonPrimitive("kotlin-agent-app/radio-recordings-index@v1"))
+                            put("generatedAtSec", JsonPrimitive((System.currentTimeMillis() / 1000L).coerceAtLeast(0L)))
+                            put("sessions", buildJsonArray { })
+                        }
+                    prettyJson.encodeToString(JsonObject.serializer(), obj) + "\n"
+                },
+        )
 
         // PRD-0033: nas_smb VFS mount (App-internal mount).
         mkdirsIfMissing(".agents/nas_smb")
@@ -321,6 +356,45 @@ class AgentsWorkspace(
         f.writeText(content, Charsets.UTF_8)
     }
 
+    fun writeTextFileAtomic(path: String, content: String) {
+        val normalized = normalizeAgentsPath(path)
+        val nas = resolveNasSmbFileOrNull(normalized)
+        if (nas != null) {
+            // Best-effort: remote VFS may not support atomic rename; fall back to direct write.
+            nasSmbVfs.writeTextFile(nas.mountName, nas.relPath, content)
+            return
+        }
+
+        val f = resolveAgentsPath(path)
+        val parent = f.parentFile ?: error("Invalid path: $path")
+        if (!parent.exists()) parent.mkdirs()
+
+        val tmp = File(parent, ".tmp_${f.name}_${System.currentTimeMillis()}")
+        try {
+            tmp.writeText(content, Charsets.UTF_8)
+
+            if (f.exists()) {
+                // On Windows, renameTo() cannot overwrite an existing file.
+                if (!f.delete()) error("Atomic write failed: unable to delete target: $path")
+            }
+
+            if (tmp.renameTo(f)) return
+
+            // Fallback: copy bytes then delete tmp.
+            FileInputStream(tmp).use { input ->
+                FileOutputStream(f).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            tmp.delete()
+        } finally {
+            try {
+                if (tmp.exists()) tmp.delete()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     fun mkdir(path: String) {
         val normalized = normalizeAgentsPath(path)
         val nas = resolveNasSmbDirOrNull(normalized)
@@ -404,6 +478,17 @@ class AgentsWorkspace(
     private fun mkdirsIfMissing(path: String) {
         val f = resolveAgentsPath(path)
         if (!f.exists()) f.mkdirs()
+    }
+
+    private fun ensureTextFileIfMissing(
+        path: String,
+        content: String,
+    ) {
+        val f = resolveAgentsPath(path)
+        if (f.exists() && f.isFile) return
+        val parent = f.parentFile
+        if (parent != null && !parent.exists()) parent.mkdirs()
+        f.writeText(content.trimEnd() + "\n", Charsets.UTF_8)
     }
 
     private fun installBundledSkillDir(

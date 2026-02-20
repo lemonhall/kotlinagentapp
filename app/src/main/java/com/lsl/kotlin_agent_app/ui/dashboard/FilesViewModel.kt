@@ -13,6 +13,8 @@ import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.config.LlmConfigRepository
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 import com.lsl.kotlin_agent_app.media.Mp3MetadataReader
+import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsPaths
+import com.lsl.kotlin_agent_app.radio_recordings.RecordingMetaV1
 import com.lsl.kotlin_agent_app.radios.RadioRepository
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import kotlinx.coroutines.Dispatchers
@@ -365,7 +367,66 @@ class FilesViewModel(
         var cur = entries
         cur = decorateMusicEntries(cwd = cwd, entries = cur)
         cur = decorateRadioEntries(cwd = cwd, entries = cur)
+        cur = decorateRadioRecordingEntries(cwd = cwd, entries = cur)
         return cur
+    }
+
+    private fun decorateRadioRecordingEntries(
+        cwd: String,
+        entries: List<AgentsDirEntry>,
+    ): List<AgentsDirEntry> {
+        val normalized = cwd.replace('\\', '/').trim().trimEnd('/')
+        val inWorkspace = normalized == ".agents/workspace"
+        val inRoot = normalized == RadioRecordingsPaths.ROOT_DIR
+        if (!inWorkspace && !inRoot) return entries
+
+        if (inWorkspace) {
+            return entries.map { e ->
+                if (e.type == AgentsDirEntryType.Dir && e.name == "radio_recordings") {
+                    e.copy(
+                        displayName = "radio_recordings（录制）",
+                        subtitle = "录制会话与 10min 切片产物",
+                    )
+                } else {
+                    e
+                }
+            }
+        }
+
+        val filtered =
+            entries.filterNot { e ->
+                val n = e.name.trim()
+                n.startsWith(".") && n.lowercase(Locale.ROOT).endsWith(".json")
+            }
+
+        val statusFirst =
+            filtered.sortedWith(
+                compareBy<AgentsDirEntry> { it.name != "_STATUS.md" }
+                    .thenBy { it.type != AgentsDirEntryType.Dir }
+                    .thenBy { it.name.lowercase(Locale.ROOT) },
+            )
+
+        return statusFirst.map { e ->
+            if (e.type != AgentsDirEntryType.Dir) return@map e
+            val sid = e.name.trim()
+            if (sid.isBlank()) return@map e
+            val metaPath = "${RadioRecordingsPaths.ROOT_DIR}/$sid/_meta.json"
+            val raw =
+                try {
+                    if (!workspace.exists(metaPath)) return@map e
+                    workspace.readTextFile(metaPath, maxBytes = 256 * 1024)
+                } catch (_: Throwable) {
+                    return@map e
+                }
+            val meta =
+                try {
+                    RecordingMetaV1.parse(raw)
+                } catch (_: Throwable) {
+                    return@map e
+                }
+            val subtitle = "state=${meta.state} · chunks=${meta.chunks.size}"
+            e.copy(displayName = meta.station.name, subtitle = subtitle)
+        }
     }
 
     private fun decorateMusicEntries(
