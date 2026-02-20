@@ -86,7 +86,7 @@ transcripts/
     chunk_001.translation.json
 ```
 
-注意：同一 session 的多个 task 共享转录结果（`transcript.json` 内容相同），但各自独立落盘一份，避免跨目录引用的复杂性。或者更节省空间的方案：transcript 文件只在第一个 task 里生成，后续 task 的 `_task.json` 里记录 `transcriptSourceTaskId` 指向已有转录。Analysis 阶段确定。
+注意：同一 session 的多个 task 共享转录结果（`transcript.json` 内容相同），但各自独立落盘一份，避免跨目录引用的复杂性。
 
 ## 边录边转模式
 
@@ -178,5 +178,5 @@ streaming 模式下的 `_task.json` 额外字段：
 
 - 翻译一致性（术语、人名）：v41 先保证"可用"，术语表/摘要属于增强（后续版本追加）。
 - LLM 成本：10min chunk ≈ 数百 segments，每批 10-20 个，单个 chunk 可能需要 10-30 次 LLM 调用。测试必须用 mock。
-- 边录边转的 chunk 感知延迟：依赖文件系统轮询或 `RecordingService` 的回调通知，需在 Analysis 阶段确定机制。
-- 多 task 共享 transcript 的目录策略：独立落盘简单但浪费空间，引用共享节省空间但增加复杂度。Analysis 阶段做决策。
+- 边录边转的 chunk 感知延迟：依赖文件系统轮询或 `RecordingService` 的回调通知，需在 Analysis 阶段确定机制。回答：用回调通知而非轮询。RecordingService 每完成一个 chunk 的 rename（chunk_NNN.ogg.tmp → chunk_NNN.ogg）时发一个事件（SharedFlow 或 BroadcastChannel），TranscriptTaskManager 订阅即可。轮询有延迟且浪费资源。
+- 多 task 共享 transcript 的目录策略：独立落盘

@@ -54,7 +54,7 @@
 
 ## Acceptance（硬 DoD）
 
-- 并发上限：第三路 `radio record start ...` 必须失败，`error_code=MaxConcurrentRecordings`（或等价稳定码）。  
+- 并发上限：第三路 `radio record start ...` 必须失败，`error_code=MaxConcurrentRecordings`（或等价稳定码）。  2 个不同电台各 1 路。
 - 产物结构：录制开始后必须创建 `{session_id}/_meta.json` 与 `{session_id}/chunk_001.ogg`（允许短延迟）；录制停止后 `state=completed|cancelled|failed` 可解释。  
 - 切片策略：单会话 chunk 文件名连续（`chunk_001...`），chunk 时长目标 10min（允许最后一片不足）。  
 - 编码验证：产出的 `.ogg` 文件可被 Android MediaPlayer 正常播放，且可直接提交阿里云/火山引擎/OpenAI Whisper ASR 无需转码。

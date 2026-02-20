@@ -267,6 +267,6 @@ radio tts cancel --task
 ## Risks
 
 - TTS 选型：OpenAI TTS 质量好但有网络/费用依赖；Android 系统 TTS 免费离线但语音质量参差不齐（尤其日语）。建议 Analysis 阶段在 Nova 9 上实测系统 TTS 的日语/中文质量，再做决策。
-- 音频拼接复杂度：多段 TTS 音频 + 静音段拼接为单个 OGG 文件，需要处理采样率/声道数一致性。如果 TTS 输出格式不统一，可能需要先统一解码为 PCM 再重新编码。
+- 音频拼接复杂度：多段 TTS 音频 + 静音段拼接为单个 OGG 文件，需要处理采样率/声道数一致性。如果 TTS 输出格式不统一，可能需要先统一解码为 PCM 再重新编码。回答：所有 TTS 输出统一为 48kHz mono OGG Opus（与 v39 录制格式一致），拼接时不需要重采样。如果 TTS provider 输出格式不同，在 TtsClient 实现层做转码，不要把这个复杂度泄漏到 BilingualTtsWorker。
 - Chat 外部注入的侵入性：ChatViewModel 需要支持"从外部传入 skill + 上下文并自动发送"，需确认不破坏现有 Chat 交互流程。
 - language-tutor 回复质量：依赖 LLM 的语言学知识，日语语法分析的准确性需要人工抽检。v43 先保证"可用"，质量调优后续迭代。

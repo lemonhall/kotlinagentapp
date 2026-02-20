@@ -1,6 +1,6 @@
 # Radio Plans v38-v46（Merged）
 
-生成时间（UTC）：`2026-02-19T20:33:57Z`
+生成时间（UTC）：`2026-02-20T01:42:06Z`
 
 ## 包含文件
 - `docs/plan/v38-radio-module-overview.md`
@@ -520,7 +520,7 @@ Radio 生态的系统性问题（大量 broken stream）决定了“可靠性”
 
 ## Acceptance（硬 DoD）
 
-- 并发上限：第三路 `radio record start ...` 必须失败，`error_code=MaxConcurrentRecordings`（或等价稳定码）。  
+- 并发上限：第三路 `radio record start ...` 必须失败，`error_code=MaxConcurrentRecordings`（或等价稳定码）。  2 个不同电台各 1 路。
 - 产物结构：录制开始后必须创建 `{session_id}/_meta.json` 与 `{session_id}/chunk_001.ogg`（允许短延迟）；录制停止后 `state=completed|cancelled|failed` 可解释。  
 - 切片策略：单会话 chunk 文件名连续（`chunk_001...`），chunk 时长目标 10min（允许最后一片不足）。  
 - 编码验证：产出的 `.ogg` 文件可被 Android MediaPlayer 正常播放，且可直接提交阿里云/火山引擎/OpenAI Whisper ASR 无需转码。
@@ -858,7 +858,7 @@ transcripts/
     chunk_001.translation.json
 ```
 
-注意：同一 session 的多个 task 共享转录结果（`transcript.json` 内容相同），但各自独立落盘一份，避免跨目录引用的复杂性。或者更节省空间的方案：transcript 文件只在第一个 task 里生成，后续 task 的 `_task.json` 里记录 `transcriptSourceTaskId` 指向已有转录。Analysis 阶段确定。
+注意：同一 session 的多个 task 共享转录结果（`transcript.json` 内容相同），但各自独立落盘一份，避免跨目录引用的复杂性。
 
 ## 边录边转模式
 
@@ -950,8 +950,8 @@ streaming 模式下的 `_task.json` 额外字段：
 
 - 翻译一致性（术语、人名）：v41 先保证"可用"，术语表/摘要属于增强（后续版本追加）。
 - LLM 成本：10min chunk ≈ 数百 segments，每批 10-20 个，单个 chunk 可能需要 10-30 次 LLM 调用。测试必须用 mock。
-- 边录边转的 chunk 感知延迟：依赖文件系统轮询或 `RecordingService` 的回调通知，需在 Analysis 阶段确定机制。
-- 多 task 共享 transcript 的目录策略：独立落盘简单但浪费空间，引用共享节省空间但增加复杂度。Analysis 阶段做决策。
+- 边录边转的 chunk 感知延迟：依赖文件系统轮询或 `RecordingService` 的回调通知，需在 Analysis 阶段确定机制。回答：用回调通知而非轮询。RecordingService 每完成一个 chunk 的 rename（chunk_NNN.ogg.tmp → chunk_NNN.ogg）时发一个事件（SharedFlow 或 BroadcastChannel），TranscriptTaskManager 订阅即可。轮询有延迟且浪费资源。
+- 多 task 共享 transcript 的目录策略：独立落盘
 
 ---
 
@@ -1394,7 +1394,7 @@ radio tts cancel --task
 ## Risks
 
 - TTS 选型：OpenAI TTS 质量好但有网络/费用依赖；Android 系统 TTS 免费离线但语音质量参差不齐（尤其日语）。建议 Analysis 阶段在 Nova 9 上实测系统 TTS 的日语/中文质量，再做决策。
-- 音频拼接复杂度：多段 TTS 音频 + 静音段拼接为单个 OGG 文件，需要处理采样率/声道数一致性。如果 TTS 输出格式不统一，可能需要先统一解码为 PCM 再重新编码。
+- 音频拼接复杂度：多段 TTS 音频 + 静音段拼接为单个 OGG 文件，需要处理采样率/声道数一致性。如果 TTS 输出格式不统一，可能需要先统一解码为 PCM 再重新编码。回答：所有 TTS 输出统一为 48kHz mono OGG Opus（与 v39 录制格式一致），拼接时不需要重采样。如果 TTS provider 输出格式不同，在 TtsClient 实现层做转码，不要把这个复杂度泄漏到 BilingualTtsWorker。
 - Chat 外部注入的侵入性：ChatViewModel 需要支持"从外部传入 skill + 上下文并自动发送"，需确认不破坏现有 Chat 交互流程。
 - language-tutor 回复质量：依赖 LLM 的语言学知识，日语语法分析的准确性需要人工抽检。v43 先保证"可用"，质量调优后续迭代。
 
@@ -1404,27 +1404,27 @@ radio tts cancel --task
 
 <!-- merged by tools/merge_md.py -->
 
-# v44 Plan：ASR/TTS Service 编排层 + Chat 语音输入 + 并发隔离
+# v44 Plan：ASR/TTS Service 编排层 + Chat 语音输入 + 通道隔离
 
 ## Goal
 
-在 v40（CloudAsrClient）和 v43（TtsClient）已有的 provider 接口之上，新增 service 编排层，统一管理并发、优先级、队列和 Settings 配置：
+在 v40（CloudAsrClient）和 v43（TtsClient）已有的 provider 接口之上，新增 service 编排层，统一管理通道隔离、Settings 配置：
 
-- `AsrService`：在 `CloudAsrClient` 之上加并发控制 + 优先级队列 + 文件转录 / 流式转录
-- `TtsService`：在 `TtsClient` 之上加并发控制 + 优先级队列
+- `AsrService`：在 `CloudAsrClient` 之上加通道隔离 + 文件转录 / 流式转录
+- `TtsService`：在 `TtsClient` 之上加通道隔离
 - Chat 语音输入最小闭环（麦克风 → ASR → 文字填入输入框）
-- 并发隔离：Chat 高优先级，Radio background 低优先级，互不拖死
+- 通道隔离：Chat 独占通道，永远不被 Radio background 阻塞
 
 ## 架构分层
 
 ```
-AsrService（v44 新增：并发控制 + 优先级 + 队列 + Settings）
+AsrService（v44 新增：通道隔离 + Settings）
   └── CloudAsrClient（v40 已有：provider 接口）
         ├── OpenAiWhisperClient（v40 已有）
         ├── AliyunAsrClient（未来）
         └── VolcEngineAsrClient（未来）
 
-TtsService（v44 新增：并发控制 + 优先级 + 队列 + Settings）
+TtsService（v44 新增：通道隔离 + Settings）
   └── TtsClient（v43 已有：provider 接口）
         ├── OpenAiTtsClient（v43 已有）
         └── AndroidSystemTtsClient（未来）
@@ -1441,11 +1441,11 @@ v44 不修改 v40/v43 已有的 provider 接口，只在其上层做编排。v40
 做（v44）：
 
 - `AsrService`：
-  - `transcribeFile(file, priority)` — 文件级转录（复用 v40 的 `CloudAsrClient.transcribe()`）
-  - `transcribeStream(pcmFlow, sampleRate, priority)` — 流式转录（麦克风 PCM → 实时文字）
+  - `transcribeFile(file, channel)` — 文件级转录（复用 v40 的 `CloudAsrClient.transcribe()`）
+  - `transcribeStream(pcmFlow, sampleRate, channel)` — 流式转录（麦克风 PCM → 实时文字）
 - `TtsService`：
-  - `synthesize(text, language, voice, priority)` — 复用 v43 的 `TtsClient.synthesize()`
-- 并发隔离（双队列 + 预留槽位）
+  - `synthesize(text, language, voice, channel)` — 复用 v43 的 `TtsClient.synthesize()`
+- 通道隔离（3 条独立通道，互不阻塞）
 - Settings 配置（provider 选择 + voice 配置 + 启用开关）
 - Chat 语音输入最小闭环（仅语音输入，不做语音输出）
 - v40 `TranscriptTaskManager` + v43 `TtsWorker` 重构为通过 Service 层调用
@@ -1456,43 +1456,90 @@ v44 不修改 v40/v43 已有的 provider 接口，只在其上层做编排。v40
 - 不做完整实时翻译 UI（v45+）
 - 不做"全语音聊天产品化"
 
-## 并发隔离策略
+## 通道隔离策略
+
+核心原则：**Chat 通道永远不被 Radio background 阻塞。三条通道完全独立，各自串行，互不干扰。**
 
 ```
-总并发上限：3 个 ASR/TTS 请求同时执行
-
-chatQueue（高优先级）：
-  - 预留 1 个并发槽位（始终可用，不被 background 占满）
-  - 来源：Chat 语音输入、Chat 语音输出（v45）
-
-backgroundQueue（低优先级）：
-  - 最多 2 个并发
-  - 来源：Radio 转录（v40）、Radio TTS（v43）
-
-调度规则：
-  - background 任务最多占用 2 个槽位
-  - chat 任务到达时，如果 3 个槽位都被 background 占满，
-    等待最近一个 background 任务完成后立即插入（不抢占正在执行的请求）
-  - chat 任务之间 FIFO
-  - background 任务之间 FIFO
+┌─────────────────────────────────────────────────────┐
+│                    App 全局                          │
+│                                                     │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │
+│  │ Chat 通道    │  │ Radio 通道 A  │  │ Radio 通道 B│ │
+│  │ (独占)       │  │ (background) │  │ (background)│ │
+│  │             │  │              │  │             │ │
+│  │ 语音输入 ASR │  │ 电台1 转录    │  │ 电台2 转录   │ │
+│  │ Agent TTS   │  │ 电台1 TTS    │  │ 电台2 TTS   │ │
+│  │             │  │              │  │             │ │
+│  │ 并发：1      │  │ 并发：1       │  │ 并发：1      │ │
+│  │ 永远可用     │  │ 可排队        │  │ 可排队       │ │
+│  └─────────────┘  └──────────────┘  └────────────┘ │
+│                                                     │
+│  三条通道完全独立，各自内部串行，互不阻塞              │
+└─────────────────────────────────────────────────────┘
 ```
+
+设计要点：
+
+- **Chat 通道**：独占 1 条通道，并发 1。用户发起语音输入时立即可用，无需等待任何 background 任务。Chat 通道内部串行（同一时刻只有一个 ASR 或 TTS 请求在执行）。
+- **Radio 通道 A / B**：各独占 1 条通道，并发各 1。对应最多 2 个电台的后台任务（转录/翻译 TTS）。通道内部串行（同一电台的 chunk 按顺序处理）。第 3 个电台的请求被拒绝，返回 `NoChannelAvailable`。
+- **通道之间零依赖**：Chat 通道不关心 Radio 通道的状态，Radio 通道之间也互不关心。没有共享信号量、没有共享队列、没有"等待其他通道释放"的逻辑。
 
 ```kotlin
-class MediaServiceDispatcher(
-    private val maxTotal: Int = 3,
-    private val maxBackground: Int = 2,
-) {
-    enum class Priority { CHAT, BACKGROUND }
+/**
+ * 三条完全独立的请求通道。
+ * 每条通道内部串行（Mutex），通道之间零依赖。
+ */
+class ChannelDispatcher {
+
+    enum class Channel {
+        CHAT,           // 独占，永远可用
+        RADIO_A,        // background 电台 1
+        RADIO_B,        // background 电台 2
+    }
 
     /**
-     * 获取执行许可。chat 优先级保证至少 1 个槽位可用。
-     * 挂起直到获得许可。
+     * 在指定通道内获取执行许可。
+     * - CHAT：立即获取（通道内串行，但不等待 Radio）
+     * - RADIO_A / RADIO_B：通道内串行排队
+     *
+     * @throws NoChannelAvailableException 当 RADIO_A 和 RADIO_B 都被不同 session 占用时，
+     *         第三个 session 的请求直接拒绝（不排队）
      */
-    suspend fun acquire(priority: Priority)
+    suspend fun acquire(channel: Channel): ChannelPermit
 
-    fun release()
+    fun release(permit: ChannelPermit)
+
+    /**
+     * 为一个 radio session 分配通道。
+     * 如果该 session 已有通道则复用，否则分配空闲通道。
+     * 两个通道都被占用时返回 null。
+     */
+    fun assignRadioChannel(sessionId: String): Channel?
+
+    /** 释放 radio session 对通道的占用 */
+    fun releaseRadioChannel(sessionId: String)
 }
+
+data class ChannelPermit(
+    val channel: ChannelDispatcher.Channel,
+    val permitId: String,
+)
 ```
+
+### Radio 通道分配规则
+
+Radio 通道的分配以"session"为粒度（一个录制会话 / 一个转录任务 / 一个 live 会话 = 一个 session）：
+
+- 第一个 radio session 启动时，分配 `RADIO_A`
+- 第二个 radio session 启动时，分配 `RADIO_B`
+- 第三个 radio session 启动时，`assignRadioChannel()` 返回 null → 调用方返回 `NoChannelAvailable` 错误
+- session 结束后释放通道，供后续 session 使用
+- 同一个 session 的所有请求（多个 chunk 的转录、翻译 TTS）走同一条通道，通道内串行保证顺序
+
+### 与 v39 录制并发上限的关系
+
+v39 录制并发上限 ≤2（`MaxConcurrentRecordings`）。v44 的 Radio 通道数也是 2。这不是巧合——每个录制会话绑定一条 Radio 通道，录制 + 转录 + TTS 在同一通道内串行处理，天然保证不超载。
 
 ## 流式转录接口
 
@@ -1507,7 +1554,7 @@ suspend fun transcribeStream(
     sampleRate: Int,            // 16000
     channelCount: Int,          // 1 (mono)
     language: String?,          // null = 自动检测
-    priority: Priority,         // CHAT / BACKGROUND
+    channel: Channel,           // CHAT / RADIO_A / RADIO_B
 ): Flow<StreamTranscriptEvent>
 
 sealed class StreamTranscriptEvent {
@@ -1523,8 +1570,9 @@ sealed class StreamTranscriptEvent {
 底层实现策略（Analysis 阶段确定）：
 
 - 方案 A：真流式 — 对接火山引擎流式 ASR WebSocket（`format=ogg, codec=opus`），延迟最低
-- 方案 B：伪流式 — 每 3-5 秒攒一段 PCM，调用 Whisper API 文件转录，拼接结果
-- v44 先实现方案 B（伪流式），方案 A 作为后续优化
+- 方案 B：伪流式 — 每 5 秒攒一段 PCM，调用 Whisper API 文件转录，拼接结果
+- v44 先实现方案 B（伪流式，固定 5 秒窗口），方案 A 作为后续优化
+- 5 秒窗口与 v45 AudioSplitter 的切段粒度对齐，避免集成时调整
 
 ## Chat 语音输入交互
 
@@ -1539,10 +1587,11 @@ Chat 输入框 → 点击麦克风按钮 → 进入录音状态
 
 - 输入框右侧新增麦克风图标按钮
 - 按下后开始录音（`AudioRecord` → PCM Flow）
-- PCM Flow 喂给 `AsrService.transcribeStream(priority=CHAT)`
+- PCM Flow 喂给 `AsrService.transcribeStream(channel=CHAT)`
 - partial 结果实时显示，final 结果填入输入框
 - 录音时长上限 60 秒（超时自动停止）
 - ASR 未启用时（`asr.enabled=false`），麦克风按钮灰显，点击弹 toast 提示去 Settings 开启
+- Chat 通道独占，语音输入期间不受任何 Radio 后台任务影响
 
 ## Settings 配置项
 
@@ -1558,6 +1607,8 @@ Chat 输入框 → 点击麦克风按钮 → 进入录音状态
 
 provider 切换后，对应的 API key 配置项自动出现（如 `openai.apiKey` 已在现有 Settings 中）。
 
+provider 切换的生效时机：已提交到通道内排队的请求用旧 provider 跑完，新请求用新 provider。不做热切换。
+
 ## 错误码集合
 
 | error_code | 含义 |
@@ -1565,7 +1616,7 @@ provider 切换后，对应的 API key 配置项自动出现（如 `openai.apiKe
 | `AsrDisabled` | ASR 未启用（Settings 中关闭） |
 | `TtsDisabled` | TTS 未启用（Settings 中关闭） |
 | `ProviderNotConfigured` | 选择的 provider 缺少 API key 或必要配置 |
-| `ConcurrencyLimitReached` | background 队列并发槽位已满（排队等待中） |
+| `NoChannelAvailable` | 2 条 Radio 通道都被占用，第 3 个 session 被拒绝 |
 | `RecordingPermissionDenied` | 麦克风权限未授予 |
 | `RecordingTimeout` | 录音超过 60 秒上限，自动停止 |
 | `StreamConnectionFailed` | 流式 ASR 连接失败 |
@@ -1574,31 +1625,35 @@ provider 切换后，对应的 API key 配置项自动出现（如 `openai.apiKe
 | `AsrRemoteError` | 云端 API 返回非 2xx |
 | `ProviderQuotaExceeded` | API 配额耗尽 |
 
+注意：不再有 `ConcurrencyLimitReached`。Chat 通道永远可用不排队；Radio 通道内部串行排队是正常行为不报错；只有第 3 个 session 抢不到通道时才报 `NoChannelAvailable`。
+
 ## Acceptance（硬 DoD）
 
 - 分层正确：`AsrService` 通过 `CloudAsrClient` 调用 provider，不直接持有 HTTP client；`TtsService` 同理通过 `TtsClient`。
-- 并发隔离：同时发起 2 个 background + 1 个 chat 请求，chat 请求不被阻塞；同时发起 3 个 background 请求，第 3 个排队等待。
+- 通道隔离：2 个 Radio 通道各跑一个长任务时，Chat 通道的 ASR 请求立即执行，零等待。这是最核心的验收条件。
+- 通道独立性：Radio 通道 A 的任务失败/超时不影响 Radio 通道 B 和 Chat 通道。
+- 通道上限：第 3 个 radio session 请求通道时，返回 `NoChannelAvailable`。
 - 文件转录：`AsrService.transcribeFile()` 行为与 v40 直接调用 `CloudAsrClient` 一致（透传，不改变结果）。
-- 流式转录：`AsrService.transcribeStream()` 能产出 `Partial` 和 `Final` 事件（伪流式：每 3-5 秒一个 Final）。
+- 流式转录：`AsrService.transcribeStream()` 能产出 `Partial` 和 `Final` 事件（伪流式：每 5 秒一个 Final）。
 - Chat 语音输入：麦克风按钮可用 → 录音 → ASR → 文字填入输入框，端到端可用。
-- Settings：`asr.enabled=false` 时麦克风按钮灰显；切换 provider 后下次 ASR 调用使用新 provider。
-- 隐私提示：首次开启 `asr.enabled` 或 `tts.enabled` 时弹出提示"音频数据将发送到云端服务"。
+- Settings：`asr.enabled=false` 时麦克风按钮灰显；切换 provider 后新请求使用新 provider，已排队请求不受影响。
+- 隐私提示：首次开启 `asr.enabled` 或 `tts.enabled` 时弹出提示"音频数据将发送到 [provider 名称] 云端处理"。
 - v40/v43 回归：重构后 `radio transcript` 和 `radio tts` 功能不退化。
 - CLI help：无新增 CLI（v44 的 ASR/TTS 通过 Service 层被现有 CLI 间接使用）。
 
 验证命令：
 
 - `.\gradlew.bat :app:testDebugUnitTest`
-- 真机冒烟：Chat 页签 → 麦克风按钮 → 说一句话 → 文字出现在输入框
+- 真机冒烟：Chat 页签 → 麦克风按钮 → 说一句话 → 文字出现在输入框（同时后台有 Radio 转录任务在跑）
 
 ## Files（规划）
 
 - Service 编排层：
-  - `app/src/main/java/com/lsl/kotlin_agent_app/asr/AsrService.kt`（编排层，持有 `CloudAsrClient` + `MediaServiceDispatcher`）
+  - `app/src/main/java/com/lsl/kotlin_agent_app/asr/AsrService.kt`（编排层，持有 `CloudAsrClient` + `ChannelDispatcher`）
   - `app/src/main/java/com/lsl/kotlin_agent_app/asr/StreamTranscriptEvent.kt`
-  - `app/src/main/java/com/lsl/kotlin_agent_app/tts/TtsService.kt`（编排层，持有 `TtsClient` + `MediaServiceDispatcher`）
-- 并发调度：
-  - `app/src/main/java/com/lsl/kotlin_agent_app/media/MediaServiceDispatcher.kt`
+  - `app/src/main/java/com/lsl/kotlin_agent_app/tts/TtsService.kt`（编排层，持有 `TtsClient` + `ChannelDispatcher`）
+- 通道调度：
+  - `app/src/main/java/com/lsl/kotlin_agent_app/media/ChannelDispatcher.kt`
 - Settings 扩展：
   - 现有 Settings 结构中新增 ASR/TTS 配置项
 - Chat 语音输入：
@@ -1608,31 +1663,32 @@ provider 切换后，对应的 API key 配置项自动出现（如 `openai.apiKe
   - `app/src/main/java/com/lsl/kotlin_agent_app/radio_transcript/TranscriptTaskManager.kt`
   - `app/src/main/java/com/lsl/kotlin_agent_app/radio_tts/TtsBilingualWorker.kt`
 - Tests：
-  - `MediaServiceDispatcher` 并发单测
+  - `ChannelDispatcher` 通道隔离单测
   - `AsrService` / `TtsService` mock provider 单测
   - `VoiceInputViewModel` 状态机单测
   - v40/v43 回归测试
 
 ## Steps（Strict / TDD）
 
-1) Analysis：确定 `MediaServiceDispatcher` 的槽位策略（预留 vs 抢占）；确定流式转录的实现方案（伪流式 vs 真流式）；列出 Settings 配置项的 UI 布局；确认麦克风权限申请流程。
-2) TDD Red：`MediaServiceDispatcher` 并发单测 — 2 background + 1 chat 不阻塞；3 background 第 3 个排队；chat 到达时 background 满载的等待行为。
-3) TDD Green：实现 `MediaServiceDispatcher`。
-4) TDD Red：`AsrService` 单测 — `transcribeFile()` 透传 provider 结果 + 并发控制；`transcribeStream()` 伪流式产出 Partial/Final 事件。
-5) TDD Red：`TtsService` 单测 — `synthesize()` 透传 + 并发控制；`TtsDisabled` / `ProviderNotConfigured` 错误码。
-6) TDD Green：实现 `AsrService` + `TtsService`，接入 `MediaServiceDispatcher`。
-7) TDD Red：`VoiceInputViewModel` 状态机单测 — idle → recording → transcribing → done；超时自动停止；ASR disabled 时拒绝启动。
-8) TDD Green：实现 `VoiceInputButton` + `VoiceInputViewModel` + 麦克风录音 → PCM Flow → AsrService。
-9) Refactor：v40 `TranscriptTaskManager` + v43 `TtsBilingualWorker` 改为通过 Service 层调用，跑回归测试确认不退化。
-10) Verify：UT 全绿；真机冒烟（Chat 语音输入 + Radio 转录并发不冲突）。
+1) Analysis：确定 `ChannelDispatcher` 的内部实现（3 个独立 Mutex，无共享状态）；确定流式转录的伪流式窗口（固定 5 秒）；列出 Settings 配置项的 UI 布局；确认麦克风权限申请流程（Android 13+ `RECORD_AUDIO`）。
+2) TDD Red：`ChannelDispatcher` 通道隔离单测 —— Chat 通道在 Radio 通道满载时仍立即获取许可；Radio 通道 A/B 各自内部串行；第 3 个 session 分配通道返回 null；session 释放后通道可复用。
+3) TDD Green：实现 `ChannelDispatcher`（3 个独立 `Mutex`，`assignRadioChannel` 用 `ConcurrentHashMap<String, Channel>` 跟踪 session→channel 映射）。
+4) TDD Red：`AsrService` 单测 — `transcribeFile()` 透传 provider 结果 + 走指定通道；`transcribeStream()` 伪流式每 5 秒产出 Final 事件；`AsrDisabled` / `ProviderNotConfigured` 前置校验。
+5) TDD Red：`TtsService` 单测 — `synthesize()` 透传 + 走指定通道；`TtsDisabled` / `ProviderNotConfigured` 前置校验。
+6) TDD Green：实现 `AsrService` + `TtsService`，接入 `ChannelDispatcher`。
+7) TDD Red：`VoiceInputViewModel` 状态机单测 — idle → recording → transcribing → done；超时 60 秒自动停止；ASR disabled 时拒绝启动；录音期间 Radio 后台任务不影响状态流转。
+8) TDD Green：实现 `VoiceInputButton` + `VoiceInputViewModel` + 麦克风录音 → PCM Flow → AsrService（channel=CHAT）。
+9) Refactor：v40 `TranscriptTaskManager` + v43 `TtsBilingualWorker` 改为通过 Service 层调用（使用 `assignRadioChannel(sessionId)` 获取通道），跑回归测试确认不退化。
+10) Verify：UT 全绿；真机冒烟（Chat 语音输入 + 同时 2 个 Radio 转录任务在跑，Chat 零延迟响应）。
 
 ## Risks
 
-- 伪流式延迟：每 3-5 秒才出一次结果，用户体验不如真流式。v44 先接受，后续版本可升级为火山引擎 WebSocket 真流式。
-- 麦克风权限：Android 13+ 需要 `POST_NOTIFICATIONS` + `RECORD_AUDIO` 权限，首次使用时的权限申请流程需要测试覆盖。
+- 伪流式延迟：每 5 秒才出一次结果，用户体验不如真流式。v44 先接受，后续版本可升级为火山引擎 WebSocket 真流式。
+- 麦克风权限：Android 13+ 需要 `RECORD_AUDIO` 权限，首次使用时的权限申请流程需要测试覆盖。
 - v40/v43 回归风险：重构调用链路后必须跑完整回归，确认 `radio transcript` 和 `radio tts` 不退化。
-- provider 切换的热生效：用户在 Settings 切换 provider 后，正在执行的任务是否受影响？建议"已提交的任务用旧 provider 跑完，新任务用新 provider"。
+- provider 切换的生效时机：已提交的请求用旧 provider 跑完，新请求用新 provider。实现上需要在 `acquire` 时快照当前 provider 配置，而非在 `execute` 时读取。
 - 隐私合规：首次启用 ASR/TTS 的隐私提示措辞需要审慎，明确告知"音频数据将上传到 [provider 名称] 云端处理"。
+- 3 条通道 = 最多 3 个并发 HTTP 请求到同一个 API provider：如果 provider 有 rate limit（如 OpenAI Whisper 的 RPM 限制），3 条通道同时发请求可能触发限流。建议在 `CloudAsrClient` / `TtsClient` 实现层做 per-provider 的 rate limit 兜底（429 重试），不在通道层处理。
 
 ---
 
@@ -1654,13 +1710,45 @@ provider 切换后，对应的 API key 配置项自动出现（如 `openai.apiKe
 
 ```
 RadioAudioStream（ExoPlayer 正在播放的电台）
-  → AudioSplitter（每 5 秒切一段 PCM）
-  → AsrService.transcribeStream(priority=BACKGROUND)
-  → TranslationClient.translateBatch(segments, context, priority=BACKGROUND)
-  → TtsService.synthesize(translatedText, priority=BACKGROUND)  # subtitle_only 模式跳过
-  → MixController（混音输出）                                     # subtitle_only 模式不参与
+  → AudioSplitter（独立 Player 拉同一 stream URL，每 5 秒切一段 PCM）
+  → AsrService.transcribeStream(channel=RADIO_A/B)
+  → TranslationClient.translateBatch(segments, context)
+  → TtsService.synthesize(translatedText, channel=RADIO_A/B)  # subtitle_only 模式跳过
+  → MixController（混音输出）                                    # subtitle_only 模式不参与
   → SubtitleScreen（实时追加 segment）
 ```
+
+### AudioSplitter 技术方案
+
+v45 采用"独立 Player 旁路解码"方案（与 v39 录制架构一致）：
+
+```
+┌──────────────────────────────────────────────────┐
+│                  同一个 stream URL                 │
+│                                                   │
+│  ┌─────────────────┐    ┌──────────────────────┐ │
+│  │ ExoPlayer (主)    │    │ Media3 Player (旁路)  │ │
+│  │ 负责：播放原声     │    │ 负责：解码 → PCM      │ │
+│  │ 输出：扬声器       │    │ 输出：AudioSplitter   │ │
+│  │ 音量：受 Mix 控制  │    │ 音量：静音（不出声）    │ │
+│  └─────────────────┘    └──────────────────────┘ │
+│                                                   │
+│  两个 Player 独立拉流，互不干扰                      │
+│  代价：双倍带宽；收益：零侵入主播放器，技术风险最低    │
+└──────────────────────────────────────────────────┘
+```
+
+设计要点：
+
+- 旁路 Player 使用独立的 Media3 ExoPlayer 实例，配置为"仅解码不播放"（自定义 `AudioSink` 将 PCM 数据导出而非送往硬件）
+- 旁路 Player 拉取与主 Player 相同的 stream URL，两者之间无数据依赖
+- PCM 数据按 5 秒窗口切段，与 v44 伪流式 ASR 的窗口对齐
+- 旁路 Player 的生命周期由 `LiveTranslationPipeline` 管理：`radio live start` 时创建，`radio live stop` 时销毁
+- 与 v39 录制的 `RecordingSession` 架构一致（v39 也是独立 Player 解码 → PCM → 编码），降低认知负担和代码复用成本
+
+备选方案（记录但不采用）：
+
+- 方案 B：自定义 `AudioSink` 注入主 ExoPlayer 的 `RenderersFactory`，从主播放器的渲染管线中截取 PCM。优点是单路带宽；缺点是侵入主播放器架构，影响播放稳定性，且 ExoPlayer 的 AudioSink 接口在不同版本间有变化，维护成本高。Analysis 阶段评估后决定不采用。
 
 ### 延迟预算
 
@@ -1675,6 +1763,8 @@ RadioAudioStream（ExoPlayer 正在播放的电台）
 
 这个延迟对"语言学习场景"可接受（非同声传译场景）。UI 上显示延迟指示器，让用户知道当前译文对应多少秒前的原声。
 
+另外，由于主 Player 和旁路 Player 独立拉流，两者之间存在 0-3 秒的流位置偏差（取决于 CDN 缓存和连接时机）。这个偏差会叠加到端到端延迟中，但对学习场景影响可忽略。`radio live status` 的 `pipeline_latency_sec` 会反映实际观测到的总延迟。
+
 ## PRD Trace
 
 - PRD-0034：REQ-0034-180 / REQ-0034-181
@@ -1684,7 +1774,7 @@ RadioAudioStream（ExoPlayer 正在播放的电台）
 做（v45）：
 
 - `LiveTranslationPipeline`：串联 AudioSplitter → ASR → Translation → TTS 的管线编排器
-- `AudioSplitter`：从 ExoPlayer 的音频输出中截取 PCM 段（每 5 秒一段）
+- `AudioSplitter`：独立 Media3 Player 旁路解码 + 每 5 秒切一段 PCM
 - `MixController`：控制原声音量 + 播放 TTS 音频，三种模式的状态机
 - `radio live start|stop|status`：CLI 最小闭环
 - v42 `SubtitleScreen` 扩展：streaming 追加模式（新 segment 实时追加到底部，自动滚动）
@@ -1692,7 +1782,7 @@ RadioAudioStream（ExoPlayer 正在播放的电台）
 
 不做（v45）：
 
-- 不做全链路落盘（v46）
+- 不做全链路落盘（v46 的 `--save_audio` flag 将提供 live + 录制的等效能力）
 - 不做 AudioFocusManager 与 Chat 并发治理（v46）
 - 不做复杂费用统计
 
@@ -1792,13 +1882,20 @@ class MixController(
 |------|--------|------|
 | `radio live` 单独运行 | ✅ | 实时翻译，不录制 |
 | `radio record` 单独运行 | ✅ | 纯录制，不翻译 |
-| 同一电台同时 `live` + `record` | ❌ 互斥 | 避免两条管线抢同一个音频源 |
+| 同一电台同时 `live` + `record` | ❌ 互斥 | 避免三路拉流（主播放 + live 旁路 + record 旁路） |
 | 不同电台分别 `live` 和 `record` | ❌ | `live` 并发上限 1 路（资源消耗大） |
+
+> v46 补充：v46 的 `radio live start --save_audio` flag 将提供"边听边实时翻译 + 同时保存原声"的等效能力，无需同时运行 `radio record`。`--save_audio` 复用 live 管线的旁路 Player PCM 数据直接编码落盘，不额外拉流。
 
 并发限制：
 
-- `radio live` 全局最多 1 路（实时翻译链路消耗 ASR + LLM + TTS 三个 API 并发）
+- `radio live` 全局最多 1 路（实时翻译链路已经占用 1 条 Radio 通道 + 旁路 Player 带宽 + ASR/LLM/TTS API 并发）
 - `radio live` 运行时，`radio record` 不可启动（反之亦然，对同一电台）
+- `radio live` 占用 v44 的一条 Radio 通道（RADIO_A 或 RADIO_B），剩余一条通道仍可用于其他电台的离线转录任务
+
+### 与 v44 通道隔离的关系
+
+`radio live` 启动时通过 `ChannelDispatcher.assignRadioChannel(liveSessionId)` 获取一条 Radio 通道。管线内的 ASR / Translation / TTS 请求全部走这条通道，通道内串行处理。Chat 通道不受影响。
 
 ## 实时字幕视图扩展
 
@@ -1838,6 +1935,7 @@ radio live status
   "target_language": "zh",
   "state": "starting",
   "pipeline_latency_sec": null,
+  "radio_channel": "RADIO_A",
   "message": "Live translation starting..."
 }
 ```
@@ -1853,6 +1951,7 @@ radio live status
   "segments_processed": 24,
   "segments_skipped": 1,
   "pipeline_latency_sec": 12.3,
+  "radio_channel": "RADIO_A",
   "asr_provider": "openai_whisper",
   "translation_provider": "openai_gpt4",
   "tts_provider": "openai_tts"
@@ -1868,6 +1967,7 @@ radio live status
 | `LiveSessionAlreadyActive` | 已有一个 live 会话在运行（全局限 1 路） |
 | `StationNotPlaying` | 指定电台当前未在播放 |
 | `RecordingConflict` | 该电台正在录制中，与 live 互斥 |
+| `NoChannelAvailable` | v44 的 2 条 Radio 通道都被占用（不应出现，因为 live 限 1 路，但作为防御性错误码保留） |
 | `AsrPipelineStalled` | ASR 连续 10 次超时，管线自动暂停 |
 | `TranslationPipelineStalled` | 翻译连续 10 次失败，管线自动暂停 |
 | `TtsPipelineStalled` | TTS 连续 10 次失败，管线自动暂停（subtitle_only 模式不会触发） |
@@ -1878,7 +1978,8 @@ radio live status
 
 ## Acceptance（硬 DoD）
 
-- 管线串联：`radio live start` 后，电台音频流经 ASR → 翻译 → TTS → 混音输出，端到端可用。
+- 管线串联：`radio live start` 后，电台音频流经旁路 Player → PCM → ASR → 翻译 → TTS → 混音输出，端到端可用。
+- 旁路 Player：live 启动时创建独立 Media3 Player 拉取同一 stream URL，live 停止时销毁；主 Player 播放不受影响。
 - 交替模式：TTS 播放时原声降至 20% 音量，TTS 结束后恢复 100%；切换模式不崩溃不永久静音。
 - 仅译文模式：原声静音，只听到 TTS 译文朗读。
 - 仅字幕模式：原声保持 100% 音量，不播放 TTS，字幕正常追加；不消耗 TTS API。
@@ -1887,6 +1988,7 @@ radio live status
 - 实时字幕：新 segment 实时追加到字幕视图底部，自动滚动。
 - 并发限制：第二个 `radio live start` 必须返回 `LiveSessionAlreadyActive`。
 - 互斥：对正在录制的电台执行 `radio live start` 必须返回 `RecordingConflict`。
+- 通道占用：`radio live` 占用一条 Radio 通道，`radio live status` 的 result 中体现 `radio_channel`。
 - TTS 门禁：`interleaved` 和 `target_only` 模式在 `tts.enabled=false` 时返回 `TtsDisabled`；`subtitle_only` 模式不检查 TTS 开关。
 - CLI help：`radio live --help` 为 0。
 
@@ -1899,7 +2001,7 @@ radio live status
 
 - 实时翻译管线：
   - `app/src/main/java/com/lsl/kotlin_agent_app/radio_live/LiveTranslationPipeline.kt`（管线编排器）
-  - `app/src/main/java/com/lsl/kotlin_agent_app/radio_live/AudioSplitter.kt`（PCM 切段）
+  - `app/src/main/java/com/lsl/kotlin_agent_app/radio_live/AudioSplitter.kt`（独立 Player 旁路解码 + PCM 切段）
   - `app/src/main/java/com/lsl/kotlin_agent_app/radio_live/MixController.kt`（混音状态机）
   - `app/src/main/java/com/lsl/kotlin_agent_app/radio_live/LiveSession.kt`（会话状态）
 - 字幕视图扩展：
@@ -1911,30 +2013,32 @@ radio live status
 - Tests：
   - `MixController` 状态机单测（三种模式 × 正常/来不及/连续 skip）
   - `LiveTranslationPipeline` 管线编排单测（mock ASR/Translation/TTS，验证串联顺序与超时处理；subtitle_only 模式验证跳过 TTS）
-  - `AudioSplitter` 切段单测
-  - CLI argv 门禁 + 并发限制 + 互斥校验
+  - `AudioSplitter` 切段单测（mock Media3 Player PCM 输出，验证 5 秒切段）
+  - CLI argv 门禁 + 并发限制 + 互斥校验 + 通道分配校验
 
 ## Steps（Strict / TDD）
 
-1) Analysis：确定 AudioSplitter 从 ExoPlayer 截取 PCM 的技术方案（RenderersFactory 自定义 AudioSink vs MediaCodec 旁路解码）；确定延迟预算各环节的超时阈值；确定 MixController 的音量曲线（线性 vs 渐变）。
+1) Analysis：确定旁路 Player 的 `AudioSink` 实现方案（自定义 `AudioSink` 将 PCM 导出到 `AudioSplitter` 的 buffer，不送硬件）；确定延迟预算各环节的超时阈值；确定 MixController 的音量曲线（线性 vs 渐变）；在目标设备（Nova 9）上做旁路 Player PoC 验证（独立 Player 拉同一 stream URL + 自定义 AudioSink 导出 PCM）。
 2) TDD Red：`MixController` 状态机单测 — interleaved 模式：TTS 就绪 → ducking → TTS 完毕 → 恢复；TTS 来不及 → 保持原声；连续 3 次 skip → 警告；连续 10 次 → 暂停。
 3) TDD Red：`MixController` 状态机单测 — target_only 模式：TTS 就绪 → 播放 → 等待；来不及 → 静音等待。
 4) TDD Red：`MixController` 状态机单测 — subtitle_only 模式：状态始终为 Passthrough；`onTtsReady` / `onTtsSkipped` 不改变状态；原声音量始终 1.0。
 5) TDD Green：实现 `MixController`。
-6) TDD Red：`LiveTranslationPipeline` 编排单测 — mock 全部下游，验证 PCM 段 → ASR → Translation → TTS → MixController 的调用顺序与数据传递；subtitle_only 模式验证 TTS 和 MixController 不被调用。
-7) TDD Red：`AudioSplitter` 单测 — 输入连续 PCM 流，验证每 5 秒产出一段。
-8) TDD Green：实现 `AudioSplitter` + `LiveTranslationPipeline`。
-9) TDD Red：CLI `radio live` argv 门禁 + `LiveSessionAlreadyActive` + `RecordingConflict` + `TtsDisabled`（仅 interleaved/target_only）+ subtitle_only 不检查 TTS 开关。
+6) TDD Red：`LiveTranslationPipeline` 编排单测 — mock 全部下游（含 mock AudioSplitter），验证 PCM 段 → ASR → Translation → TTS → MixController 的调用顺序与数据传递；subtitle_only 模式验证 TTS 和 MixController 不被调用；验证通道分配（`assignRadioChannel`）。
+7) TDD Red：`AudioSplitter` 单测 — mock Media3 Player 的 PCM 输出，验证每 5 秒产出一段；验证 `start()`/`stop()` 生命周期正确创建/销毁旁路 Player。
+8) TDD Green：实现 `AudioSplitter`（独立 Player + 自定义 AudioSink + 5 秒切段）+ `LiveTranslationPipeline`。
+9) TDD Red：CLI `radio live` argv 门禁 + `LiveSessionAlreadyActive` + `RecordingConflict` + `NoChannelAvailable` + `TtsDisabled`（仅 interleaved/target_only）+ subtitle_only 不检查 TTS 开关。
 10) TDD Green：实现 CLI + 并发/互斥校验。
 11) TDD Green：扩展 `SubtitleScreen` streaming 模式 + 延迟指示器。
-12) Verify：UT 全绿；真机冒烟（三种模式各 2 分钟）。
+12) Verify：UT 全绿；真机冒烟（三种模式各 2 分钟；确认旁路 Player 不影响主播放器音质和稳定性）。
 
 ## Risks
 
-- AudioSplitter 技术可行性：从 ExoPlayer 截取 PCM 需要自定义 AudioSink 或 RenderersFactory，这是 v45 最大的技术风险。Analysis 阶段必须做 PoC 验证。
-- 端到端延迟：9-15 秒的延迟在学习场景可接受，但如果 ASR/LLM 响应波动大，可能偶尔超过 20 秒。降级策略（skip）是兜底，但频繁 skip 会严重影响体验。
+- 旁路 Player 带宽：双路拉流意味着双倍带宽消耗。对 WiFi 环境影响可忽略；移动数据环境下需要在 UI 上提示用户。建议 `radio live start` 时检测网络类型，移动数据下弹确认提示。
+- 旁路 Player 与主 Player 的流位置偏差：两个独立连接拉同一个直播流，CDN 返回的起始位置可能有 0-3 秒差异。这个偏差会叠加到管线延迟中，但对学习场景可接受。不做主动同步（复杂度高、收益低）。
+- 端到端延迟：9-15 秒（+ 0-3 秒流偏差）的延迟在学习场景可接受，但如果 ASR/LLM 响应波动大，可能偶尔超过 20 秒。降级策略（skip）是兜底，但频繁 skip 会严重影响体验。
 - API 费用：实时翻译每分钟消耗 ASR + LLM + TTS 三个 API 调用（subtitle_only 模式省去 TTS），费用远高于离线模式。建议 UI 上显示"预估费用"或至少在启动时提示。
-- 电池消耗：持续的网络请求 + 音频处理对移动设备电池压力大，需要在真机测试中观察。
+- 电池消耗：双路拉流 + 持续的网络请求 + 音频处理对移动设备电池压力大，需要在真机测试中观察。
+- 旁路 Player 的 AudioSink 自定义：虽然不侵入主 Player，但自定义 AudioSink 仍需要正确处理 Media3 的 AudioSink 接口契约（`handleBuffer`/`flush`/`reset` 等）。Analysis 阶段的 PoC 必须覆盖：正常播放、流中断重连、codec 切换等场景。
 
 ---
 
@@ -1949,7 +2053,7 @@ radio live status
 为 v45 实时翻译管线补齐持久化与并发治理：
 
 - 全链路落盘：live 会话的音频切片 + ASR/翻译 JSONL + TTS chunks 写入 VFS
-- AudioFocusManager：Chat TTS 与 Radio TTS 的优先级仲裁，可解释、可恢复
+- AudioFocusManager：app 内音频源优先级仲裁 + 接收系统 AudioFocus 事件的统一入口
 - `radio live` CLI 扩展落盘开关
 
 ## PRD Trace
@@ -1966,7 +2070,7 @@ radio live status
   - ASR 转录 JSONL（`--save_transcript`）
   - 翻译 JSONL（`--save_translation`）
   - TTS 合成音频（`--save_tts`）
-- `AudioFocusManager`：统一管理 app 内所有音频输出的优先级仲裁
+- `AudioFocusManager`：统一管理 app 内所有音频输出的优先级仲裁，并作为系统 AudioFocus 事件的 app 内分发中心
 - `radio live` CLI 扩展落盘参数
 - live 会话目录可被 v42 Files 浏览器正常浏览
 
@@ -1974,7 +2078,6 @@ radio live status
 
 - 不做费用统计（另立 PRD）
 - 不做落盘文件的二次编辑/裁剪
-- 不做跨 app 的 AudioFocus 仲裁（只管 app 内部）
 
 ## 全链路落盘结构
 
@@ -2066,39 +2169,96 @@ translation.jsonl（每行一个 translated segment）：
 
 ### 职责
 
-统一管理 app 内部多个音频输出源的优先级仲裁：
+统一管理 app 内部多个音频输出源的优先级仲裁，同时作为 Android 系统 AudioFocus 事件在 app 内的分发中心。
+
+### 双层 AudioFocus 架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Android 系统 AudioFocus                                 │
+│  （来电、其他 App 播放音乐、导航语音等）                    │
+│                                                         │
+│  MusicPlaybackService 已通过 MediaSession 注册系统焦点     │
+│  系统事件 → MusicPlaybackService → AudioFocusManager      │
+└────────────────────────┬────────────────────────────────┘
+                         │ onSystemFocusChanged(event)
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│  AudioFocusManager（v46：app 内仲裁 + 系统事件分发）       │
+│                                                         │
+│  app 内仲裁：                                            │
+│    CHAT_TTS > RADIO_TTS > RADIO_PLAYBACK                │
+│                                                         │
+│  系统事件分发：                                           │
+│    FOCUS_LOSS       → 全部暂停                           │
+│    FOCUS_LOSS_DUCK  → 全部 duck                          │
+│    FOCUS_GAIN       → 恢复到系统中断前的 app 内状态        │
+│                                                         │
+│  ├── CHAT_TTS → 直接控制 Chat TTS 播放器                 │
+│  ├── RADIO_TTS → 通知 MixController 暂停/恢复 TTS        │
+│  └── RADIO_PLAYBACK → 通知 MixController 调整原声音量     │
+│        └── MixController（v45：模式内音量控制）            │
+└─────────────────────────────────────────────────────────┘
+```
+
+设计要点：
+
+- `MusicPlaybackService` 继续持有系统 AudioFocus 的注册/释放（通过 MediaSession，这是 v38 已有的行为，不改动）
+- `MusicPlaybackService` 收到系统 AudioFocus 变化时，调用 `AudioFocusManager.onSystemFocusChanged(event)` 转发
+- `AudioFocusManager` 内部维护两层状态：
+  - `systemFocusState`：来自系统的焦点状态（`FOCUS_GAIN` / `FOCUS_LOSS` / `FOCUS_LOSS_DUCK` / `FOCUS_LOSS_TRANSIENT`）
+  - `appSourceStates`：app 内各音频源的状态（`PLAYING` / `DUCKED` / `PAUSED` / `IDLE`）
+- 系统事件优先级高于 app 内仲裁：系统 `FOCUS_LOSS` 时，即使 CHAT_TTS 正在播放也必须暂停
+- 系统 `FOCUS_GAIN` 恢复时，`AudioFocusManager` 恢复到系统中断前的 app 内状态（而非全部恢复为 PLAYING）
 
 ```kotlin
 class AudioFocusManager {
 
     enum class AudioSource {
-        CHAT_TTS,       // Chat Agent 语音回复（最高优先级）
+        CHAT_TTS,       // Chat Agent 语音回复（app 内最高优先级）
         RADIO_TTS,      // Radio live 实时翻译 TTS
         RADIO_PLAYBACK, // Radio 电台原声播放
     }
 
     /**
-     * 请求音频焦点。
+     * 请求 app 内音频焦点。
      * 如果有更高优先级的源正在播放，排队等待。
      * 如果有更低优先级的源正在播放，触发其 duck/pause。
+     * 如果系统焦点已丢失，挂起直到系统焦点恢复。
      */
     suspend fun requestFocus(source: AudioSource): FocusGrant
 
     /**
-     * 释放音频焦点。
+     * 释放 app 内音频焦点。
      * 恢复被 duck/pause 的低优先级源。
      */
     fun releaseFocus(grant: FocusGrant)
 
-    /** 当前各源的状态 */
+    /**
+     * 由 MusicPlaybackService 调用，转发系统 AudioFocus 事件。
+     * AudioFocusManager 据此暂停/duck/恢复 app 内所有音频源。
+     */
+    fun onSystemFocusChanged(event: SystemFocusEvent)
+
+    /** 当前各源的状态（综合系统焦点 + app 内仲裁的最终结果） */
     val sourceStates: StateFlow<Map<AudioSource, AudioSourceState>>
+
+    /** 当前系统焦点状态（供 UI 或诊断使用） */
+    val systemFocusState: StateFlow<SystemFocusEvent>
 }
 
 enum class AudioSourceState {
     PLAYING,    // 正常播放
     DUCKED,     // 被降音量（仍在播放）
-    PAUSED,     // 被暂停
+    PAUSED,     // 被暂停（app 内仲裁或系统焦点丢失）
     IDLE,       // 未播放
+}
+
+enum class SystemFocusEvent {
+    FOCUS_GAIN,             // 系统焦点恢复
+    FOCUS_LOSS,             // 永久丢失（如其他 app 开始播放音乐）
+    FOCUS_LOSS_TRANSIENT,   // 短暂丢失（如来电）
+    FOCUS_LOSS_DUCK,        // 短暂丢失但允许降音量（如导航语音）
 }
 
 data class FocusGrant(
@@ -2107,7 +2267,7 @@ data class FocusGrant(
 )
 ```
 
-### 优先级规则
+### app 内优先级规则
 
 | 事件 | RADIO_PLAYBACK | RADIO_TTS | CHAT_TTS |
 |------|----------------|-----------|----------|
@@ -2117,24 +2277,28 @@ data class FocusGrant(
 | RADIO_TTS 开始（target_only） | PAUSED | PLAYING | 不受影响 |
 | RADIO_TTS 结束 | 恢复 | IDLE | 不受影响 |
 
+### 系统焦点事件的 app 内响应
+
+| 系统事件 | app 内响应 | 恢复行为 |
+|----------|-----------|----------|
+| `FOCUS_LOSS` | 全部 PAUSED | 不自动恢复（用户需手动恢复） |
+| `FOCUS_LOSS_TRANSIENT` | 全部 PAUSED | `FOCUS_GAIN` 时恢复到中断前的 app 内状态 |
+| `FOCUS_LOSS_DUCK` | 全部 DUCKED（在当前音量基础上再降至 30%） | `FOCUS_GAIN` 时恢复到中断前的音量 |
+| `FOCUS_GAIN` | 恢复到系统中断前的 app 内状态快照 | — |
+
 关键规则：
 
 - CHAT_TTS 优先级最高，到达时 RADIO_TTS 立即暂停（不是 duck，因为两个 TTS 同时播放会混乱）
 - CHAT_TTS 结束后，RADIO_TTS 恢复播放（从暂停点继续，不跳过）
 - RADIO_PLAYBACK 被 duck 时音量降至 20%，被 pause 时完全静音
 - 所有恢复操作带 300ms 渐变（避免突兀的音量跳变）
+- 系统 `FOCUS_LOSS_TRANSIENT` 恢复时，`AudioFocusManager` 先恢复 app 内状态快照，再让 app 内仲裁规则生效（例如：中断前 CHAT_TTS 正在播放导致 RADIO_TTS 被暂停，恢复后仍然是 CHAT_TTS 播放 + RADIO_TTS 暂停，而非全部恢复为 PLAYING）
 
 ### 与 v45 MixController 的关系
 
-v45 的 `MixController` 负责 interleaved/target_only 模式下原声与 Radio TTS 的音量控制。v46 的 `AudioFocusManager` 在其上层，处理跨源仲裁（主要是 Chat TTS 抢占场景）。
+v45 的 `MixController` 负责 interleaved/target_only 模式下原声与 Radio TTS 的音量控制。v46 的 `AudioFocusManager` 在其上层，处理跨源仲裁（app 内 Chat TTS 抢占 + 系统焦点事件）。
 
-```
-AudioFocusManager（v46：跨源仲裁）
-  ├── CHAT_TTS → 直接控制 Chat TTS 播放器
-  ├── RADIO_TTS → 通知 MixController 暂停/恢复 TTS
-  └── RADIO_PLAYBACK → 通知 MixController 调整原声音量
-        └── MixController（v45：模式内音量控制）
-```
+`MixController` 不直接感知系统 AudioFocus，只接收 `AudioFocusManager` 下发的指令（duck/pause/resume）。
 
 ## CLI 扩展
 
@@ -2198,8 +2362,39 @@ live 会话目录在 v42 的 Files 浏览器中可见：
 
 | 文件模式 | 渲染器 | 匹配规则 |
 |----------|--------|----------|
-| `_meta.json`（在 `live_*/` 下） | `LiveSessionCardRenderer` | 文件名为 `_meta.json` 且父路径含 `live_` |
-| `*.jsonl`（在 `transcript/` 或 `translation/` 下） | `JsonlSubtitleRenderer` | `.jsonl` 后缀 + 父路径匹配 |
+| `_meta.json`（在 `live_*/` 下） | `LiveSessionCardRenderer` | 文件名为 `_meta.json` 且父路径匹配 `*/live_*/` |
+| `*.jsonl`（在 `transcript/` 或 `translation/` 下） | `JsonlSubtitleRenderer` | `.jsonl` 后缀 + 父路径匹配 `*/live_*/transcript/` 或 `*/live_*/translation/` |
+
+### JsonlSubtitleRenderer 懒加载策略
+
+长时间 live 会话的 JSONL 可能达到数 MB（数千行），不能一次性全部加载到内存。采用类似聊天记录的倒序分页加载：
+
+- 首次打开：只加载最后 200 行（最新内容），从文件末尾向前读取
+- 用户上滑：触发加载更早的 200 行，追加到列表顶部
+- 内存上限：最多保留 1000 行在内存中，超出时释放最早的页
+- 加载指示器：列表顶部显示"加载更早内容..."（上滑触发）或"已到达开头"
+- 实现方式：`RandomAccessFile` 从文件末尾向前扫描换行符，定位到目标行范围后逐行解析
+
+```kotlin
+class JsonlPagingSource(
+    private val file: File,
+    private val pageSize: Int = 200,
+) {
+    /** 加载最后 N 行（首次打开） */
+    suspend fun loadTail(): List<JsonlLine>
+
+    /** 加载更早的 N 行（用户上滑） */
+    suspend fun loadPrevious(): List<JsonlLine>?  // null = 已到达文件开头
+
+    /** 当前已加载的行范围 */
+    val loadedRange: IntRange
+
+    data class JsonlLine(
+        val lineNumber: Int,    // 文件中的行号（从 1 开始）
+        val content: String,    // 原始 JSON 字符串
+    )
+}
+```
 
 ## Acceptance（硬 DoD）
 
@@ -2210,6 +2405,10 @@ live 会话目录在 v42 的 Files 浏览器中可见：
 - AudioFocus — Chat 抢占：Chat TTS 播放时，Radio TTS 暂停、原声降至 20%；Chat TTS 结束后，Radio TTS 恢复、原声恢复。
 - AudioFocus — 恢复：Chat TTS 抢占后恢复，Radio TTS 从暂停点继续（不跳过 segment）。
 - AudioFocus — 渐变：所有音量变化带 300ms 渐变（可通过 UT 验证调用参数）。
+- AudioFocus — 系统焦点：来电（`FOCUS_LOSS_TRANSIENT`）时全部暂停；挂断后恢复到中断前的 app 内状态。
+- AudioFocus — 系统 duck：导航语音（`FOCUS_LOSS_DUCK`）时全部降音量；导航结束后恢复。
+- AudioFocus — 永久丢失：其他 app 播放音乐（`FOCUS_LOSS`）时全部暂停，不自动恢复。
+- JSONL 懒加载：打开一个 2000 行的 JSONL 文件，首次只加载最后 200 行；上滑可加载更早内容；不 OOM。
 - Files 浏览：live 会话目录可在 Files 中正常浏览，`_meta.json` 渲染为卡片，JSONL 渲染为字幕视图。
 - CLI：`radio live list` 列出历史会话；`radio live --help` 为 0。
 - 清空确认：删除 live 会话目录需二次确认（复用现有 Files 删除确认机制）。
@@ -2217,7 +2416,7 @@ live 会话目录在 v42 的 Files 浏览器中可见：
 验证命令：
 
 - `.\gradlew.bat :app:testDebugUnitTest`
-- 真机：开启 live + 落盘 5 分钟 → 停止 → Files 浏览落盘内容 → 播放 audio chunk → 查看字幕
+- 真机：开启 live + 落盘 5 分钟 → 停止 → Files 浏览落盘内容 → 播放 audio chunk → 查看字幕 → 来电测试暂停/恢复
 
 ## Files（规划）
 
@@ -2228,41 +2427,42 @@ live 会话目录在 v42 的 Files 浏览器中可见：
 - AudioFocusManager：
   - `app/src/main/java/com/lsl/kotlin_agent_app/media/AudioFocusManager.kt`
   - `app/src/main/java/com/lsl/kotlin_agent_app/media/FocusGrant.kt`
+  - `app/src/main/java/com/lsl/kotlin_agent_app/media/SystemFocusEvent.kt`
 - Files 渲染器：
   - `app/src/main/java/com/lsl/kotlin_agent_app/ui/dashboard/renderer/LiveSessionCardRenderer.kt`
   - `app/src/main/java/com/lsl/kotlin_agent_app/ui/dashboard/renderer/JsonlSubtitleRenderer.kt`
+  - `app/src/main/java/com/lsl/kotlin_agent_app/ui/dashboard/renderer/JsonlPagingSource.kt`（JSONL 倒序分页加载）
 - v45 集成：
   - `app/src/main/java/com/lsl/kotlin_agent_app/radio_live/LiveTranslationPipeline.kt`（接入 LiveSessionStore + AudioFocusManager）
   - `app/src/main/java/com/lsl/kotlin_agent_app/radio_live/MixController.kt`（接入 AudioFocusManager 回调）
+- MusicPlaybackService 桥接：
+  - `app/src/main/java/com/lsl/kotlin_agent_app/media/MusicPlaybackService.kt`（新增：系统 AudioFocus 事件转发给 AudioFocusManager）
 - CLI：
   - `app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/terminal/commands/radio/RadioCommand.kt`（`radio live` 扩展 `--save_*` flags + `list` 子命令）
 - Tests：
   - `LiveSessionStore` 单测（目录创建、JSONL 追加、崩溃恢复模拟、磁盘空间检查）
   - `JsonlWriter` 单测（追加写、flush、并发安全）
-  - `AudioFocusManager` 单测（Chat 抢占 → Radio 暂停 → Chat 释放 → Radio 恢复；渐变参数验证）
+  - `JsonlPagingSource` 单测（loadTail 200 行、loadPrevious 分页、到达文件开头返回 null、空文件处理）
+  - `AudioFocusManager` 单测（app 内仲裁：Chat 抢占 → Radio 暂停 → Chat 释放 → Radio 恢复；系统焦点：LOSS → 全部暂停 → GAIN → 恢复快照；LOSS_DUCK → 全部降音量 → GAIN → 恢复；渐变参数验证）
   - `LiveSessionCardRenderer` / `JsonlSubtitleRenderer` canRender 单测
   - CLI argv 门禁 + `--save_*` flag 组合测试
 
 ## Steps（Strict / TDD）
 
-1) Analysis：确定 JSONL flush 策略（每行 flush vs 每 N 行 flush，权衡性能与崩溃安全）；确定 AudioFocusManager 与 Android 系统 AudioFocus 的关系（app 内仲裁 vs 系统级）；确定磁盘空间检查频率（启动时一次 vs 每 N 个 chunk 检查一次）。
+1) Analysis：确定 JSONL flush 策略（每行 flush vs 每 N 行 flush，权衡性能与崩溃安全）；确定 `MusicPlaybackService` 转发系统 AudioFocus 事件的接口契约（回调 vs SharedFlow）；确定磁盘空间检查频率（启动时一次 + 每 60 秒周期检查，低于 100MB 时停止落盘并写 `_STATUS.md` 警告）；在目标设备（Nova 9）上做 IO benchmark（每 5 秒 flush JSONL + 写 audio chunk 的耗时）。
 2) TDD Red：`JsonlWriter` 单测 — 追加写、flush、文件不存在时自动创建、并发写入安全。
 3) TDD Green：实现 `JsonlWriter`。
-4) TDD Red：`LiveSessionStore` 单测 — 创建目录结构、写入 `_meta.json`、追加 JSONL、写入 audio chunk（tmp + rename）、磁盘空间不足拒绝、崩溃后已写入内容完整。
-5) TDD Green：实现 `LiveSessionStore`。
-6) TDD Red：`AudioFocusManager` 单测 — requestFocus/releaseFocus 状态流转；Chat 抢占 Radio 场景；多次连续抢占/释放；渐变参数传递。
-7) TDD Green：实现 `AudioFocusManager`。
-8) TDD Red：v45 `LiveTranslationPipeline` 集成 `LiveSessionStore` 的单测 — 管线产出 segment 时 store 被正确调用；`--save_*` flag 控制哪些内容落盘。
-9) TDD Green：集成 `LiveSessionStore` 到 `LiveTranslationPipeline`。
-10) TDD Red：v45 `MixController` 集成 `AudioFocusManager` 的单测 — Chat TTS 到达时 MixController 收到暂停通知；Chat TTS 结束时收到恢复通知。
-11) TDD Green：集成 `AudioFocusManager` 到 `MixController`。
-12) TDD Red：Files 渲染器 `canRender` 单测 + CLI `--save_*` flag 组合 + `radio live list` 测试。
-13) TDD Green：实现渲染器 + CLI 扩展。
-14) Verify：UT 全绿；真机冒烟（live + 落盘 5 分钟 → Files 浏览 → Chat TTS 抢占恢复）。
-
-## Risks
-
-- JSONL 文件体积：长时间 live 会话（数小时）的 JSONL 可能达到数 MB，Files 浏览器的 `JsonlSubtitleRenderer` 需要做懒加载/分页，避免一次性加载全部行到内存。
-- 磁盘空间：全链路落盘（audio + transcript + translation + tts）每小时可能消耗 50-100MB，需要在 UI 上给用户预估提示。
-- AudioFocusManager 与系统 AudioFocus 的交互：v46 只做 app 内仲裁，但 Android 系统也有 AudioFocus 机制（其他 app 播放音乐时）。两层 focus 管理可能产生冲突，Analysis 阶段需要确认是否需要同时注册系统 AudioFocus。
-- 落盘性能：每 5 秒一个 audio chunk + JSONL flush，在低端设备上可能有 IO 压力。建议 Analysis 阶段在目标设备（Nova 9）上做 IO benchmark。
+4) TDD Red：`JsonlPagingSource` 单测 — 1000 行文件 loadTail 返回最后 200 行；连续 loadPrevious 返回更早的 200 行；到达开头返回 null；空文件 loadTail 返回空列表；单行文件正确处理。
+5) TDD Green：实现 `JsonlPagingSource`。
+6) TDD Red：`LiveSessionStore` 单测 — 创建目录结构、写入 `_meta.json`、追加 JSONL、写入 audio chunk（tmp + rename）、磁盘空间不足拒绝、崩溃后已写入内容完整。
+7) TDD Green：实现 `LiveSessionStore`。
+8) TDD Red：`AudioFocusManager` app 内仲裁单测 — requestFocus/releaseFocus 状态流转；Chat 抢占 Radio 场景；多次连续抢占/释放；渐变参数传递。
+9) TDD Red：`AudioFocusManager` 系统焦点单测 — `FOCUS_LOSS_TRANSIENT` → 全部暂停 → `FOCUS_GAIN` → 恢复到中断前快照；`FOCUS_LOSS_DUCK` → 全部降音量 → `FOCUS_GAIN` → 恢复；`FOCUS_LOSS` → 全部暂停 → 不自动恢复；系统中断期间 app 内 requestFocus 挂起直到系统焦点恢复。
+10) TDD Green：实现 `AudioFocusManager`。
+11) TDD Red：v45 `LiveTranslationPipeline` 集成 `LiveSessionStore` 的单测 — 管线产出 segment 时 store 被正确调用；`--save_*` flag 控制哪些内容落盘。
+12) TDD Green：集成 `LiveSessionStore` 到 `LiveTranslationPipeline`。
+13) TDD Red：v45 `MixController` 集成 `AudioFocusManager` 的单测 — Chat TTS 到达时 MixController 收到暂停通知；Chat TTS 结束时收到恢复通知；系统 FOCUS_LOSS 时 MixController 收到全部暂停通知。
+14) TDD Green：集成 `AudioFocusManager` 到 `MixController` + `MusicPlaybackService` 桥接。
+15) TDD Red：Files 渲染器 `canRender` 单测（精确匹配 `*/live_*/` 路径模式）+ CLI `--save_*` flag 组合 + `radio live list` 测试。
+16) TDD Green：实现渲染器 + CLI 扩展。
+17) Verify：UT 全绿；真机冒烟（live + 落盘 5 分钟 → Files 浏览 → Chat TTS 抢占恢复 → 来电暂停/恢复 → JSON
