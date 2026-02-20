@@ -59,6 +59,9 @@ android {
             buildConfigField("String", "DEFAULT_HTTP_PROXY", "\"\"")
             buildConfigField("String", "DEFAULT_HTTPS_PROXY", "\"\"")
             buildConfigField("boolean", "DEFAULT_PROXY_ENABLED", "false")
+            buildConfigField("String", "DEFAULT_DASHSCOPE_API_KEY", "\"\"")
+            buildConfigField("String", "DEFAULT_DASHSCOPE_BASE_URL", "\"\"")
+            buildConfigField("String", "DEFAULT_ASR_MODEL", "\"\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -72,6 +75,9 @@ android {
             val tavilyApiKey = dotenv["TAVILY_API_KEY"].orEmpty()
             val httpProxy = dotenv["HTTP_PROXY"].orEmpty()
             val httpsProxy = dotenv["HTTPS_PROXY"].orEmpty()
+            val dashScopeApiKey = dotenv["DASHSCOPE_API_KEY"].orEmpty()
+            val dashScopeBaseUrl = dotenv["DASHSCOPE_BASE_URL"].orEmpty()
+            val asrModel = dotenv["ASR_MODEL"].orEmpty()
             buildConfigField("String", "DEFAULT_OPENAI_BASE_URL", "\"${escapedForBuildConfig(baseUrl)}\"")
             buildConfigField("String", "DEFAULT_OPENAI_API_KEY", "\"${escapedForBuildConfig(apiKey)}\"")
             buildConfigField("String", "DEFAULT_MODEL", "\"${escapedForBuildConfig(model)}\"")
@@ -80,6 +86,9 @@ android {
             buildConfigField("String", "DEFAULT_HTTP_PROXY", "\"${escapedForBuildConfig(httpProxy)}\"")
             buildConfigField("String", "DEFAULT_HTTPS_PROXY", "\"${escapedForBuildConfig(httpsProxy)}\"")
             buildConfigField("boolean", "DEFAULT_PROXY_ENABLED", (httpProxy.isNotBlank() || httpsProxy.isNotBlank()).toString())
+            buildConfigField("String", "DEFAULT_DASHSCOPE_API_KEY", "\"${escapedForBuildConfig(dashScopeApiKey)}\"")
+            buildConfigField("String", "DEFAULT_DASHSCOPE_BASE_URL", "\"${escapedForBuildConfig(dashScopeBaseUrl)}\"")
+            buildConfigField("String", "DEFAULT_ASR_MODEL", "\"${escapedForBuildConfig(asrModel)}\"")
         }
     }
     compileOptions {
@@ -154,6 +163,7 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.session)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)
@@ -164,6 +174,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

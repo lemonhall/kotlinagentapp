@@ -98,6 +98,17 @@
                 android:inputType="textPassword" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <TextView
+            android:id="@+id/text_asr_config_hint"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="ASR 配置已迁移：请在 Files 中编辑 workspace/radio_recordings/.env"
+            android:textSize="12sp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/layout_tavily_api_key" />
+
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/switch_use_proxy"
             android:layout_width="0dp"
@@ -106,7 +117,7 @@
             android:text="Use Proxy (HTTP/HTTPS)"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/layout_tavily_api_key" />
+            app:layout_constraintTop_toBottomOf="@id/text_asr_config_hint" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/layout_http_proxy"

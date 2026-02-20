@@ -15,6 +15,7 @@ import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 import com.lsl.kotlin_agent_app.media.Mp3MetadataReader
 import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsPaths
 import com.lsl.kotlin_agent_app.radio_recordings.RecordingMetaV1
+import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTasksIndexV1
 import com.lsl.kotlin_agent_app.radios.RadioRepository
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import kotlinx.coroutines.Dispatchers
@@ -198,6 +199,28 @@ class FilesViewModel(
                 withContext(Dispatchers.IO) { workspace.deletePath(path, recursive = recursive) }
                 val now = _state.value ?: prev
                 if (now.clipboardCutPath == path) {
+                    _state.postValue(now.copy(clipboardCutPath = null, clipboardCutIsDir = false))
+                }
+                refresh()
+            } catch (t: Throwable) {
+                val now = _state.value ?: prev
+                _state.value = now.copy(isLoading = false, errorMessage = t.message ?: "Delete failed")
+            }
+        }
+    }
+
+    fun deletePath(
+        path: String,
+        recursive: Boolean,
+    ) {
+        val prev = _state.value ?: FilesUiState()
+        val p = path.trim().ifBlank { return }
+        _state.value = prev.copy(isLoading = true, errorMessage = null)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { workspace.deletePath(p, recursive = recursive) }
+                val now = _state.value ?: prev
+                if (now.clipboardCutPath == p) {
                     _state.postValue(now.copy(clipboardCutPath = null, clipboardCutIsDir = false))
                 }
                 refresh()
@@ -424,7 +447,33 @@ class FilesViewModel(
                 } catch (_: Throwable) {
                     return@map e
                 }
-            val subtitle = "state=${meta.state} · chunks=${meta.chunks.size}"
+
+            val txLabel: String? =
+                run {
+                    val idxPath = "${RadioRecordingsPaths.ROOT_DIR}/$sid/transcripts/_tasks.index.json"
+                    val idxRaw =
+                        try {
+                            if (!workspace.exists(idxPath)) return@run null
+                            workspace.readTextFile(idxPath, maxBytes = 256 * 1024)
+                        } catch (_: Throwable) {
+                            return@run null
+                        }
+                    val idx =
+                        try {
+                            TranscriptTasksIndexV1.parse(idxRaw)
+                        } catch (_: Throwable) {
+                            return@run null
+                        }
+                    val running = idx.tasks.firstOrNull { it.state == "pending" || it.state == "running" }
+                    when {
+                        running != null -> "转录中 ${running.transcribedChunks}/${running.totalChunks}"
+                        idx.tasks.any { it.state == "completed" } -> "已转录"
+                        else -> null
+                    }
+                }
+
+            val subtitleBase = "state=${meta.state} · chunks=${meta.chunks.size}"
+            val subtitle = if (txLabel != null) "$subtitleBase · $txLabel" else subtitleBase
             e.copy(displayName = meta.station.name, subtitle = subtitle)
         }
     }

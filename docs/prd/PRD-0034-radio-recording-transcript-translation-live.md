@@ -22,7 +22,7 @@
 
 ## Non-Goals（本 PRD 明确不做）
 
-- 不做本地 ASR 模型（仅云端，Whisper API 优先）
+- 不做本地 ASR 模型（仅云端；v40 默认实现为 DashScope Qwen-ASR 录音文件异步转写，后续可接入 Whisper/火山等）
 - 不允许录制任意 URL（只能录制 `radios/` 子树内 `.radio` 指向的受控来源）
 - 不追求“真流式” ASR（Whisper 不支持流式输入；采用 5–10 秒 buffer 的伪流式策略）
 
@@ -32,7 +32,7 @@
 |---|---|
 | 录制方案 | Media3 独立 Player 实例解码为 PCM，MediaCodec 编码为 Opus + MediaMuxer OGG 写盘（API 29+） |
 | 并发录制上限 | 最多 2 路 |
-| ASR 后端 | 仅云端（OpenAI Whisper API 优先，可扩展其他云端） |
+| ASR 后端 | 仅云端（v40 首个实现为 DashScope Qwen-ASR 文件异步转写；通过接口抽象可扩展 Whisper/火山等） |
 | 实时延迟目标 | 可接受 ≤ 10 秒（buffer 5–10 秒） |
 | 落盘音频格式 | 统一 OGG Opus（`.ogg`），64kbps |
 | 译文播放模式（实时） | 双模式：①仅译文语音 ②原声（降音量）+ 译文交替 |
@@ -116,8 +116,9 @@ Layer 0: 既有 Radio 模块（已完成）                      — v38
 
 - **REQ-0034-050（任务模型与落盘）**：在会话目录创建 `transcripts/`，并以 `_tasks.index.json` + `{task_id}/_task.json` 表达状态；每 chunk 输出 `chunk_NNN.transcript.json`（含时间戳 segments）。  
 - **REQ-0034-051（后台慢任务）**：转录为后台慢任务（WorkManager）；App 被杀后可恢复；支持取消。  
-- **REQ-0034-052（Whisper API）**：调用云端 ASR（Whisper API 优先），音频上传 `.ogg`（Opus/OGG），并将错误归一为稳定 `error_code`（NetworkError/RemoteError/…）。  
+- **REQ-0034-052（云端 ASR：DashScope Qwen-ASR）**：调用云端 ASR（v40 默认：阿里云百炼 DashScope 的 Qwen-ASR 录音文件异步转写，上传 `.ogg`/Opus 获取 `oss://` 临时 URL → 提交异步任务 → 轮询结果）；并将错误归一为稳定 `error_code`（AsrNetworkError/AsrRemoteError/AsrParseError/AsrUploadError/AsrTaskTimeout/…）。  
 - **REQ-0034-053（CLI：radio transcript）**：新增 `radio transcript start|status|list|cancel`（受控输入）。  
+  - UI：在 Files 的 `radio_recordings/` 下长按录制会话目录，可触发“开始转录/重新转录（覆盖确认）”，对仍在录制中的会话必须拒绝并可解释。  
 
 ### v41（Layer 2b：离线翻译）
 

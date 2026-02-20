@@ -79,7 +79,7 @@ workspace/radio_recordings/
 
 ## 配置文件（`.env`）
 
-项目根目录提供 `.env.example` 模板，用户复制为 `.env` 后只需填写 `DASHSCOPE_API_KEY`：
+ASR 凭据不通过 Settings 配置，而是通过 App 内工作区的 `workspace/radio_recordings/.env` 文件配置（首次启动会自动创建模板文件，且**不会覆盖**用户已填写的真实内容）。用户只需填写 `DASHSCOPE_API_KEY`：
 
 ```env
 # ===== 阿里云百炼 ASR 配置 =====
@@ -94,7 +94,7 @@ DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 ASR_MODEL=qwen3-asr-flash-filetrans
 ```
 
-代码中通过 `BuildConfig` 或 `assets/` 注入，读取 `.env` 文件加载配置。
+代码运行时读取 `workspace/radio_recordings/.env` 加载配置（Debug 构建可回退到 `BuildConfig` 默认值，但不依赖 Settings）。
 
 ## ASR 提供商抽象
 
@@ -390,9 +390,10 @@ fun parseAsrResult(result: JsonObject): AsrResult {
 
 ### 长按录制会话 → 上下文菜单
 
-在录制会话列表（RecordingSessionListScreen）中：
+在 **Files** 页签中：
 
-- 长按某个 `state=completed`（或 `cancelled`/`failed` 但已有 chunks）的录制会话
+- 进入目录：`workspace/radio_recordings/`
+- 长按某个 `rec_*` 录制会话目录
 - 弹出上下文菜单（BottomSheet 或 PopupMenu），包含：
   - "开始转录"：等同于 `radio transcript start --session <sessionId>`
   - 如果该 session 已有转录结果，菜单项变为"重新转录"，点击后弹确认对话框："已有转录结果，是否覆盖？"
@@ -401,7 +402,7 @@ fun parseAsrResult(result: JsonObject): AsrResult {
 
 ### 转录进度展示
 
-- 转录进行中时，录制会话卡片上显示进度指示器（如 "转录中 3/12"）
+- 转录进行中时，`workspace/radio_recordings/` 下的 `rec_*` 目录行显示进度指示（如 "转录中 3/12"）
 - 转录完成后，卡片上显示"已转录"标记
 
 ## Acceptance（硬 DoD）
@@ -438,17 +439,17 @@ fun parseAsrResult(result: JsonObject): AsrResult {
 - CLI：
   - `app/src/main/java/com/lsl/kotlin_agent_app/agent/tools/terminal/commands/radio/RadioCommand.kt`（新增 `transcript` 子命令）
 - UI：
-  - `app/src/main/java/com/lsl/kotlin_agent_app/ui/radio/RecordingSessionContextMenu.kt`（长按菜单）
-  - 修改 `RecordingSessionListScreen.kt`（集成长按手势 + 进度展示）
+  - `app/src/main/java/com/lsl/kotlin_agent_app/ui/dashboard/DashboardFragment.kt`（长按 `rec_*` 目录 → 开始/重试转录）
+  - `app/src/main/java/com/lsl/kotlin_agent_app/ui/dashboard/FilesViewModel.kt`（从 `_tasks.index.json` 装饰 subtitle 展示进度）
 - Tests：
   - `app/src/test/java/...`（MockWebServer + store 读写测试 + argv 门禁 + 恢复逻辑测试 + 上传流程测试）
 
 ## `radio transcript` CLI 命令
 
 ```
-radio transcript start --session <sessionId> --source_lang ja
+radio transcript start (--session <sessionId> | --dir <recording_dir>) --source_lang ja|auto
 radio transcript status --task <taskId>
-radio transcript list --session <sessionId>
+radio transcript list (--session <sessionId> | --dir <recording_dir>)
 radio transcript cancel --task <taskId>
 ```
 

@@ -19,6 +19,8 @@ import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsPaths
 import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore
 import com.lsl.kotlin_agent_app.radio_recordings.RecordingsIndexV1
 import com.lsl.kotlin_agent_app.radio_recordings.RecordingMetaV1
+import com.lsl.kotlin_agent_app.radio_transcript.TranscriptCliException
+import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTaskManager
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +99,7 @@ internal class RadioCommand(
                 "fav" -> handleFav(argv)
                 "sync" -> handleSync(argv)
                 "record" -> handleRecord(argv)
+                "transcript" -> handleTranscript(argv)
                 else -> invalidArgs("unknown subcommand: $subRaw")
             }
         } catch (t: NotInRadiosDir) {
@@ -137,6 +140,14 @@ internal class RadioCommand(
                 stdout = "",
                 stderr = (t.message ?: "not playing radio"),
                 errorCode = "NotPlayingRadio",
+                errorMessage = t.message,
+            )
+        } catch (t: TranscriptCliException) {
+            TerminalCommandOutput(
+                exitCode = 2,
+                stdout = "",
+                stderr = (t.message ?: "transcript error"),
+                errorCode = t.errorCode,
                 errorMessage = t.message,
             )
         } catch (t: IllegalArgumentException) {
@@ -680,6 +691,10 @@ internal class RadioCommand(
                           radio record stop (--session <session_id> | --all)
                           radio record status [--session <session_id>]
                           radio record list
+                          radio transcript start (--session <session_id> | --dir <recording_dir>) --source_lang <lang|auto>
+                          radio transcript status --task <task_id>
+                          radio transcript list (--session <session_id> | --dir <recording_dir>)
+                          radio transcript cancel --task <task_id>
                         
                         Help:
                           radio --help
@@ -698,6 +713,7 @@ internal class RadioCommand(
                         "radio sync countries",
                         "radio sync stations --cc EG",
                         "radio record start --in workspace/radios/demo.radio",
+                        "radio transcript start --session rec_20260219_140000_a1b2c3 --source_lang ja",
                     )
                 }
                 "status" -> "Usage: radio status" to listOf("radio status")
@@ -745,6 +761,20 @@ internal class RadioCommand(
                         "radio record list",
                     )
                 }
+                "transcript" -> {
+                    val u =
+                        """
+                        Usage:
+                          radio transcript start (--session <session_id> | --dir <recording_dir>) --source_lang <lang|auto>
+                          radio transcript status --task <task_id>
+                          radio transcript list (--session <session_id> | --dir <recording_dir>)
+                          radio transcript cancel --task <task_id>
+                        """.trimIndent()
+                    u to listOf(
+                        "radio transcript start --session rec_20260219_140000_a1b2c3 --source_lang ja",
+                        "radio transcript list --session rec_20260219_140000_a1b2c3",
+                    )
+                }
                 else -> return invalidArgs("unknown subcommand: $sub")
             }
 
@@ -765,6 +795,7 @@ internal class RadioCommand(
                         add(JsonPrimitive("fav"))
                         add(JsonPrimitive("sync"))
                         add(JsonPrimitive("record"))
+                        add(JsonPrimitive("transcript"))
                     },
                 )
                 if (sub == null || sub == "play") {
@@ -828,6 +859,33 @@ internal class RadioCommand(
                             )
                         },
                     )
+                } else if (sub == "transcript") {
+                    put(
+                        "flags",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--session"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Recording session id. Used by start/list."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--source_lang"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Source language code for ASR (e.g. ja/zh/en). Used by start."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--task"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Transcript task id. Used by status/cancel."))
+                                },
+                            )
+                        },
+                    )
                 } else if (sub == "fav") {
                     put(
                         "flags",
@@ -874,6 +932,120 @@ internal class RadioCommand(
             "list" -> handleRecordList(store)
             else -> invalidArgs("unknown record action: ${argv[2]}")
         }
+    }
+
+    private suspend fun handleTranscript(argv: List<String>): TerminalCommandOutput {
+        if (argv.size < 3) return help(sub = "transcript")
+        val action = argv[2].trim().lowercase(Locale.ROOT)
+        val mgr = TranscriptTaskManager(appContext = ctx)
+        return when (action) {
+            "start" -> {
+                val sid = resolveTranscriptSessionId(argv)
+                val lang = optionalFlagValueSingle(argv, "--source_lang") ?: throw IllegalArgumentException("missing required flag: --source_lang")
+                val task = mgr.start(sessionId = sid, sourceLanguage = lang, force = false)
+                val result =
+                    buildJsonObject {
+                        put("task_id", JsonPrimitive(task.taskId))
+                        put("session_id", JsonPrimitive(task.sessionId))
+                        put("state", JsonPrimitive(task.state))
+                        put("source_language", JsonPrimitive(task.sourceLanguage ?: ""))
+                        put("total_chunks", JsonPrimitive(task.totalChunks))
+                        put("message", JsonPrimitive("Transcript task created, ${task.totalChunks} chunks queued"))
+                    }
+                TerminalCommandOutput(exitCode = 0, stdout = "transcript: task ${task.taskId}", result = result)
+            }
+            "status" -> {
+                val tid = optionalFlagValueSingle(argv, "--task") ?: throw IllegalArgumentException("missing required flag: --task")
+                val task = mgr.findTaskById(tid)
+                val result =
+                    buildJsonObject {
+                        put("task_id", JsonPrimitive(task.taskId))
+                        put("session_id", JsonPrimitive(task.sessionId))
+                        put("state", JsonPrimitive(task.state))
+                        put("source_language", JsonPrimitive(task.sourceLanguage ?: ""))
+                        put("total_chunks", JsonPrimitive(task.totalChunks))
+                        put("transcribed_chunks", JsonPrimitive(task.transcribedChunks))
+                        put("failed_chunks", JsonPrimitive(task.failedChunks))
+                    }
+                TerminalCommandOutput(exitCode = 0, stdout = "transcript: ${task.state}", result = result)
+            }
+            "list" -> {
+                val sid = resolveTranscriptSessionId(argv)
+                val idx = mgr.listSessionTasks(sid)
+                val result =
+                    buildJsonObject {
+                        put("session_id", JsonPrimitive(sid.trim()))
+                        put("index_path", JsonPrimitive("workspace/radio_recordings/${sid.trim()}/transcripts/_tasks.index.json"))
+                        put("count", JsonPrimitive(idx.tasks.size))
+                        put(
+                            "tasks",
+                            buildJsonArray {
+                                for (t in idx.tasks) {
+                                    add(
+                                        buildJsonObject {
+                                            put("task_id", JsonPrimitive(t.taskId))
+                                            put("state", JsonPrimitive(t.state))
+                                            put("source_language", JsonPrimitive(t.sourceLanguage ?: ""))
+                                            put("total_chunks", JsonPrimitive(t.totalChunks))
+                                            put("transcribed_chunks", JsonPrimitive(t.transcribedChunks))
+                                            put("failed_chunks", JsonPrimitive(t.failedChunks))
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                    }
+                TerminalCommandOutput(exitCode = 0, stdout = "transcript tasks: ${idx.tasks.size}", result = result)
+            }
+            "cancel" -> {
+                val tid = optionalFlagValueSingle(argv, "--task") ?: throw IllegalArgumentException("missing required flag: --task")
+                val task = mgr.cancel(tid)
+                val result =
+                    buildJsonObject {
+                        put("task_id", JsonPrimitive(task.taskId))
+                        put("session_id", JsonPrimitive(task.sessionId))
+                        put("state", JsonPrimitive(task.state))
+                    }
+                TerminalCommandOutput(exitCode = 0, stdout = "cancelled", result = result)
+            }
+            else -> invalidArgs("unknown transcript action: ${argv[2]}")
+        }
+    }
+
+    private fun resolveTranscriptSessionId(argv: List<String>): String {
+        val session = optionalFlagValueSingle(argv, "--session")
+        val dir = optionalFlagValueSingle(argv, "--dir")
+        if (!session.isNullOrBlank() && !dir.isNullOrBlank()) {
+            throw IllegalArgumentException("use either --session or --dir (not both)")
+        }
+        if (!session.isNullOrBlank()) return session.trim()
+        if (!dir.isNullOrBlank()) return parseTranscriptSessionIdFromDir(dir)
+        throw IllegalArgumentException("missing required flag: --session (or --dir)")
+    }
+
+    private fun parseTranscriptSessionIdFromDir(rawDir: String): String {
+        val raw = rawDir.trim().replace('\\', '/')
+        if (raw.isBlank()) throw IllegalArgumentException("missing --dir")
+        if (raw.contains("..")) throw IllegalArgumentException("invalid --dir (no '..' allowed)")
+
+        val path =
+            when {
+                raw.startsWith(".agents/") -> raw
+                raw.startsWith("workspace/") -> ".agents/$raw"
+                else -> raw
+            }.trim().trimEnd('/')
+
+        val prefix = ".agents/workspace/radio_recordings/"
+        if (!path.startsWith(prefix)) {
+            throw IllegalArgumentException("invalid --dir (must be under workspace/radio_recordings/)")
+        }
+
+        val rest = path.removePrefix(prefix).trim().trimStart('/')
+        val sid = rest.substringBefore('/').trim()
+        if (sid.isBlank() || !sid.startsWith("rec_")) {
+            throw IllegalArgumentException("invalid --dir (expected session dir name like rec_...)")
+        }
+        return sid
     }
 
     private fun optionalFlagValueSingle(

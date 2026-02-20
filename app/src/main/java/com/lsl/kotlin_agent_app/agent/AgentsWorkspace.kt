@@ -87,6 +87,9 @@ class AgentsWorkspace(
                     prettyJson.encodeToString(JsonObject.serializer(), obj) + "\n"
                 },
         )
+        ensureBundledRadioRecordingsEnvFileIfMissing(
+            assetEnvExamplePath = "builtin_radio_recordings/env.example",
+        )
 
         // PRD-0033: nas_smb VFS mount (App-internal mount).
         mkdirsIfMissing(".agents/nas_smb")
@@ -168,6 +171,16 @@ class AgentsWorkspace(
         assetEnvExamplePath: String,
     ) {
         val envPath = ".agents/nas_smb/secrets/.env"
+        val env = resolveAgentsPath(envPath)
+        if (env.exists() && env.isFile) return
+        // Best-effort: seed .env from bundled example (so the user can edit in Files tab).
+        installBundledFile(targetPath = envPath, assetPath = assetEnvExamplePath, overwrite = true)
+    }
+
+    private fun ensureBundledRadioRecordingsEnvFileIfMissing(
+        assetEnvExamplePath: String,
+    ) {
+        val envPath = ".agents/workspace/radio_recordings/.env"
         val env = resolveAgentsPath(envPath)
         if (env.exists() && env.isFile) return
         // Best-effort: seed .env from bundled example (so the user can edit in Files tab).
