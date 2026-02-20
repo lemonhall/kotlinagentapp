@@ -150,7 +150,7 @@ class DashboardFragment : Fragment() {
                                 displayName = display,
                                 musicController = musicController,
                             )
-                        } else if (isMp4Name(entry.name) && isInNasSmbTree(path)) {
+                        } else if (isVideoName(entry.name) && isInNasSmbTree(path)) {
                             val display = entry.displayName ?: entry.name
                             val ref =
                                 SmbMediaActions.createNasSmbMp4Content(
@@ -167,7 +167,7 @@ class DashboardFragment : Fragment() {
                                     agentsPath = path,
                                 )
                             )
-                        } else if (isMp4Name(entry.name)) {
+                        } else if (isVideoName(entry.name)) {
                             val display = entry.displayName ?: entry.name
                             openAgentsVideoInternal(path, displayName = display)
                         } else if (isImageName(entry.name) && isInNasSmbTree(path)) {
@@ -1315,8 +1315,20 @@ class DashboardFragment : Fragment() {
         return name.trim().lowercase().endsWith(".mp3")
     }
 
-    private fun isMp4Name(name: String): Boolean {
-        return name.trim().lowercase().endsWith(".mp4")
+    private fun isVideoName(name: String): Boolean {
+        val n = name.trim().lowercase()
+        return n.endsWith(".mp4") ||
+            n.endsWith(".m4v") ||
+            n.endsWith(".mkv") ||
+            n.endsWith(".webm") ||
+            n.endsWith(".mov") ||
+            n.endsWith(".avi") ||
+            n.endsWith(".3gp") ||
+            n.endsWith(".ts") ||
+            n.endsWith(".flv") ||
+            n.endsWith(".wmv") ||
+            n.endsWith(".mpg") ||
+            n.endsWith(".mpeg")
     }
 
     private fun isImageName(name: String): Boolean {

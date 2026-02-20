@@ -48,7 +48,7 @@ object SmbMediaActions {
         )
     }
 
-    fun createNasSmbMp4Content(
+    fun createNasSmbVideoContent(
         context: Context,
         agentsPath: String,
         displayName: String,
@@ -59,7 +59,10 @@ object SmbMediaActions {
         }
 
         val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return null
-        val mime = SmbMediaMime.VIDEO_MP4
+        val mime =
+            SmbMediaMime.fromFileNameOrNull(displayName)
+                ?.takeIf { SmbMediaMime.isVideoMime(it) }
+                ?: "video/*"
 
         val ticket =
             SmbMediaRuntime.ticketStore(context).issue(
@@ -74,7 +77,31 @@ object SmbMediaActions {
         return ContentRef(uri = uri, mime = mime)
     }
 
+    fun createNasSmbMp4Content(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+    ): ContentRef? {
+        return createNasSmbVideoContent(
+            context = context,
+            agentsPath = agentsPath,
+            displayName = displayName,
+        )
+    }
+
     fun openNasSmbMp4External(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+    ) {
+        openNasSmbVideoExternal(
+            context = context,
+            agentsPath = agentsPath,
+            displayName = displayName,
+        )
+    }
+
+    fun openNasSmbVideoExternal(
         context: Context,
         agentsPath: String,
         displayName: String,
@@ -85,7 +112,10 @@ object SmbMediaActions {
         }
 
         val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return
-        val mime = SmbMediaMime.VIDEO_MP4
+        val mime =
+            SmbMediaMime.fromFileNameOrNull(displayName)
+                ?.takeIf { SmbMediaMime.isVideoMime(it) }
+                ?: "video/*"
 
         val ticket =
             SmbMediaRuntime.ticketStore(context).issue(

@@ -77,8 +77,8 @@ class VideoPlayerActivity : ComponentActivity() {
             return
         }
 
-        if (agentsPath.trim().lowercase().endsWith(".mp4") && isInNasSmbTree(agentsPath)) {
-            SmbMediaActions.openNasSmbMp4External(
+        if (isInNasSmbTree(agentsPath) && isVideoName(agentsPath)) {
+            SmbMediaActions.openNasSmbVideoExternal(
                 context = this,
                 agentsPath = agentsPath,
                 displayName = displayName,
@@ -131,6 +131,22 @@ class VideoPlayerActivity : ComponentActivity() {
         if (!p.startsWith(".agents/nas_smb/")) return false
         if (p.startsWith(".agents/nas_smb/secrets")) return false
         return true
+    }
+
+    private fun isVideoName(name: String): Boolean {
+        val n = name.trim().lowercase()
+        return n.endsWith(".mp4") ||
+            n.endsWith(".m4v") ||
+            n.endsWith(".mkv") ||
+            n.endsWith(".webm") ||
+            n.endsWith(".mov") ||
+            n.endsWith(".avi") ||
+            n.endsWith(".3gp") ||
+            n.endsWith(".ts") ||
+            n.endsWith(".flv") ||
+            n.endsWith(".wmv") ||
+            n.endsWith(".mpg") ||
+            n.endsWith(".mpeg")
     }
 
     companion object {

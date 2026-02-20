@@ -92,7 +92,7 @@ class SmbMediaContentProvider : ContentProvider() {
         var sessionOpened: Boolean = false
         var reader: SmbRandomAccessReader? = null
         try {
-            if (mime == SmbMediaMime.VIDEO_MP4) {
+            if (SmbMediaMime.isVideoMime(mime)) {
                 SmbMediaStreamingService.requestSessionOpened(ctx)
                 sessionOpened = true
             }
@@ -156,7 +156,7 @@ class SmbMediaContentProvider : ContentProvider() {
                             r.close()
                         } catch (_: Throwable) {
                         }
-                        if (mime == SmbMediaMime.VIDEO_MP4) {
+                        if (SmbMediaMime.isVideoMime(mime)) {
                             SmbMediaStreamingService.requestSessionReleased(ctx)
                         }
                     }
@@ -169,7 +169,7 @@ class SmbMediaContentProvider : ContentProvider() {
                 reader?.close()
             } catch (_: Throwable) {
             }
-            if (mime == SmbMediaMime.VIDEO_MP4 && sessionOpened) {
+            if (SmbMediaMime.isVideoMime(mime) && sessionOpened) {
                 SmbMediaStreamingService.requestSessionReleased(ctx)
             }
             throw FileNotFoundException(t.message ?: "open failed").apply { initCause(t) }
