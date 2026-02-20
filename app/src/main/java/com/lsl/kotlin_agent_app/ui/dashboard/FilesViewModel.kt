@@ -370,7 +370,16 @@ class FilesViewModel(
                 val subtitle = (formatTimestamp(lastMs).ifBlank { "" } + " · " + kindLabel + parentLabel).trim().trim('·').trim()
                 val displayName = title?.ifBlank { null } ?: sid.take(8)
                 val wantsAutoTitle = !isTask
-                sessions.add(Decorated(e.copy(displayName = displayName, subtitle = subtitle, sortKey = lastMs), kindRank = kindRank, lastMs = lastMs, sessionId = sid, wantsAutoTitle = wantsAutoTitle))
+                val emoji = if (isTask) "🧩" else "💬"
+                sessions.add(
+                    Decorated(
+                        e.copy(displayName = displayName, subtitle = subtitle, sortKey = lastMs, iconEmoji = emoji),
+                        kindRank = kindRank,
+                        lastMs = lastMs,
+                        sessionId = sid,
+                        wantsAutoTitle = wantsAutoTitle,
+                    ),
+                )
                 if (wantsAutoTitle && title.isNullOrBlank()) missingTitles.add(sid)
             } else {
                 others.add(e)
@@ -395,7 +404,46 @@ class FilesViewModel(
         cur = decorateMusicEntries(cwd = cwd, entries = cur)
         cur = decorateRadioEntries(cwd = cwd, entries = cur)
         cur = decorateRadioRecordingEntries(cwd = cwd, entries = cur)
+        cur = decorateTopLevelDirEmojis(cwd = cwd, entries = cur)
         return cur
+    }
+
+    private fun decorateTopLevelDirEmojis(
+        cwd: String,
+        entries: List<AgentsDirEntry>,
+    ): List<AgentsDirEntry> {
+        val normalized = cwd.replace('\\', '/').trim().trimEnd('/')
+        val mapping: Map<String, String>? =
+            when (normalized) {
+                ".agents" ->
+                    mapOf(
+                        "workspace" to "🗂️",
+                        "sessions" to "💬",
+                        "skills" to "🧩",
+                        "nas_smb" to "🛜",
+                    )
+                ".agents/workspace" ->
+                    mapOf(
+                        "inbox" to "📥",
+                        "musics" to "🎵",
+                        "radios" to "📻",
+                        "radio_recordings" to "📻",
+                        "recordings" to "🎙",
+                    )
+                RadioRepository.RADIOS_DIR ->
+                    mapOf(
+                        RadioRepository.FAVORITES_NAME to "⭐",
+                    )
+                else -> null
+            }
+        if (mapping == null) return entries
+
+        return entries.map { e ->
+            if (e.type != AgentsDirEntryType.Dir) return@map e
+            if (!e.iconEmoji.isNullOrBlank()) return@map e
+            val emoji = mapping[e.name.trim()] ?: "📁"
+            e.copy(iconEmoji = emoji)
+        }
     }
 
     private fun decorateRadioRecordingEntries(
