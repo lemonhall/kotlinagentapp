@@ -396,7 +396,7 @@ class MusicPlayerController(
         withContext(Dispatchers.Main.immediate) {
             val p = normalizeAgentsPathInput(agentsPathInput)
             if (!isInRadioRecordingsTree(p) || !p.lowercase().endsWith(".ogg")) {
-                _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 radio_recordings/ 目录下的 .ogg") }
+                _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 recordings/ 或 radio_recordings/ 目录下的 .ogg") }
                 throw IllegalArgumentException("path not allowed: $agentsPathInput")
             }
 
@@ -407,11 +407,16 @@ class MusicPlayerController(
             }
 
             val sessionId =
-                p.replace('\\', '/')
-                    .removePrefix(".agents/workspace/radio_recordings/")
-                    .substringBefore('/')
-                    .trim()
-                    .ifBlank { null }
+                run {
+                    val normalized = p.replace('\\', '/')
+                    val rel =
+                        when {
+                            normalized.startsWith(".agents/workspace/radio_recordings/") -> normalized.removePrefix(".agents/workspace/radio_recordings/")
+                            normalized.startsWith(".agents/workspace/recordings/") -> normalized.removePrefix(".agents/workspace/recordings/")
+                            else -> normalized
+                        }
+                    rel.substringBefore('/').trim().ifBlank { null }
+                }
 
             val (newQueue, _) = buildRecordingOggQueueNow(currentAgentsPath = p)
             val q = queueCtrl.setQueue(newQueue, current = p)
@@ -425,7 +430,15 @@ class MusicPlayerController(
                             MusicMediaMetadata(
                                 title = file.name,
                                 artist = "Recording",
-                                album = sessionId ?: "radio_recordings",
+                                album =
+                                    sessionId
+                                        ?: run {
+                                            val normalized = p.replace('\\', '/')
+                                            when {
+                                                normalized.startsWith(".agents/workspace/recordings/") -> "recordings"
+                                                else -> "radio_recordings"
+                                            }
+                                        },
                                 durationMs = null,
                             ),
                         isLive = false,
@@ -545,7 +558,10 @@ class MusicPlayerController(
 
     private fun isInRadioRecordingsTree(agentsPath: String): Boolean {
         val p = agentsPath.replace('\\', '/').trim().trimStart('/')
-        return p == ".agents/workspace/radio_recordings" || p.startsWith(".agents/workspace/radio_recordings/")
+        return p == ".agents/workspace/radio_recordings" ||
+            p.startsWith(".agents/workspace/radio_recordings/") ||
+            p == ".agents/workspace/recordings" ||
+            p.startsWith(".agents/workspace/recordings/")
     }
 
     private fun normalizeAgentsPathInput(raw: String): String {
@@ -556,6 +572,7 @@ class MusicPlayerController(
             p0.startsWith("musics/") -> ".agents/workspace/$p0"
             p0.startsWith("radios/") -> ".agents/workspace/$p0"
             p0.startsWith("radio_recordings/") -> ".agents/workspace/$p0"
+            p0.startsWith("recordings/") -> ".agents/workspace/$p0"
             else -> p0
         }
     }

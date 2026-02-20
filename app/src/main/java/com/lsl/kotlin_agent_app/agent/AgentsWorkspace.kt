@@ -58,6 +58,7 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents/workspace/radios")
         mkdirsIfMissing(".agents/workspace/radios/favorites")
         mkdirsIfMissing(".agents/workspace/radio_recordings")
+        mkdirsIfMissing(".agents/workspace/recordings")
 
         // PRD-0034: root placeholders (Everything is FileSystem).
         ensureTextFileIfMissing(
@@ -71,6 +72,20 @@ class AgentsWorkspace(
                     appendLine("- note: ready")
                     appendLine()
                     appendLine("提示：录制产物按会话目录落盘。")
+                },
+        )
+        // PRD-0035: mic recordings root placeholders (Everything is FileSystem).
+        ensureTextFileIfMissing(
+            path = ".agents/workspace/recordings/_STATUS.md",
+            content =
+                buildString {
+                    appendLine("# recordings 状态")
+                    appendLine()
+                    appendLine("- ok: true")
+                    appendLine("- at: ${(System.currentTimeMillis() / 1000L).coerceAtLeast(0L)}")
+                    appendLine("- note: ready")
+                    appendLine()
+                    appendLine("提示：录音产物按会话目录落盘。")
                 },
         )
         ensureTextFileIfMissing(
@@ -87,9 +102,8 @@ class AgentsWorkspace(
                     prettyJson.encodeToString(JsonObject.serializer(), obj) + "\n"
                 },
         )
-        ensureBundledRadioRecordingsEnvFileIfMissing(
-            assetEnvExamplePath = "builtin_radio_recordings/env.example",
-        )
+        ensureBundledRadioRecordingsEnvFileIfMissing(assetEnvExamplePath = "builtin_radio_recordings/env.example")
+        ensureBundledRecordingsEnvFileIfMissing(assetEnvExamplePath = "builtin_radio_recordings/env.example")
 
         // PRD-0033: nas_smb VFS mount (App-internal mount).
         mkdirsIfMissing(".agents/nas_smb")
@@ -184,6 +198,15 @@ class AgentsWorkspace(
         val env = resolveAgentsPath(envPath)
         if (env.exists() && env.isFile) return
         // Best-effort: seed .env from bundled example (so the user can edit in Files tab).
+        installBundledFile(targetPath = envPath, assetPath = assetEnvExamplePath, overwrite = true)
+    }
+
+    private fun ensureBundledRecordingsEnvFileIfMissing(
+        assetEnvExamplePath: String,
+    ) {
+        val envPath = ".agents/workspace/recordings/.env"
+        val env = resolveAgentsPath(envPath)
+        if (env.exists() && env.isFile) return
         installBundledFile(targetPath = envPath, assetPath = assetEnvExamplePath, overwrite = true)
     }
 

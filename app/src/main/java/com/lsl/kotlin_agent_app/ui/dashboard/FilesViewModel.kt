@@ -404,8 +404,10 @@ class FilesViewModel(
     ): List<AgentsDirEntry> {
         val normalized = cwd.replace('\\', '/').trim().trimEnd('/')
         val inWorkspace = normalized == ".agents/workspace"
-        val inRoot = normalized == RadioRecordingsPaths.ROOT_DIR
-        if (!inWorkspace && !inRoot) return entries
+        val inRadioRoot = normalized == RadioRecordingsPaths.ROOT_DIR
+        val micRoot = ".agents/workspace/recordings"
+        val inMicRoot = normalized == micRoot
+        if (!inWorkspace && !inRadioRoot && !inMicRoot) return entries
 
         if (inWorkspace) {
             return entries.map { e ->
@@ -413,12 +415,21 @@ class FilesViewModel(
                     e.copy(
                         displayName = "radio_recordings（录制）",
                         subtitle = "录制会话与 10min 切片产物",
+                        iconEmoji = "📻",
+                    )
+                } else if (e.type == AgentsDirEntryType.Dir && e.name == "recordings") {
+                    e.copy(
+                        displayName = "recordings（录音）",
+                        subtitle = "麦克风录音会话目录",
+                        iconEmoji = "🎙",
                     )
                 } else {
                     e
                 }
             }
         }
+
+        val rootDir = if (inRadioRoot) RadioRecordingsPaths.ROOT_DIR else micRoot
 
         val filtered =
             entries.filterNot { e ->
@@ -437,7 +448,7 @@ class FilesViewModel(
             if (e.type != AgentsDirEntryType.Dir) return@map e
             val sid = e.name.trim()
             if (sid.isBlank()) return@map e
-            val metaPath = "${RadioRecordingsPaths.ROOT_DIR}/$sid/_meta.json"
+            val metaPath = "${rootDir}/$sid/_meta.json"
             val raw =
                 try {
                     if (!workspace.exists(metaPath)) return@map e
@@ -482,34 +493,56 @@ class FilesViewModel(
                 }
 
             val startLabel = formatRecordingStartLabel(meta.createdAt)
+            val baseTitle =
+                meta.title?.trim()?.ifBlank { null }
+                    ?: meta.station?.name?.trim()?.ifBlank { null }
             val displayName =
-                (meta.station.name + (startLabel?.let { "  $it" } ?: "")).trim().ifBlank { e.displayName ?: e.name }
+                if (inMicRoot) {
+                    (baseTitle ?: e.displayName ?: e.name).trim()
+                } else {
+                    ((baseTitle ?: "") + (startLabel?.let { "  $it" } ?: "")).trim().ifBlank { e.displayName ?: e.name }
+                }
 
             val subtitle =
-                pipeLabel
-                    ?: run {
-                        val idxPath = "${RadioRecordingsPaths.ROOT_DIR}/$sid/transcripts/_tasks.index.json"
-                        val idxRaw =
-                            try {
-                                if (!workspace.exists(idxPath)) return@run null
-                                workspace.readTextFile(idxPath, maxBytes = 256 * 1024)
-                            } catch (_: Throwable) {
-                                return@run null
+                if (inMicRoot) {
+                    val sessionDir = "${rootDir}/$sid"
+                    val bytes =
+                        runCatching {
+                            workspace.listDir(sessionDir)
+                                .filter { it.type == AgentsDirEntryType.File && it.name.lowercase(Locale.ROOT).endsWith(".ogg") }
+                                .sumOf { ent -> workspace.toFile("${sessionDir}/${ent.name}").length().coerceAtLeast(0L) }
+                        }.getOrNull()
+                    val dur = formatDurationHms(meta.durationMs)
+                    val size = formatBytes(bytes)
+                    val base = listOfNotNull(dur, size, startLabel).joinToString(" · ").trim().ifBlank { null }
+                    val pipe = pipeLabel?.trim()?.ifBlank { null }
+                    listOfNotNull(base, pipe).joinToString(" · ").trim().ifBlank { null }
+                } else {
+                    pipeLabel
+                        ?: run {
+                            val idxPath = "${rootDir}/$sid/transcripts/_tasks.index.json"
+                            val idxRaw =
+                                try {
+                                    if (!workspace.exists(idxPath)) return@run null
+                                    workspace.readTextFile(idxPath, maxBytes = 256 * 1024)
+                                } catch (_: Throwable) {
+                                    return@run null
+                                }
+                            val idx =
+                                try {
+                                    TranscriptTasksIndexV1.parse(idxRaw)
+                                } catch (_: Throwable) {
+                                    return@run null
+                                }
+                            val running = idx.tasks.firstOrNull { it.state == "pending" || it.state == "running" }
+                            when {
+                                running != null -> "📝转录 ${running.transcribedChunks}/${running.totalChunks}"
+                                idx.tasks.any { it.state == "completed" } -> "📝转录 ✅"
+                                else -> null
                             }
-                        val idx =
-                            try {
-                                TranscriptTasksIndexV1.parse(idxRaw)
-                            } catch (_: Throwable) {
-                                return@run null
-                            }
-                        val running = idx.tasks.firstOrNull { it.state == "pending" || it.state == "running" }
-                        when {
-                            running != null -> "📝转录 ${running.transcribedChunks}/${running.totalChunks}"
-                            idx.tasks.any { it.state == "completed" } -> "📝转录 ✅"
-                            else -> null
                         }
-                    }
-                    ?: "🎙️仅录制"
+                        ?: "🎙️仅录制"
+                }
 
             e.copy(displayName = displayName, subtitle = subtitle)
         }
@@ -788,6 +821,28 @@ class FilesViewModel(
             local.format(DateTimeFormatter.ofPattern(pattern))
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    private fun formatDurationHms(durationMs: Long?): String? {
+        val ms = durationMs?.takeIf { it > 0L } ?: return null
+        val total = (ms / 1000L).toInt().coerceAtLeast(0)
+        val h = total / 3600
+        val m = (total % 3600) / 60
+        val s = total % 60
+        return "%02d:%02d:%02d".format(h, m, s)
+    }
+
+    private fun formatBytes(bytes: Long?): String? {
+        val b = bytes?.takeIf { it >= 0L } ?: return null
+        val kb = 1024.0
+        val mb = kb * 1024.0
+        val gb = mb * 1024.0
+        return when {
+            b >= gb -> String.format(Locale.US, "%.1fGB", b / gb)
+            b >= mb -> String.format(Locale.US, "%.0fMB", b / mb)
+            b >= kb -> String.format(Locale.US, "%.0fKB", b / kb)
+            else -> "${b}B"
         }
     }
 

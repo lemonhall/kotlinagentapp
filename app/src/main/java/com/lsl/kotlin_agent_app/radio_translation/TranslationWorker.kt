@@ -1,8 +1,10 @@
 package com.lsl.kotlin_agent_app.radio_translation
 
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
-import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsPaths
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptChunkV1
+import com.lsl.kotlin_agent_app.recordings.RecordingRoots
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionResolver
 import com.lsl.kotlin_agent_app.translation.TranslatedSegment
 import com.lsl.kotlin_agent_app.translation.TranslationClient
 import java.util.Locale
@@ -26,12 +28,15 @@ internal class TranslationWorker(
     ) {
         val sid = sessionId.trim()
         val idx = chunkIndex.coerceAtLeast(1)
-        val transcriptsDir = "${RadioRecordingsPaths.sessionDir(sid)}/transcripts"
-        val translationsDir = "${RadioRecordingsPaths.sessionDir(sid)}/translations"
+        val ref =
+            RecordingSessionResolver.resolve(ws, sid)
+                ?: RecordingSessionRef(rootDir = RecordingRoots.RADIO_ROOT_DIR, sessionId = sid)
+        val transcriptsDir = ref.transcriptsDir
+        val translationsDir = ref.translationsDir
         ws.mkdir(transcriptsDir)
         ws.mkdir(translationsDir)
 
-        val txPath = "$transcriptsDir/chunk_${idx.toString().padStart(3, '0')}.transcript.json"
+        val txPath = ref.transcriptChunkPath(idx)
         val raw =
             withContext(Dispatchers.IO) {
                 ws.readTextFile(txPath, maxBytes = 8L * 1024L * 1024L)
@@ -46,7 +51,7 @@ internal class TranslationWorker(
                 targetLanguage = targetLanguage.trim(),
             )
 
-        val outPath = "$translationsDir/chunk_${idx.toString().padStart(3, '0')}.translation.json"
+        val outPath = ref.translationChunkPath(idx)
         val outChunk =
             TranslationChunkV1(
                 schema = TranslationChunkV1.SCHEMA_V1,
@@ -71,4 +76,3 @@ internal class TranslationWorker(
         ws.writeTextFileAtomic(outPath, rawOut)
     }
 }
-

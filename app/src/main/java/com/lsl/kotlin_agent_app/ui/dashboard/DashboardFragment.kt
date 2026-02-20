@@ -62,6 +62,8 @@ import com.lsl.kotlin_agent_app.radio_transcript.TranscriptCliException
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTaskManager
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTasksIndexV1
 import com.lsl.kotlin_agent_app.radio_transcript.RecordingPipelineManager
+import com.lsl.kotlin_agent_app.recordings.RecordingRoots
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
 import com.lsl.kotlin_agent_app.ui.bilingual_player.BilingualPlayerActivity
 
 class DashboardFragment : Fragment() {
@@ -149,18 +151,31 @@ class DashboardFragment : Fragment() {
                     val isDir = entry.type == AgentsDirEntryType.Dir
                     val cwd = filesViewModel.state.value?.cwd ?: ".agents"
                     val relativePath = joinAgentsPath(cwd, entry.name)
+                    val normalizedCwd = cwd.replace('\\', '/').trim().trimEnd('/')
                     val isRecordingSessionDir =
-                        isDir && cwd.replace('\\', '/').trim().trimEnd('/') == ".agents/workspace/radio_recordings" && entry.name.trim().startsWith("rec_")
+                        isDir &&
+                            (normalizedCwd == RecordingRoots.RADIO_ROOT_DIR || normalizedCwd == RecordingRoots.MICROPHONE_ROOT_DIR) &&
+                            entry.name.trim().startsWith("rec_")
                     val isMp3InMusics = (!isDir && isMp3Name(entry.name) && isInMusicsTree(relativePath))
                     val isRadioInRadios = (!isDir && isRadioName(entry.name) && isInRadiosTree(relativePath))
                     val isOggInRadioRecordings = (!isDir && isOggName(entry.name) && isInRadioRecordingsTree(relativePath))
                     val isRadioInFavorites = isRadioInRadios && isInRadioFavorites(relativePath)
 
                     if (isRecordingSessionDir) {
+                        val ref = RecordingSessionRef(rootDir = normalizedCwd, sessionId = entry.name.trim())
                         showRecordingSessionTranscriptMenu(
-                            sessionId = entry.name.trim(),
+                            sessionRef = ref,
                             displayName = entry.displayName ?: entry.name,
                         )
+                        return@FilesEntryAdapter
+                    }
+
+                    if (isDir && normalizedCwd == ".agents/workspace" && entry.name.trim() == "recordings") {
+                        showMicrophoneRecordingsRootMenu()
+                        return@FilesEntryAdapter
+                    }
+                    if (isDir && normalizedCwd == ".agents/workspace" && entry.name.trim() == "radio_recordings") {
+                        showRadioRecordingsRootMenu()
                         return@FilesEntryAdapter
                     }
 
@@ -585,7 +600,7 @@ class DashboardFragment : Fragment() {
 
         val existingSessionId = recordingByAgentsPath[agentsPath]
         fun startRecording(recordOnly: Boolean, targetLang: String?) {
-            viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.lifecycleScope.launch startRecordingLaunch@{
                 try {
                     val cmd = RadioCommand(appContext)
                     val argv =
@@ -603,7 +618,7 @@ class DashboardFragment : Fragment() {
                     val out = withContext(Dispatchers.IO) { cmd.run(argv, stdin = null) }
                     if (out.exitCode != 0) {
                         Toast.makeText(requireContext(), out.stderr.ifBlank { out.errorMessage ?: "录制失败" }, Toast.LENGTH_SHORT).show()
-                        return@launch
+                        return@startRecordingLaunch
                     }
 
                     val sid: String? =
@@ -630,7 +645,7 @@ class DashboardFragment : Fragment() {
         }
 
         if (!existingSessionId.isNullOrBlank()) {
-            viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.lifecycleScope.launch stopRecordingLaunch@{
                 try {
                     val cmd = RadioCommand(appContext)
                     val out =
@@ -639,7 +654,7 @@ class DashboardFragment : Fragment() {
                         }
                     if (out.exitCode != 0) {
                         Toast.makeText(requireContext(), out.stderr.ifBlank { out.errorMessage ?: "停止录制失败" }, Toast.LENGTH_SHORT).show()
-                        return@launch
+                        return@stopRecordingLaunch
                     }
                     recordingByAgentsPath.remove(agentsPath)
                     Toast.makeText(requireContext(), "已停止录制", Toast.LENGTH_SHORT).show()
@@ -689,11 +704,78 @@ class DashboardFragment : Fragment() {
         }
     }
 
+    private fun showMicrophoneRecordingsRootMenu() {
+        val actions = arrayOf("⏺ 开始录音")
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("🎙 recordings")
+            .setItems(actions) { _, which ->
+                when (actions.getOrNull(which)) {
+                    "⏺ 开始录音" -> {
+                        runCatching {
+                            startActivity(com.lsl.kotlin_agent_app.recorder.RecorderActivity.intentStart(requireContext()))
+                        }.onFailure { t ->
+                            Toast.makeText(requireContext(), "打开失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showRadioRecordingsRootMenu() {
+        fun startRecording(recordOnly: Boolean, targetLang: String?) {
+            val appContext = requireContext().applicationContext
+            viewLifecycleOwner.lifecycleScope.launch radioRootStartLaunch@{
+                try {
+                    val cmd = RadioCommand(appContext)
+                    val argv =
+                        buildList {
+                            add("radio")
+                            add("record")
+                            add("start")
+                            if (recordOnly) {
+                                add("--record_only")
+                            } else if (!targetLang.isNullOrBlank()) {
+                                add("--target_lang")
+                                add(targetLang.trim())
+                            }
+                        }
+                    val out = withContext(Dispatchers.IO) { cmd.run(argv, stdin = null) }
+                    if (out.exitCode != 0) {
+                        Toast.makeText(requireContext(), out.stderr.ifBlank { out.errorMessage ?: "录制失败" }, Toast.LENGTH_SHORT).show()
+                        return@radioRootStartLaunch
+                    }
+                    Toast.makeText(requireContext(), "已开始电台录制", Toast.LENGTH_SHORT).show()
+                    filesViewModel?.refresh(force = true)
+                } catch (t: Throwable) {
+                    Toast.makeText(requireContext(), "录制失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        val actions = arrayOf("仅录制（不转录/翻译）", "不翻译（仅转录）", "翻译（选择目标语言）")
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("📻 radio_recordings")
+            .setItems(actions) { _, which ->
+                when (actions.getOrNull(which)) {
+                    "仅录制（不转录/翻译）" -> startRecording(recordOnly = true, targetLang = null)
+                    "不翻译（仅转录）" -> startRecording(recordOnly = false, targetLang = null)
+                    "翻译（选择目标语言）" ->
+                        TranslationLanguagePickerDialog.show(requireContext()) { lang ->
+                            startRecording(recordOnly = false, targetLang = lang.code)
+                        }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun showRecordingSessionTranscriptMenu(
-        sessionId: String,
+        sessionRef: RecordingSessionRef,
         displayName: String,
     ) {
-        val sid = sessionId.trim()
+        val sid = sessionRef.sessionId.trim()
         if (sid.isBlank()) return
         val vm = filesViewModel ?: return
         val appContext = requireContext().applicationContext
@@ -702,11 +784,10 @@ class DashboardFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val (state, tasks, hasChunks) =
                 withContext(Dispatchers.IO) {
-                    val metaPath = ".agents/workspace/radio_recordings/$sid/_meta.json"
                     val raw =
                         try {
-                            if (!ws.exists(metaPath)) return@withContext Triple(null, emptyList(), false)
-                            ws.readTextFile(metaPath, maxBytes = 256 * 1024)
+                            if (!ws.exists(sessionRef.metaPath)) return@withContext Triple(null, emptyList(), false)
+                            ws.readTextFile(sessionRef.metaPath, maxBytes = 256 * 1024)
                         } catch (_: Throwable) {
                             return@withContext Triple(null, emptyList(), false)
                         }
@@ -716,12 +797,11 @@ class DashboardFragment : Fragment() {
                         } catch (_: Throwable) {
                             return@withContext Triple(null, emptyList(), false)
                         }
-                    val txIdxPath = ".agents/workspace/radio_recordings/$sid/transcripts/_tasks.index.json"
                     val loadedTasks =
                         try {
-                            if (!ws.exists(txIdxPath)) emptyList()
+                            if (!ws.exists(sessionRef.transcriptTasksIndexPath)) emptyList()
                             else {
-                                val idxRaw = ws.readTextFile(txIdxPath, maxBytes = 256 * 1024)
+                                val idxRaw = ws.readTextFile(sessionRef.transcriptTasksIndexPath, maxBytes = 256 * 1024)
                                 TranscriptTasksIndexV1.parse(idxRaw).tasks
                             }
                         } catch (_: Throwable) {
@@ -730,7 +810,7 @@ class DashboardFragment : Fragment() {
 
                     val hasOgg =
                         try {
-                            ws.listDir(".agents/workspace/radio_recordings/$sid")
+                            ws.listDir(sessionRef.sessionDir)
                                 .any { e ->
                                     e.type == AgentsDirEntryType.File &&
                                         e.name.trim().startsWith("chunk_", ignoreCase = true) &&
@@ -747,13 +827,15 @@ class DashboardFragment : Fragment() {
             val hasAnyTasks = tasks.isNotEmpty()
             val failedTasks = tasks.filter { it.state == "failed" }
             val activeTasks = tasks.filter { it.state == "pending" || it.state == "running" }
-            val primary = if (hasAnyTasks) "重新转录" else "开始转录"
+            val primary = if (hasAnyTasks) "📝 重新转录" else "📝 开始转录"
             val actions =
                 buildList {
+                    add("▶ 播放")
                     add(primary)
-                    add("转录+翻译")
+                    add("🌐 转录+翻译")
                     add("🎧 双语播放")
                     if (failedTasks.isNotEmpty()) add("重跑失败")
+                    add("✏️ 重命名")
                     add("进入目录")
                     add("删除会话")
                     add("复制路径")
@@ -775,8 +857,84 @@ class DashboardFragment : Fragment() {
                 .setTitle(displayName)
                 .setAdapter(adapter) { _, which ->
                     when (actions.getOrNull(which)) {
-                        "进入目录" -> vm.goTo(".agents/workspace/radio_recordings/$sid")
-                        "复制路径" -> copyTextToClipboard("path", ".agents/workspace/radio_recordings/$sid")
+                        "▶ 播放" -> {
+                            if (!hasChunks) {
+                                Toast.makeText(requireContext(), "无录音文件", Toast.LENGTH_SHORT).show()
+                                return@setAdapter
+                            }
+                            viewLifecycleOwner.lifecycleScope.launch playChunkLaunch@{
+                                val chunkPath =
+                                    withContext(Dispatchers.IO) {
+                                        val rx = Regex("^chunk_(\\d{3})\\.ogg$", RegexOption.IGNORE_CASE)
+                                        val names =
+                                            runCatching { ws.listDir(sessionRef.sessionDir) }.getOrNull().orEmpty()
+                                                .filter { it.type == AgentsDirEntryType.File }
+                                                .mapNotNull { e ->
+                                                    val m = rx.matchEntire(e.name.trim()) ?: return@mapNotNull null
+                                                    val idx = m.groupValues.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+                                                    idx to e.name.trim()
+                                                }
+                                                .sortedBy { it.first }
+                                        val first = names.firstOrNull()?.second ?: return@withContext null
+                                        "${sessionRef.sessionDir}/$first"
+                                    }
+                                if (chunkPath == null) {
+                                    Toast.makeText(requireContext(), "无录音文件", Toast.LENGTH_SHORT).show()
+                                    return@playChunkLaunch
+                                }
+                                MusicPlayerControllerProvider.get().playAgentsRecordingOgg(chunkPath)
+                            }
+                        }
+                        "✏️ 重命名" -> {
+                            if (stillRecording) {
+                                Toast.makeText(requireContext(), "录制中，暂不支持重命名。", Toast.LENGTH_SHORT).show()
+                                return@setAdapter
+                            }
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                val meta =
+                                    withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            if (!ws.exists(sessionRef.metaPath)) return@runCatching null
+                                            val raw = ws.readTextFile(sessionRef.metaPath, maxBytes = 2L * 1024L * 1024L)
+                                            RecordingMetaV1.parse(raw)
+                                        }.getOrNull()
+                                    }
+                                val initial =
+                                    meta?.title?.trim()?.ifBlank { null }
+                                        ?: meta?.station?.name?.trim()?.ifBlank { null }
+                                        ?: displayName
+                                val input =
+                                    com.google.android.material.textfield.TextInputEditText(requireContext()).apply {
+                                        setText(initial)
+                                        setSelection(text?.length ?: 0)
+                                    }
+                                val box =
+                                    com.google.android.material.textfield.TextInputLayout(requireContext()).apply {
+                                        hint = "名称"
+                                        addView(input)
+                                    }
+                                MaterialAlertDialogBuilder(requireContext())
+                                    .setTitle("重命名")
+                                    .setView(box)
+                                    .setNegativeButton("取消", null)
+                                    .setPositiveButton("保存") { _, _ ->
+                                        val nextTitle = input.text?.toString()?.trim().orEmpty()
+                                        if (nextTitle.isBlank()) return@setPositiveButton
+                                        viewLifecycleOwner.lifecycleScope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                val raw = ws.readTextFile(sessionRef.metaPath, maxBytes = 2L * 1024L * 1024L)
+                                                val prev = RecordingMetaV1.parse(raw)
+                                                val store = com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore(ws, rootDir = sessionRef.rootDir)
+                                                store.writeSessionMeta(sid, prev.copy(title = nextTitle, updatedAt = RecordingMetaV1.nowIso()))
+                                            }
+                                            filesViewModel?.refresh(force = true)
+                                        }
+                                    }
+                                    .show()
+                            }
+                        }
+                        "进入目录" -> vm.goTo(sessionRef.sessionDir)
+                        "复制路径" -> copyTextToClipboard("path", sessionRef.sessionDir)
                         "删除会话" -> {
                             if (stillRecording) {
                                 Toast.makeText(requireContext(), "录制中，无法删除。请先停止录制。", Toast.LENGTH_SHORT).show()
@@ -793,7 +951,7 @@ class DashboardFragment : Fragment() {
                                 .setMessage("将递归删除该录制会话目录下所有文件（录音/转录产物等），此操作不可恢复。确定删除吗？$warning")
                                 .setNegativeButton("取消", null)
                                 .setPositiveButton("删除") { _, _ ->
-                                    vm.deletePath(".agents/workspace/radio_recordings/$sid", recursive = true)
+                                    vm.deletePath(sessionRef.sessionDir, recursive = true)
                                 }
                                 .show()
                         }
@@ -809,14 +967,14 @@ class DashboardFragment : Fragment() {
                                 Toast.makeText(requireContext(), "打开失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
                             }
                         }
-                        "开始转录", "重新转录" -> {
+                        "📝 开始转录", "📝 重新转录" -> {
                             if (stillRecording) {
                                 Toast.makeText(requireContext(), "请先停止录制", Toast.LENGTH_SHORT).show()
                             } else {
                                 promptSourceLangAndStartTranscript(sessionId = sid, mayOverwrite = hasAnyTasks)
                             }
                         }
-                        "转录+翻译" -> {
+                        "🌐 转录+翻译" -> {
                             if (stillRecording) {
                                 Toast.makeText(requireContext(), "请先停止录制", Toast.LENGTH_SHORT).show()
                             } else {
@@ -849,9 +1007,8 @@ class DashboardFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val metaPath = ".agents/workspace/radio_recordings/$sid/_meta.json"
-                    if (!ws.exists(metaPath)) return@withContext
-                    val raw = ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+                    val ref = com.lsl.kotlin_agent_app.recordings.RecordingSessionResolver.resolve(ws, sid) ?: return@withContext
+                    val raw = ws.readTextFile(ref.metaPath, maxBytes = 2L * 1024L * 1024L)
                     val meta = RecordingMetaV1.parse(raw)
                     val prev = meta.pipeline
                     val nextPipe =
@@ -862,7 +1019,7 @@ class DashboardFragment : Fragment() {
                                 translationState = "pending",
                                 lastError = null,
                             )
-                    val store = com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore(ws)
+                    val store = com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore(ws, rootDir = ref.rootDir)
                     store.writeSessionMeta(sid, meta.copy(updatedAt = RecordingMetaV1.nowIso(), pipeline = nextPipe))
                 }
                 RecordingPipelineManager(appContext = appContext).enqueue(sessionId = sid, targetLanguage = tgt, replace = false)
@@ -992,11 +1149,11 @@ class DashboardFragment : Fragment() {
 
         MaterialAlertDialogBuilder(requireContext())
             .setTitle("需要配置 ASR Key")
-            .setMessage("请先在 Files 中编辑：workspace/radio_recordings/.env\n\n$msg")
+            .setMessage("请先在 Files 中编辑：workspace/recordings/.env（或 workspace/radio_recordings/.env）\n\n$msg")
             .setNegativeButton("知道了", null)
             .setPositiveButton("去打开") { _, _ ->
                 runCatching { findNavController().navigate(com.lsl.kotlin_agent_app.R.id.navigation_dashboard) }
-                filesViewModel?.goTo(".agents/workspace/radio_recordings")
+                filesViewModel?.goTo(".agents/workspace/recordings")
                 filesViewModel?.openFile(
                     AgentsDirEntry(
                         name = ".env",
@@ -1138,7 +1295,10 @@ class DashboardFragment : Fragment() {
 
     private fun isInRadioRecordingsTree(agentsPath: String): Boolean {
         val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
-        return p == ".agents/workspace/radio_recordings" || p.startsWith(".agents/workspace/radio_recordings/")
+        return p == ".agents/workspace/radio_recordings" ||
+            p.startsWith(".agents/workspace/radio_recordings/") ||
+            p == ".agents/workspace/recordings" ||
+            p.startsWith(".agents/workspace/recordings/")
     }
 
     private fun isInRadioFavorites(agentsPath: String): Boolean {

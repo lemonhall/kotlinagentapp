@@ -1249,6 +1249,7 @@ internal class RadioCommand(
             RecordingMetaV1(
                 schema = RecordingMetaV1.SCHEMA_V1,
                 sessionId = sessionId,
+                source = "radio",
                 station =
                     RecordingMetaV1.Station(
                         stationId = station.id,

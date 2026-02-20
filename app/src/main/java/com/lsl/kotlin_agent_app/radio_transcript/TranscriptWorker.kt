@@ -3,8 +3,12 @@ package com.lsl.kotlin_agent_app.radio_transcript
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.asr.AsrException
 import com.lsl.kotlin_agent_app.asr.AsrNetworkError
+import com.lsl.kotlin_agent_app.recordings.RecordingRoots
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionResolver
 import java.io.File
 
 internal class TranscriptWorker(
@@ -19,12 +23,16 @@ internal class TranscriptWorker(
         val mgr = TranscriptTaskManager(appContext = applicationContext)
         val asr =
             try {
+                val ws = AgentsWorkspace(applicationContext)
+                val ref =
+                    RecordingSessionResolver.resolve(ws, sessionId)
+                        ?: RecordingSessionRef(rootDir = RecordingRoots.RADIO_ROOT_DIR, sessionId = sessionId)
                 val debugDir =
                     File(
                         applicationContext.filesDir,
-                        ".agents/workspace/radio_recordings/$sessionId/transcripts/$taskId/_debug_asr",
+                        "${ref.sessionDir}/transcripts/$taskId/_debug_asr",
                     )
-                mgr.buildDefaultAsrClient(debugDumpDir = debugDir)
+                mgr.buildDefaultAsrClient(debugDumpDir = debugDir, sessionRef = ref)
             } catch (_: TranscriptCliException) {
                 return Result.failure()
             }

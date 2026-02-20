@@ -2,6 +2,9 @@ package com.lsl.kotlin_agent_app.radio_bilingual.player
 
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.agent.AgentsDirEntryType
+import com.lsl.kotlin_agent_app.recordings.RecordingRoots
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionResolver
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptChunkV1
 import com.lsl.kotlin_agent_app.radio_translation.TranslationChunkV1
 import java.io.File
@@ -37,7 +40,10 @@ internal class BilingualSessionLoader(
     fun load(sessionId: String): LoadedSession {
         val sid = sessionId.trim()
         if (sid.isBlank()) throw LoadError.SessionNotFound(sessionId)
-        val sessionDir = ".agents/workspace/radio_recordings/$sid"
+        val ref =
+            RecordingSessionResolver.resolve(workspace, sid)
+                ?: RecordingSessionRef(rootDir = RecordingRoots.RADIO_ROOT_DIR, sessionId = sid)
+        val sessionDir = ref.sessionDir
         if (!workspace.exists(sessionDir)) throw LoadError.SessionNotFound(sid)
 
         val chunkRx = Regex("^chunk_(\\d{3})\\.ogg$", RegexOption.IGNORE_CASE)

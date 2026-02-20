@@ -17,6 +17,7 @@ import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.lsl.kotlin_agent_app.BuildConfig
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
 import com.lsl.kotlin_agent_app.radios.StreamResolutionClassification
 import com.lsl.kotlin_agent_app.radios.StreamUrlResolver
 import kotlinx.coroutines.CoroutineScope
@@ -68,7 +69,15 @@ internal class RecordingSession(
                     onStopped(sessionId)
                     return@launch
                 }
-                val streamUrlRaw = meta.station.streamUrl.trim()
+                val station =
+                    meta.station
+                        ?: run {
+                            markFailed(code = "InvalidMeta", message = "missing station in meta for session: $sessionId")
+                            stopInternal(finalState = "failed", note = "InvalidMeta")
+                            onStopped(sessionId)
+                            return@launch
+                        }
+                val streamUrlRaw = station.streamUrl.trim()
                 val urlToPlay =
                     withContext(Dispatchers.IO) {
                         val resolved = runCatching { resolver.resolve(streamUrlRaw) }.getOrNull()
@@ -81,7 +90,14 @@ internal class RecordingSession(
                         }
                     }
 
-                val writer = ChunkWriter(ws = ws, store = store, sessionId = sessionId, chunkDurationMin = meta.chunkDurationMin.coerceAtLeast(1))
+                val ref = RecordingSessionRef(rootDir = RadioRecordingsPaths.ROOT_DIR, sessionId = sessionId)
+                val writer =
+                    ChunkWriter(
+                        ws = ws,
+                        store = store,
+                        sessionRef = ref,
+                        chunkDurationMinProvider = { _ -> meta.chunkDurationMin.coerceAtLeast(1) },
+                    )
                 chunkWriter = writer
 
                 val sink =

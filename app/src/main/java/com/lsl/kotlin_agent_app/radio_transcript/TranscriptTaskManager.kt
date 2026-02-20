@@ -18,8 +18,10 @@ import com.lsl.kotlin_agent_app.asr.AsrUploadError
 import com.lsl.kotlin_agent_app.asr.CloudAsrClient
 import com.lsl.kotlin_agent_app.asr.DashScopeFileUploader
 import com.lsl.kotlin_agent_app.config.EnvConfig
-import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsPaths
 import com.lsl.kotlin_agent_app.radio_recordings.RecordingMetaV1
+import com.lsl.kotlin_agent_app.recordings.RecordingRoots
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionResolver
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,10 +65,10 @@ internal class TranscriptTaskManager(
         if (rawLang.isNullOrBlank()) throw TranscriptCliException("InvalidArgs", "missing --source_lang")
         val lang = normalizeSourceLanguage(rawLang)
 
-        val chunks = validateSessionAndListChunks(sessionId = sid)
+        val (ref, chunks) = validateSessionAndListChunks(sessionId = sid)
 
         // UX: fail fast before creating any task files / WorkManager jobs (but after session validation).
-        requireAsrConfigured()
+        requireAsrConfigured(ref)
 
         store.ensureSessionRoot(sid)
 
@@ -106,8 +108,7 @@ internal class TranscriptTaskManager(
         val tid = taskId.trim()
         if (tid.isBlank()) throw TranscriptCliException("InvalidArgs", "missing --task")
 
-        val root = ".agents/workspace/radio_recordings"
-        val sessions = ws.listDir(root).filter { it.type.name == "Dir" }.map { it.name }
+        val sessions = listAllRecordingSessionIds()
         for (sid in sessions) {
             val t = store.readTaskOrNull(sid, tid)
             if (t != null) return t
@@ -119,8 +120,7 @@ internal class TranscriptTaskManager(
         val tid = taskId.trim()
         if (tid.isBlank()) throw TranscriptCliException("InvalidArgs", "missing --task")
 
-        val root = ".agents/workspace/radio_recordings"
-        val sessions = ws.listDir(root).filter { it.type.name == "Dir" }.map { it.name }
+        val sessions = listAllRecordingSessionIds()
         for (sid in sessions) {
             val t = store.readTaskOrNull(sid, tid)
             if (t != null) {
@@ -141,7 +141,8 @@ internal class TranscriptTaskManager(
         if (sid.isBlank()) throw TranscriptCliException("InvalidArgs", "missing sessionId")
         if (tid.isBlank()) throw TranscriptCliException("InvalidArgs", "missing taskId")
 
-        requireAsrConfigured()
+        val ref = RecordingSessionResolver.resolve(ws, sid) ?: RecordingSessionRef(rootDir = RecordingRoots.RADIO_ROOT_DIR, sessionId = sid)
+        requireAsrConfigured(ref)
 
         val prev = store.readTaskOrNull(sid, tid) ?: throw TranscriptCliException("TaskNotFound", "task not found: $tid")
         val now = TranscriptTaskV1.nowIso()
@@ -165,14 +166,14 @@ internal class TranscriptTaskManager(
     ) {
         val sid = sessionId.trim()
         val tid = taskId.trim()
-        val chunks = validateSessionAndListChunks(sessionId = sid)
+        val (ref, chunks) = validateSessionAndListChunks(sessionId = sid)
         val prev = store.readTaskOrNull(sid, tid) ?: throw TranscriptCliException("TaskNotFound", "task not found: $tid")
         val normalizedLang = normalizeSourceLanguage(prev.sourceLanguage)
 
         // Recompute progress from filesystem.
         val doneCount =
             chunks.count { c ->
-                ws.exists(RadioTranscriptPaths.chunkTranscriptJson(sid, tid, c.index))
+                ws.exists(ref.transcriptTaskChunkPath(taskId = tid, chunkIndex = c.index))
             }
         val baseTask =
             prev.copy(
@@ -188,10 +189,10 @@ internal class TranscriptTaskManager(
         var current = baseTask
         for (c in chunks.sortedBy { it.index }) {
             if (shouldStop()) return
-            val outPath = RadioTranscriptPaths.chunkTranscriptJson(sid, tid, c.index)
+            val outPath = ref.transcriptTaskChunkPath(taskId = tid, chunkIndex = c.index)
             if (ws.exists(outPath)) continue
 
-            val audioPath = "${RadioRecordingsPaths.sessionDir(sid)}/${c.file}"
+            val audioPath = "${ref.sessionDir}/${c.file}"
             val audioFile = File(ctx.filesDir, audioPath)
             if (!audioFile.exists() || !audioFile.isFile) {
                 current =
@@ -249,8 +250,11 @@ internal class TranscriptTaskManager(
         return buildDefaultAsrClient(debugDumpDir = null)
     }
 
-    fun buildDefaultAsrClient(debugDumpDir: File?): CloudAsrClient {
-        val cfg = readAsrConfigOrThrow()
+    fun buildDefaultAsrClient(
+        debugDumpDir: File?,
+        sessionRef: RecordingSessionRef? = null,
+    ): CloudAsrClient {
+        val cfg = readAsrConfigOrThrow(sessionRef)
         val apiKey = cfg.apiKey
         val baseUrl = cfg.baseUrl.trimEnd('/')
         val model = cfg.model
@@ -293,16 +297,15 @@ internal class TranscriptTaskManager(
 
     private fun uniqueWorkName(taskId: String): String = "radio_transcript_${taskId.trim()}"
 
-    private suspend fun validateSessionAndListChunks(sessionId: String): List<RecordingMetaV1.Chunk> {
+    private suspend fun validateSessionAndListChunks(sessionId: String): Pair<RecordingSessionRef, List<RecordingMetaV1.Chunk>> {
         val sid = sessionId.trim()
         if (sid.isBlank()) throw TranscriptCliException("InvalidArgs", "missing --session")
 
-        val metaPath = RadioRecordingsPaths.sessionMetaJson(sid)
-        if (!ws.exists(metaPath)) throw TranscriptCliException("SessionNotFound", "session not found: $sid")
+        val ref = RecordingSessionResolver.resolve(ws, sid) ?: throw TranscriptCliException("SessionNotFound", "session not found: $sid")
 
         val raw =
             withContext(Dispatchers.IO) {
-                ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+                ws.readTextFile(ref.metaPath, maxBytes = 2L * 1024L * 1024L)
             }
         val meta =
             try {
@@ -319,7 +322,7 @@ internal class TranscriptTaskManager(
         val chunks = meta.chunks.filter { it.file.trim().endsWith(".ogg", ignoreCase = true) }
         if (chunks.isEmpty()) throw TranscriptCliException("SessionNoChunks", "session $sid has no chunks")
 
-        return chunks
+        return ref to chunks
     }
 
     private fun resetTaskOutputs(
@@ -330,7 +333,8 @@ internal class TranscriptTaskManager(
         val tid = taskId.trim()
         val prev = store.readTaskOrNull(sid, tid) ?: throw TranscriptCliException("TaskNotFound", "task not found: $tid")
 
-        val taskDir = RadioTranscriptPaths.taskDir(sid, tid)
+        val ref = RecordingSessionResolver.resolve(ws, sid) ?: RecordingSessionRef(rootDir = RecordingRoots.RADIO_ROOT_DIR, sessionId = sid)
+        val taskDir = ref.transcriptTaskDir(tid)
         val entries = ws.listDir(taskDir)
         for (e in entries) {
             if (e.type.name != "File") continue
@@ -412,25 +416,62 @@ internal class TranscriptTaskManager(
         return v
     }
 
-    private fun requireAsrConfigured() {
-        readAsrConfigOrThrow()
+    private fun requireAsrConfigured(sessionRef: RecordingSessionRef) {
+        readAsrConfigOrThrow(sessionRef)
     }
 
-    private fun readAsrConfigOrThrow(): AsrRuntimeConfig {
+    private fun readAsrConfigOrThrow(sessionRef: RecordingSessionRef? = null): AsrRuntimeConfig {
         ws.ensureInitialized()
-        val envFile = ws.toFile(".agents/workspace/radio_recordings/.env")
-        val env = DotEnv.load(envFile)
+        val preferredRoot =
+            sessionRef
+                ?.rootDir
+                ?.replace('\\', '/')
+                ?.trim()
+                ?.trimEnd('/')
+                ?.ifBlank { null }
+        val roots =
+            when (preferredRoot) {
+                RecordingRoots.MICROPHONE_ROOT_DIR -> listOf(RecordingRoots.MICROPHONE_ROOT_DIR, RecordingRoots.RADIO_ROOT_DIR)
+                RecordingRoots.RADIO_ROOT_DIR -> listOf(RecordingRoots.RADIO_ROOT_DIR, RecordingRoots.MICROPHONE_ROOT_DIR)
+                else -> listOf(RecordingRoots.MICROPHONE_ROOT_DIR, RecordingRoots.RADIO_ROOT_DIR)
+            }
+        val envs = roots.map { root -> DotEnv.load(ws.toFile("$root/.env")) }
 
-        val apiKey = env["DASHSCOPE_API_KEY"].orEmpty().trim().ifBlank { EnvConfig.dashScopeApiKey.trim() }
+        fun firstNonBlank(key: String): String? {
+            for (e in envs) {
+                val v = e[key].orEmpty().trim().ifBlank { null }
+                if (v != null) return v
+            }
+            return null
+        }
+
+        val apiKey = firstNonBlank("DASHSCOPE_API_KEY").orEmpty().ifBlank { EnvConfig.dashScopeApiKey.trim() }
         if (apiKey.isBlank()) {
             throw TranscriptCliException(
                 "InvalidArgs",
-                "missing DASHSCOPE_API_KEY (edit workspace/radio_recordings/.env)",
+                "missing DASHSCOPE_API_KEY (edit workspace/recordings/.env or workspace/radio_recordings/.env)",
             )
         }
 
-        val baseUrl = env["DASHSCOPE_BASE_URL"].orEmpty().trim().ifBlank { EnvConfig.dashScopeBaseUrl.trim() }
-        val model = env["ASR_MODEL"].orEmpty().trim().ifBlank { EnvConfig.asrModel.trim() }
+        val baseUrl = firstNonBlank("DASHSCOPE_BASE_URL").orEmpty().ifBlank { EnvConfig.dashScopeBaseUrl.trim() }
+        val model = firstNonBlank("ASR_MODEL").orEmpty().ifBlank { EnvConfig.asrModel.trim() }
         return AsrRuntimeConfig(apiKey = apiKey, baseUrl = baseUrl, model = model)
+    }
+
+    private fun listAllRecordingSessionIds(): List<String> {
+        ws.ensureInitialized()
+        val out = LinkedHashSet<String>()
+        for (root in RecordingRoots.allRootDirsInLookupOrder()) {
+            try {
+                if (!ws.exists(root)) continue
+                ws.listDir(root)
+                    .filter { it.type.name == "Dir" }
+                    .map { it.name.trim() }
+                    .filter { it.isNotBlank() }
+                    .forEach { out.add(it) }
+            } catch (_: Throwable) {
+            }
+        }
+        return out.toList()
     }
 }

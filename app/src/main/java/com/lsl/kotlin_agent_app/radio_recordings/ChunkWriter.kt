@@ -6,6 +6,7 @@ import android.media.MediaMuxer
 import android.os.Build
 import androidx.media3.common.C
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
 import java.nio.ByteBuffer
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -13,8 +14,8 @@ import java.util.concurrent.TimeUnit
 internal class ChunkWriter(
     private val ws: AgentsWorkspace,
     private val store: RadioRecordingsStore,
-    private val sessionId: String,
-    private val chunkDurationMin: Int,
+    private val sessionRef: RecordingSessionRef,
+    private val chunkDurationMinProvider: (chunkIndex: Int) -> Int,
     private val bitrateBps: Int = 64_000,
 ) {
     private val queue = ArrayBlockingQueue<ByteArray>(256)
@@ -59,13 +60,13 @@ internal class ChunkWriter(
         } catch (_: Throwable) {
         }
         try {
-            val metaPath = RadioRecordingsPaths.sessionMetaJson(sessionId)
+            val metaPath = sessionRef.metaPath
             if (ws.exists(metaPath)) {
                 val raw = ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
                 val prev = RecordingMetaV1.parse(raw)
                 val next = prev.copy(state = finalState, updatedAt = RecordingMetaV1.nowIso())
-                store.writeSessionMeta(sessionId, next)
-                store.writeSessionStatus(sessionId, ok = true, note = finalState)
+                store.writeSessionMeta(sessionRef.sessionId, next)
+                store.writeSessionStatus(sessionRef.sessionId, ok = true, note = finalState)
             }
         } catch (_: Throwable) {
         }
@@ -78,7 +79,7 @@ internal class ChunkWriter(
                 {
                     runLoop()
                 },
-                "ChunkWriter-$sessionId",
+                "ChunkWriter-${sessionRef.sessionId}",
             )
         thread = t
         t.start()
@@ -104,11 +105,11 @@ internal class ChunkWriter(
             return
         }
 
-        val chunkSamplesTarget = (sampleRateHz.toLong() * 60L * chunkDurationMin.toLong()).coerceAtLeast(1L)
         var samplesInChunk = 0L
         var totalSamples = 0L
         var chunkBaseSamples = 0L
         var chunkIndex = 1
+        var chunkSamplesTarget = 0L
 
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
@@ -174,7 +175,7 @@ internal class ChunkWriter(
             closeEncoder()
             chunkBaseSamples = totalSamples
 
-            val chunkAgentsPath = RadioRecordingsPaths.chunkFile(sessionId, chunkIndex)
+            val chunkAgentsPath = sessionRef.chunkOggPath(chunkIndex)
             val outFile = ws.toFile(chunkAgentsPath)
             outFile.parentFile?.mkdirs()
 
@@ -195,7 +196,10 @@ internal class ChunkWriter(
             muxer = mx
             muxerStarted = false
 
-            store.appendChunk(sessionId, chunkIndex)
+            store.appendChunk(sessionRef.sessionId, chunkIndex)
+
+            val durMin = chunkDurationMinProvider(chunkIndex).coerceAtLeast(1)
+            chunkSamplesTarget = (sampleRateHz.toLong() * 60L * durMin.toLong()).coerceAtLeast(1L)
         }
 
         try {
@@ -273,7 +277,7 @@ internal class ChunkWriter(
         if (failed) return
         failed = true
         try {
-            val metaPath = RadioRecordingsPaths.sessionMetaJson(sessionId)
+            val metaPath = sessionRef.metaPath
             if (ws.exists(metaPath)) {
                 val raw = ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
                 val prev = RecordingMetaV1.parse(raw)
@@ -283,8 +287,8 @@ internal class ChunkWriter(
                         updatedAt = RecordingMetaV1.nowIso(),
                         error = RecordingMetaV1.ErrorInfo(code = code, message = message),
                     )
-                store.writeSessionMeta(sessionId, next)
-                store.writeSessionStatus(sessionId, ok = false, note = "$code: $message")
+                store.writeSessionMeta(sessionRef.sessionId, next)
+                store.writeSessionStatus(sessionRef.sessionId, ok = false, note = "$code: $message")
             }
         } catch (_: Throwable) {
         }

@@ -1,6 +1,9 @@
 package com.lsl.kotlin_agent_app.radio_transcript
 
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
+import com.lsl.kotlin_agent_app.recordings.RecordingRoots
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionResolver
 import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -13,6 +16,12 @@ internal class TranscriptTaskStore(
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val prettyJson: Json = Json { ignoreUnknownKeys = true; explicitNulls = false; prettyPrint = true },
 ) {
+    private fun sessionRefOrFallback(sessionId: String): RecordingSessionRef {
+        val sid = sessionId.trim()
+        require(sid.isNotBlank()) { "missing sessionId" }
+        return RecordingSessionResolver.resolve(ws, sid) ?: RecordingSessionRef(rootDir = RecordingRoots.RADIO_ROOT_DIR, sessionId = sid)
+    }
+
     fun allocateTaskId(prefix: String = "tx"): String {
         val fmt = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US)
         val ts = fmt.format(Date(nowMs()))
@@ -25,9 +34,9 @@ internal class TranscriptTaskStore(
     fun ensureSessionRoot(sessionId: String) {
         val sid = sessionId.trim()
         if (sid.isBlank()) error("missing sessionId")
-        val root = RadioTranscriptPaths.transcriptsRootDir(sid)
-        ws.mkdir(root)
-        val idxPath = RadioTranscriptPaths.tasksIndexJson(sid)
+        val ref = sessionRefOrFallback(sid)
+        ws.mkdir(ref.transcriptsDir)
+        val idxPath = ref.transcriptTasksIndexPath
         if (!ws.exists(idxPath)) {
             val idx = TranscriptTasksIndexV1(generatedAtSec = nowSec(), tasks = emptyList())
             ws.writeTextFileAtomic(idxPath, toPrettyRaw(idx.toJsonObject()))
@@ -44,8 +53,9 @@ internal class TranscriptTaskStore(
         val tid = taskId.trim()
         if (sid.isBlank()) error("missing sessionId")
         if (tid.isBlank()) error("missing taskId")
+        val ref = sessionRefOrFallback(sid)
         ensureSessionRoot(sid)
-        ws.mkdir(RadioTranscriptPaths.taskDir(sid, tid))
+        ws.mkdir(ref.transcriptTaskDir(tid))
 
         val now = TranscriptTaskV1.nowIso()
         val task =
@@ -94,7 +104,8 @@ internal class TranscriptTaskStore(
         val sid = sessionId.trim()
         val tid = taskId.trim()
         if (sid.isBlank() || tid.isBlank()) return null
-        val path = RadioTranscriptPaths.taskJson(sid, tid)
+        val ref = sessionRefOrFallback(sid)
+        val path = ref.transcriptTaskJson(tid)
         val raw =
             try {
                 if (!ws.exists(path)) return null
@@ -109,8 +120,9 @@ internal class TranscriptTaskStore(
         val sid = task.sessionId.trim()
         val tid = task.taskId.trim()
         if (sid.isBlank() || tid.isBlank()) error("invalid task ids")
+        val ref = sessionRefOrFallback(sid)
         val raw = toPrettyRaw(task.toJsonObject())
-        ws.writeTextFileAtomic(RadioTranscriptPaths.taskJson(sid, tid), raw)
+        ws.writeTextFileAtomic(ref.transcriptTaskJson(tid), raw)
 
         val prev = readTasksIndexOrNull(sid) ?: return
         val nextTasks =
@@ -155,7 +167,8 @@ internal class TranscriptTaskStore(
     fun readTasksIndexOrNull(sessionId: String): TranscriptTasksIndexV1? {
         val sid = sessionId.trim()
         if (sid.isBlank()) return null
-        val path = RadioTranscriptPaths.tasksIndexJson(sid)
+        val ref = sessionRefOrFallback(sid)
+        val path = ref.transcriptTasksIndexPath
         val raw =
             try {
                 if (!ws.exists(path)) return null
@@ -172,7 +185,8 @@ internal class TranscriptTaskStore(
     ) {
         val sid = sessionId.trim()
         if (sid.isBlank()) error("missing sessionId")
-        ws.writeTextFileAtomic(RadioTranscriptPaths.tasksIndexJson(sid), toPrettyRaw(index.toJsonObject()))
+        val ref = sessionRefOrFallback(sid)
+        ws.writeTextFileAtomic(ref.transcriptTasksIndexPath, toPrettyRaw(index.toJsonObject()))
     }
 
     fun writeTaskStatus(
@@ -184,6 +198,7 @@ internal class TranscriptTaskStore(
         val sid = sessionId.trim()
         val tid = taskId.trim()
         val at = nowSec()
+        val ref = sessionRefOrFallback(sid)
         val content =
             buildString {
                 appendLine("# 转录任务状态")
@@ -194,7 +209,7 @@ internal class TranscriptTaskStore(
                 appendLine("- at: $at")
                 appendLine("- note: ${note.trim().ifBlank { "—" }}")
             }
-        ws.writeTextFile(RadioTranscriptPaths.taskStatusMd(sid, tid), content)
+        ws.writeTextFile(ref.transcriptTaskStatusMd(tid), content)
     }
 
     fun toPrettyRaw(obj: JsonObject): String = prettyJson.encodeToString(JsonObject.serializer(), obj) + "\n"

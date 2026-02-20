@@ -7,6 +7,7 @@ import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore
 import com.lsl.kotlin_agent_app.translation.OpenAgenticTranslationClient
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionResolver
 import java.io.File
 
 internal class RecordingPipelineWorker(
@@ -20,13 +21,14 @@ internal class RecordingPipelineWorker(
 
         val appContext = applicationContext
         val ws = AgentsWorkspace(appContext)
-        val store = RadioRecordingsStore(ws)
+        val ref = RecordingSessionResolver.resolve(ws, sessionId) ?: return Result.failure()
+        val store = RadioRecordingsStore(ws, rootDir = ref.rootDir)
 
         val txMgr = TranscriptTaskManager(appContext = appContext, ws = ws)
         val asr =
             try {
-                val debugDir = File(appContext.filesDir, ".agents/workspace/radio_recordings/$sessionId/_debug_asr_pipeline")
-                txMgr.buildDefaultAsrClient(debugDumpDir = debugDir)
+                val debugDir = File(appContext.filesDir, "${ref.sessionDir}/_debug_asr_pipeline")
+                txMgr.buildDefaultAsrClient(debugDumpDir = debugDir, sessionRef = ref)
             } catch (_: TranscriptCliException) {
                 return Result.failure()
             }

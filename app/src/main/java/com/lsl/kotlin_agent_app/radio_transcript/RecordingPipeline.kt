@@ -8,9 +8,9 @@ import com.lsl.kotlin_agent_app.asr.AsrRemoteError
 import com.lsl.kotlin_agent_app.asr.AsrTaskTimeout
 import com.lsl.kotlin_agent_app.asr.AsrUploadError
 import com.lsl.kotlin_agent_app.asr.CloudAsrClient
-import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsPaths
 import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore
 import com.lsl.kotlin_agent_app.radio_recordings.RecordingMetaV1
+import com.lsl.kotlin_agent_app.recordings.RecordingSessionResolver
 import com.lsl.kotlin_agent_app.radio_translation.TranslationWorker
 import com.lsl.kotlin_agent_app.translation.LlmNetworkError
 import com.lsl.kotlin_agent_app.translation.LlmParseError
@@ -46,12 +46,11 @@ internal class RecordingPipeline(
         val sid = sessionId.trim()
         if (sid.isBlank()) throw RecordingPipelineException("InvalidArgs", "missing sessionId")
 
-        val metaPath = RadioRecordingsPaths.sessionMetaJson(sid)
-        if (!ws.exists(metaPath)) throw RecordingPipelineException("SessionNotFound", "session not found: $sid")
+        val ref = RecordingSessionResolver.resolve(ws, sid) ?: throw RecordingPipelineException("SessionNotFound", "session not found: $sid")
 
         val rawMeta =
             withContext(Dispatchers.IO) {
-                ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+                ws.readTextFile(ref.metaPath, maxBytes = 2L * 1024L * 1024L)
             }
         val meta = RecordingMetaV1.parse(rawMeta)
         val state = meta.state.trim().lowercase(Locale.ROOT)
@@ -78,7 +77,7 @@ internal class RecordingPipeline(
 
         writePipeline(meta, pipe0.copy(transcriptState = "running", lastError = null))
 
-        val transcriptsDir = "${RadioRecordingsPaths.sessionDir(sid)}/transcripts"
+        val transcriptsDir = ref.transcriptsDir
         ws.mkdir(transcriptsDir)
 
         var pipe = pipe0.copy(transcriptState = "running", translationState = if (pipe0.targetLanguage != null) "pending" else "pending")
@@ -100,7 +99,7 @@ internal class RecordingPipeline(
                 continue
             }
 
-            val oggPath = RadioRecordingsPaths.chunkFile(sid, idx)
+            val oggPath = ref.chunkOggPath(idx)
             val f = ws.toFile(oggPath)
             val asr =
                 try {
@@ -170,9 +169,7 @@ internal class RecordingPipeline(
         for (c in chunks) {
             if (shouldStop()) return
             val idx = c.index.coerceAtLeast(1)
-            val translationsDir = "${RadioRecordingsPaths.sessionDir(sid)}/translations"
-            ws.mkdir(translationsDir)
-            val outPath = "$translationsDir/chunk_${idx.toString().padStart(3, '0')}.translation.json"
+            val outPath = ref.translationChunkPath(idx)
             if (ws.exists(outPath)) {
                 translatedChunks += 1
                 val translatedSegs =
@@ -194,7 +191,7 @@ internal class RecordingPipeline(
                 continue
             }
 
-            val txPath = "$transcriptsDir/chunk_${idx.toString().padStart(3, '0')}.transcript.json"
+            val txPath = ref.transcriptChunkPath(idx)
             if (!ws.exists(txPath)) {
                 failed += 1
                 val next =

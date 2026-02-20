@@ -17,13 +17,18 @@ import kotlinx.serialization.json.jsonPrimitive
 internal data class RecordingMetaV1(
     val schema: String,
     val sessionId: String,
-    val station: Station,
+    val source: String? = null,
+    val title: String? = null,
+    val station: Station? = null,
     val chunkDurationMin: Int,
     val outputFormat: String,
     val state: String,
     val createdAt: String,
     val updatedAt: String,
     val chunks: List<Chunk>,
+    val durationMs: Long? = null,
+    val sampleRate: Int? = null,
+    val bitrate: Int? = null,
     val error: ErrorInfo? = null,
     val transcriptRequest: JsonObject? = null,
     val pipeline: Pipeline? = null,
@@ -59,24 +64,67 @@ internal data class RecordingMetaV1(
         val lastError: ErrorInfo? = null,
     )
 
+    // Backward-compatible constructor for code compiled against pre-Recorder schema.
+    constructor(
+        schema: String,
+        sessionId: String,
+        station: Station,
+        chunkDurationMin: Int,
+        outputFormat: String,
+        state: String,
+        createdAt: String,
+        updatedAt: String,
+        chunks: List<Chunk>,
+        error: ErrorInfo? = null,
+        transcriptRequest: JsonObject? = null,
+        pipeline: Pipeline? = null,
+    ) : this(
+        schema = schema,
+        sessionId = sessionId,
+        source = null,
+        title = null,
+        station = station,
+        chunkDurationMin = chunkDurationMin,
+        outputFormat = outputFormat,
+        state = state,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        chunks = chunks,
+        durationMs = null,
+        sampleRate = null,
+        bitrate = null,
+        error = error,
+        transcriptRequest = transcriptRequest,
+        pipeline = pipeline,
+    )
+
     fun toJsonObject(): JsonObject {
         return buildJsonObject {
             put("schema", JsonPrimitive(schema))
             put("sessionId", JsonPrimitive(sessionId))
-            put(
-                "station",
-                buildJsonObject {
-                    put("stationId", JsonPrimitive(station.stationId))
-                    put("name", JsonPrimitive(station.name))
-                    put("radioFilePath", JsonPrimitive(station.radioFilePath))
-                    put("streamUrl", JsonPrimitive(station.streamUrl))
-                },
-            )
+            put("source", source?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("title", title?.let { JsonPrimitive(it) } ?: JsonNull)
+            if (station == null) {
+                put("station", JsonNull)
+            } else {
+                put(
+                    "station",
+                    buildJsonObject {
+                        put("stationId", JsonPrimitive(station.stationId))
+                        put("name", JsonPrimitive(station.name))
+                        put("radioFilePath", JsonPrimitive(station.radioFilePath))
+                        put("streamUrl", JsonPrimitive(station.streamUrl))
+                    },
+                )
+            }
             put("chunkDurationMin", JsonPrimitive(chunkDurationMin))
             put("outputFormat", JsonPrimitive(outputFormat))
             put("state", JsonPrimitive(state))
             put("createdAt", JsonPrimitive(createdAt))
             put("updatedAt", JsonPrimitive(updatedAt))
+            put("durationMs", durationMs?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("sampleRate", sampleRate?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("bitrate", bitrate?.let { JsonPrimitive(it) } ?: JsonNull)
             put(
                 "chunks",
                 buildJsonArray {
@@ -136,12 +184,17 @@ internal data class RecordingMetaV1(
     }
 
     companion object {
-        const val SCHEMA_V1 = "kotlin-agent-app/radio-recording-meta@v1"
+        const val SCHEMA_RECORDING_V1 = "kotlin-agent-app/recording-meta@v1"
+        const val SCHEMA_RADIO_V1 = "kotlin-agent-app/radio-recording-meta@v1"
+
+        // Default for new writes.
+        const val SCHEMA_V1 = SCHEMA_RECORDING_V1
 
         private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
         fun nowIso(): String {
-            return OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            val now = OffsetDateTime.now()
+            return now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
         }
 
         fun parse(raw: String): RecordingMetaV1 {
@@ -164,21 +217,45 @@ internal data class RecordingMetaV1(
             }
 
             val schema = str("schema").orEmpty()
-            if (schema != SCHEMA_V1) error("unsupported schema: $schema")
+            val supported = setOf(SCHEMA_RECORDING_V1, SCHEMA_RADIO_V1)
+            if (schema.isNotBlank() && schema !in supported) error("unsupported schema: $schema")
 
             val sessionId = str("sessionId").orEmpty()
-            val stationObj = o["station"] as? JsonObject ?: error("missing station")
-            fun sstr(key: String): String {
-                val v = runCatching { stationObj[key]?.jsonPrimitive?.content }.getOrNull()?.trim().orEmpty()
-                if (v.isBlank()) error("missing station.$key")
-                return v
+            if (sessionId.isBlank()) error("missing sessionId")
+
+            val title = str("title")
+
+            val stationObj = o["station"] as? JsonObject
+            fun parseStation(so: JsonObject): Station? {
+                fun sstr(key: String): String {
+                    val v = runCatching { so[key]?.jsonPrimitive?.content }.getOrNull()?.trim().orEmpty()
+                    if (v.isBlank()) error("missing station.$key")
+                    return v
+                }
+                return Station(
+                    stationId = sstr("stationId"),
+                    name = sstr("name"),
+                    radioFilePath = sstr("radioFilePath"),
+                    streamUrl = sstr("streamUrl"),
+                )
             }
+
+            val station = stationObj?.let { runCatching { parseStation(it) }.getOrNull() }
+            val source =
+                str("source")
+                    ?: run {
+                        if (station != null) "radio" else "microphone"
+                    }
 
             val chunkDurationMin = str("chunkDurationMin")?.toIntOrNull() ?: 10
             val outputFormat = str("outputFormat").orEmpty()
             val state = str("state").orEmpty()
             val createdAt = str("createdAt").orEmpty()
-            val updatedAt = str("updatedAt").orEmpty()
+            val updatedAt = (str("updatedAt") ?: createdAt).orEmpty()
+
+            val durationMs = str("durationMs")?.toLongOrNull()
+            val sampleRate = str("sampleRate")?.toIntOrNull()
+            val bitrate = str("bitrate")?.toIntOrNull()
 
             val chunksArr: JsonArray = (o["chunks"] as? JsonArray) ?: JsonArray(emptyList())
             val chunks =
@@ -194,6 +271,19 @@ internal data class RecordingMetaV1(
                         durationSec = runCatching { co["durationSec"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.toIntOrNull(),
                         sizeBytes = runCatching { co["sizeBytes"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.toLongOrNull(),
                     )
+                }
+
+            val finalChunks =
+                if (chunks.isNotEmpty()) {
+                    chunks
+                } else {
+                    val total = str("totalChunks")?.toIntOrNull() ?: 0
+                    if (total <= 0) emptyList()
+                    else {
+                        (1..total).map { idx ->
+                            Chunk(file = "chunk_${idx.toString().padStart(3, '0')}.ogg", index = idx)
+                        }
+                    }
                 }
 
             val errorObj = o["error"] as? JsonObject
@@ -238,21 +328,20 @@ internal data class RecordingMetaV1(
                 }
 
             return RecordingMetaV1(
-                schema = schema,
+                schema = if (schema.isBlank()) SCHEMA_V1 else schema,
                 sessionId = sessionId,
-                station =
-                    Station(
-                        stationId = sstr("stationId"),
-                        name = sstr("name"),
-                        radioFilePath = sstr("radioFilePath"),
-                        streamUrl = sstr("streamUrl"),
-                    ),
+                source = source,
+                title = title,
+                station = station,
                 chunkDurationMin = chunkDurationMin,
                 outputFormat = outputFormat,
                 state = state,
                 createdAt = createdAt,
                 updatedAt = updatedAt,
-                chunks = chunks,
+                chunks = finalChunks,
+                durationMs = durationMs,
+                sampleRate = sampleRate,
+                bitrate = bitrate,
                 error = error,
                 transcriptRequest = transcriptRequest,
                 pipeline = pipeline,
