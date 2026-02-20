@@ -40,8 +40,9 @@
 ## 分层与交付版本
 
 ```
-Layer 4: 实时翻译管线（Live Translation Pipeline）     — v44, v45
-Layer 3: 语言学习交互（Language Learning Agent）        — v42
+Layer 4: 实时翻译管线（Live Translation Pipeline）     — v45, v46
+Layer 3b: 语言学习交互（language-tutor + TTS）          — v43
+Layer 3a: 双语学习播放器（Session Player）              — v42
 Layer 2: 离线转录 / 翻译（Transcript & Translation）    — v40, v41
 Layer 1: 后台录制（Radio Recording）                    — v39
 Layer 0: 既有 Radio 模块（已完成）                      — v38
@@ -60,19 +61,25 @@ Layer 0: 既有 Radio 模块（已完成）                      — v38
     _STATUS.md
     chunk_001.ogg
     ...
-    transcripts/
-      _tasks.index.json
-      {task_id}/
-        _task.json
-        _STATUS.md
-        chunk_001.transcript.json
-        chunk_001.translation.json
-        ...
-        audio_bilingual/            # v42（可选）
-          _task.json
-          chunk_001_bilingual.ogg
-          ...
+    transcripts/                    # v41 起：平铺（无 tx_*/_task.json）
+      chunk_001.transcript.json
+      chunk_002.transcript.json
+      ...
+    translations/                   # v41 起：平铺
+      chunk_001.translation.json
+      chunk_002.translation.json
+      ...
+    audio_bilingual/                # v43（可选）
+      _task.json
+      chunk_001_bilingual.ogg
+      ...
+  live_*/                           # v46（可选，live 会话）
+    _meta.json
+    _STATUS.md
+    ...
 ```
+
+> 说明（[已由 ECN-0007 变更]）：v40 版本曾采用 `transcripts/_tasks.index.json + tx_*/_task.json` 的多任务落盘模型；v41 起按 plan 简化为“一个 session 一条 pipeline”，转录与翻译结果平铺在 `transcripts/` 与 `translations/` 下（不再有 `tx_*/` task 子目录）。
 
 > 具体 schema 与字段细节以 `research/big_feat_radio.md` 为准；本 PRD 的稳定锚点是“目录结构 + schema 名称 + 可验收行为”。
 
@@ -82,8 +89,8 @@ Layer 0: 既有 Radio 模块（已完成）                      — v38
 
 - `radio record ...`（v39）
 - `radio transcript ...`（v40）
-- `radio tts ...`（v42）
-- `radio live ...`（v44）
+- `radio tts ...`（v43）
+- `radio live ...`（v45 / v46）
 
 要求：
 
@@ -122,36 +129,35 @@ Layer 0: 既有 Radio 模块（已完成）                      — v38
 
 ### v41（Layer 2b：离线翻译）
 
-- **REQ-0034-080（翻译落盘）**：可选生成 `chunk_NNN.translation.json`，与 transcript segments 时间戳对齐（同 id/start/end）。  
-- **REQ-0034-081（录完自动管线）**：当录制会话结束（`state=completed`）后，若该会话配置了目标语言，则自动触发离线串行管线：转录 → 翻译（无需手动干预；可断点续跑、失败可解释）。  
-  - 说明：**不做“边录边转”**（录制中不触发任何处理）；“新 chunk 产出即进入转录/翻译队列”的实时/准实时能力归入 v44/v45 的 Live Translation Pipeline。  
+- **REQ-0034-080（翻译落盘 + 目录结构简化）**：翻译结果必须落盘为 `translations/chunk_NNN.translation.json`；转录结果落盘为 `transcripts/chunk_NNN.transcript.json`；translation segments 必须与 transcript segments 时间戳对齐（同 id/start/end）。  
+- **REQ-0034-081（录完自动管线 + 可恢复进度）**：当录制会话结束（`state=completed`）后，若该会话配置了目标语言，则自动触发离线串行管线：转录 → 翻译（无需手动干预；可断点续跑、失败可解释）；pipeline 状态与进度计数必须以 `_meta.json`（或等价稳定文件）表达。  
+  - 说明：**不做“边录边转”**（录制中不触发任何处理）；“新 chunk 产出即进入转录/翻译队列”的实时/准实时能力归入 v45/v46 的 Live Translation Pipeline。  
 
-### v42（Layer 3：语言学习交互）
+### v42（Layer 3a：双语学习播放器） （[已由 ECN-0007 变更]）
 
-- **REQ-0034-100（双语字幕视图）**：点击 `*.translation.json` 不展示原始 JSON，而是渲染双语字幕视图；支持“原文/译文/双语”三种显示模式。  
-- **REQ-0034-101（时间定位播放）**：点击任意 segment 时间戳可定位播放对应 chunk 的对应位置；当前播放位置高亮对应 segment。  
-- **REQ-0034-102（语言学习 Agent）**：内置 `language-tutor` 技能（`SKILL.md`），长按/选中 segment 可弹出面板并向 agent 提供上下文（选中句 + 周边句 + 语言对 + 用户水平）。  
-- **REQ-0034-103（TTS 双语听力）**：支持在转录任务目录生成 `audio_bilingual/`（交替/仅译文两种模式），并以 `_task.json` 表达进度。  
-- **REQ-0034-104（CLI：radio tts）**：新增 `radio tts start|status|cancel`。  
+- **REQ-0034-100（双语播放入口与全屏播放器）**：在 Files 的 `radio_recordings/` 下长按录制 session 目录，必须提供“🎧 双语播放”入口进入全屏播放器；若 session 内无 `chunk_*.ogg`，入口灰显并提示“无录音文件”。  
+- **REQ-0034-101（多 chunk 顺序播放 + 播放控制）**：播放器必须按文件名顺序连续播放 session 内所有 `chunk_NNN.ogg`（chunk 间自动衔接）；支持跨 chunk 的总进度 seek；支持变速（0.5x/0.75x/1.0x/1.25x/1.5x/2.0x）；支持“上一句/下一句”跳转（按字幕 segment 时间戳）。  
+- **REQ-0034-102（双语字幕同步 + 高亮滚动 + 点击定位）**：字幕区必须随播放位置高亮当前 segment 并自动滚动；点击任意 segment 必须 seek 到该句 start 并播放；字幕数据优先读取 `translations/chunk_NNN.translation.json`，缺失时降级读取 `transcripts/chunk_NNN.transcript.json`，都缺失则显示“暂无字幕”，且不阻塞播放。  
 
-### v43（基础设施：ASR/TTS 模块化）
+### v43（Layer 3b：language-tutor Agent + TTS 双语听力） （[已由 ECN-0007 变更]）
+
+- **REQ-0034-103（语言学习 Agent）**：内置 `language-tutor` 技能（`SKILL.md`），长按/选中字幕 segment 可触发“学习”交互并向 agent 提供上下文（选中句 + 周边句 + 语言对 + 用户水平）；最小实现允许复用 Chat 页签承载面板（跳转并自动切换 skill）。  
+- **REQ-0034-104（TTS 双语听力 + CLI）**：支持生成双语听力音频产物 `audio_bilingual/`（至少支持 `interleaved` / `target_only` 两种模式），并提供 `radio tts start|status|cancel` 可审计触发与查询；任务进度以 `_task.json`（或等价稳定文件）表达，失败必须可解释。  
+
+### v44（基础设施：ASR/TTS 模块化 + 通道隔离）
 
 - **REQ-0034-130（AsrService 接口）**：抽象 `AsrService.transcribeFile` 与 `AsrService.transcribeStream`；Radio/Chat 共享实现但并发隔离、限流。  
 - **REQ-0034-131（TtsService 接口）**：抽象 `TtsService.synthesize` 与（可选）`synthesizeStream`；provider 可切换；Settings 可配置默认 voice。  
 - **REQ-0034-132（与 Chat 并发口径）**：Chat 语音输入/输出优先级高于 Radio 管线；并发与 AudioFocus 策略必须可解释且不互相打断到不可用。  
 
-### v44（Layer 4a：实时翻译 MVP）
+### v45（Layer 4：实时翻译管线 + MixController） （[已由 ECN-0007 变更]）
 
-- **REQ-0034-150（AudioTee）**：从正在播放的 Radio 流分叉 PCM（ForwardingAudioSink / 等价实现），供 ASR 消费，不影响原声播放稳定性。  
-- **REQ-0034-151（伪流式 ASR）**：按 5–10 秒窗口攒 buffer，编码后调用 Whisper，端到端延迟目标 ≤10 秒（允许少量抖动）。  
-- **REQ-0034-152（流式翻译字幕）**：ASR segments 经 LLM 翻译后以滚动字幕呈现（原文+译文）；失败时显示“识别中断/正在识别”类可解释状态。  
-- **REQ-0034-153（CLI：radio live）**：新增 `radio live start|stop|status`，并支持模式：`interleaved|target_only|subtitle_only`。  
+- **REQ-0034-180（实时翻译管线 + 三模式混音）**：支持实时翻译闭环：电台音频 → ASR → 翻译 →（可选）TTS → 混音播放；支持三种模式：交替（原声 duck + 译文朗读）/ 仅译文（原声静音 + 译文朗读）/ 仅字幕（不播 TTS）；并提供 `radio live start|stop|status` 最小 CLI 闭环（受控输入、稳定输出、可审计）。  
+- **REQ-0034-181（实时字幕追加模式）**：字幕视图支持 streaming 追加（新 segment 实时追加到底部并可自动滚动），并展示译文延迟指示；`subtitle_only` 模式下不影响原声播放且不产出 TTS 播放副作用。  
 
-### v45（Layer 4b：实时翻译完整版）
+### v46（持久化 + AudioFocusManager + `radio live` 扩展） （[已由 ECN-0007 变更]）
 
-- **REQ-0034-180（TTS 输出）**：实时翻译可输出译文语音，并支持两种播放模式：仅译文 / 原声降音量+译文交替。  
-- **REQ-0034-181（全链路可选落盘）**：实时会话可选落盘原始音频切片、ASR/译文 JSONL、TTS 音频片段；落盘后可被离线工具转换为标准 transcript/translation 进入 Layer 2/3。  
-- **REQ-0034-182（AudioFocusManager）**：当 Chat TTS 需要播报时，必须优先级高于 Radio TTS（可暂停/恢复 Radio TTS；原声可按策略继续）。  
+- **REQ-0034-182（全链路落盘 + 音频焦点仲裁）**：live 会话支持可选的全链路落盘（原声切片、ASR/翻译 JSONL、TTS 音频等）到 `workspace/radio_recordings/live_*/`；并引入 `AudioFocusManager` 统一仲裁 app 内音频源优先级（至少：`CHAT_TTS > RADIO_TTS > RADIO_PLAYBACK`）且能接收并分发系统 AudioFocus 事件；`radio live` CLI 提供落盘开关参数并写入 `_meta.json` 可审计。  
 
 ## Open Questions（进入 v39 实施前需确认的口径）
 

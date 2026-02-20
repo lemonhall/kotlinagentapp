@@ -1,10 +1,12 @@
 package com.lsl.kotlin_agent_app.translation
 
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptSegment
+import com.lsl.kotlin_agent_app.NoProxyRule
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -13,6 +15,8 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class OpenAgenticTranslationClientTest {
+
+    @get:Rule val noProxyRule = NoProxyRule()
 
     @Test
     fun translateBatch_parsesResponsesSseCompleted() =

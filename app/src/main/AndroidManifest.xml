@@ -56,6 +56,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.bilingual_player.BilingualPlayerActivity"
+            android:exported="false"
+            android:label="双语播放" />
+
         <service
             android:name=".media.MusicPlaybackService"
             android:exported="false"

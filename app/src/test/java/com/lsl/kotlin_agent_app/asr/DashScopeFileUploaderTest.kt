@@ -1,14 +1,18 @@
 package com.lsl.kotlin_agent_app.asr
 
 import java.io.File
+import com.lsl.kotlin_agent_app.NoProxyRule
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 
 class DashScopeFileUploaderTest {
+
+    @get:Rule val noProxyRule = NoProxyRule()
 
     @Test
     fun uploadFileAndGetOssUrl_requestsPolicy_thenUploadsMultipart_andReturnsOssUrl() =

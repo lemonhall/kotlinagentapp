@@ -62,6 +62,7 @@ import com.lsl.kotlin_agent_app.radio_transcript.TranscriptCliException
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTaskManager
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTasksIndexV1
 import com.lsl.kotlin_agent_app.radio_transcript.RecordingPipelineManager
+import com.lsl.kotlin_agent_app.ui.bilingual_player.BilingualPlayerActivity
 
 class DashboardFragment : Fragment() {
 
@@ -699,21 +700,21 @@ class DashboardFragment : Fragment() {
         val ws = AgentsWorkspace(appContext)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val (state, tasks) =
+            val (state, tasks, hasChunks) =
                 withContext(Dispatchers.IO) {
                     val metaPath = ".agents/workspace/radio_recordings/$sid/_meta.json"
                     val raw =
                         try {
-                            if (!ws.exists(metaPath)) return@withContext (null to emptyList())
+                            if (!ws.exists(metaPath)) return@withContext Triple(null, emptyList(), false)
                             ws.readTextFile(metaPath, maxBytes = 256 * 1024)
                         } catch (_: Throwable) {
-                            return@withContext (null to emptyList())
+                            return@withContext Triple(null, emptyList(), false)
                         }
                     val meta =
                         try {
                             RecordingMetaV1.parse(raw)
                         } catch (_: Throwable) {
-                            return@withContext (null to emptyList())
+                            return@withContext Triple(null, emptyList(), false)
                         }
                     val txIdxPath = ".agents/workspace/radio_recordings/$sid/transcripts/_tasks.index.json"
                     val loadedTasks =
@@ -726,7 +727,20 @@ class DashboardFragment : Fragment() {
                         } catch (_: Throwable) {
                             emptyList()
                         }
-                    (meta.state.trim().lowercase() to loadedTasks)
+
+                    val hasOgg =
+                        try {
+                            ws.listDir(".agents/workspace/radio_recordings/$sid")
+                                .any { e ->
+                                    e.type == AgentsDirEntryType.File &&
+                                        e.name.trim().startsWith("chunk_", ignoreCase = true) &&
+                                        e.name.trim().endsWith(".ogg", ignoreCase = true)
+                                }
+                        } catch (_: Throwable) {
+                            false
+                        }
+
+                    Triple(meta.state.trim().lowercase(), loadedTasks, hasOgg)
                 }
 
             val stillRecording = (state == "recording" || state == "pending")
@@ -738,22 +752,35 @@ class DashboardFragment : Fragment() {
                 buildList {
                     add(primary)
                     add("转录+翻译")
+                    add("🎧 双语播放")
                     if (failedTasks.isNotEmpty()) add("重跑失败")
                     add("进入目录")
                     add("删除会话")
                     add("复制路径")
                 }.toTypedArray()
 
+            val adapter =
+                object : android.widget.ArrayAdapter<String>(requireContext(), android.R.layout.select_dialog_item, actions) {
+                    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                        val v = super.getView(position, convertView, parent) as TextView
+                        val label = actions.getOrNull(position).orEmpty()
+                        if (label == "🎧 双语播放" && !hasChunks) {
+                            v.setTextColor(MaterialColors.getColor(v, com.google.android.material.R.attr.colorOnSurfaceVariant))
+                        }
+                        return v
+                    }
+                }
+
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle(displayName)
-                .setItems(actions) { _, which ->
+                .setAdapter(adapter) { _, which ->
                     when (actions.getOrNull(which)) {
                         "进入目录" -> vm.goTo(".agents/workspace/radio_recordings/$sid")
                         "复制路径" -> copyTextToClipboard("path", ".agents/workspace/radio_recordings/$sid")
                         "删除会话" -> {
                             if (stillRecording) {
                                 Toast.makeText(requireContext(), "录制中，无法删除。请先停止录制。", Toast.LENGTH_SHORT).show()
-                                return@setItems
+                                return@setAdapter
                             }
                             val warning =
                                 if (activeTasks.isNotEmpty()) {
@@ -769,6 +796,18 @@ class DashboardFragment : Fragment() {
                                     vm.deletePath(".agents/workspace/radio_recordings/$sid", recursive = true)
                                 }
                                 .show()
+                        }
+                        "🎧 双语播放" -> {
+                            if (!hasChunks) {
+                                Toast.makeText(requireContext(), "无录音文件", Toast.LENGTH_SHORT).show()
+                                return@setAdapter
+                            }
+                            MusicPlayerControllerProvider.get().stop()
+                            runCatching {
+                                startActivity(BilingualPlayerActivity.intentOf(requireContext(), sid))
+                            }.onFailure { t ->
+                                Toast.makeText(requireContext(), "打开失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+                            }
                         }
                         "开始转录", "重新转录" -> {
                             if (stillRecording) {
