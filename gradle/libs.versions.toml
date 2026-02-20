@@ -1,6 +1,6 @@
 [versions]
-agp = "8.6.0"
-kotlin = "1.9.0"
+agp = "8.7.3"
+kotlin = "2.0.21"
 coreKtx = "1.16.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
@@ -12,8 +12,7 @@ lifecycleLivedataKtx = "2.9.4"
 lifecycleViewmodelKtx = "2.9.4"
 navigationFragmentKtx = "2.9.5"
 navigationUiKtx = "2.9.5"
-composeBom = "2023.08.00"
-composeCompiler = "1.5.0"
+composeBom = "2026.02.00"
 kotlinxCoroutines = "1.8.1"
 robolectric = "4.12.2"
 desugarJdkLibs = "2.0.4"
@@ -60,3 +59,4 @@ androidx-media3-session = { group = "androidx.media3", name = "media3-session", 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

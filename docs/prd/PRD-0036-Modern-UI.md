@@ -31,7 +31,7 @@
 [versions]
 kotlin = "2.0.21"         # 从 1.9.0 升级
 agp = "8.7.3"             # 配合 Kotlin 2.0 升级
-composeBom = "2024.12.01" # 从 2023.08.00 升级
+composeBom = "2026.02.00" # 从 2023.08.00 升级
 # 删除 composeCompiler 这一行，Kotlin 2.0+ 不再需要单独指定
 ```
 

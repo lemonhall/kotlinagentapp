@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.compose.compiler)
 }
 
 val testMaxParallelForks: Int? =
@@ -103,9 +104,6 @@ android {
         viewBinding = true
         compose = true
         buildConfig = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true

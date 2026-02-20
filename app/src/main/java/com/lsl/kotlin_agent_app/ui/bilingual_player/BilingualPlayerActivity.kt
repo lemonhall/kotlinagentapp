@@ -5,13 +5,13 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.ViewModelProvider
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
 import com.lsl.kotlin_agent_app.radio_bilingual.player.AndroidMediaMetadataChunkDurationReader
 import com.lsl.kotlin_agent_app.radio_bilingual.player.BilingualSessionLoader
 import com.lsl.kotlin_agent_app.radio_bilingual.player.Media3SessionPlayerController
+import com.lsl.kotlin_agent_app.ui.theme.KotlinAgentAppTheme
 
 internal class BilingualPlayerActivity : ComponentActivity() {
 
@@ -48,7 +48,7 @@ internal class BilingualPlayerActivity : ComponentActivity() {
         val composeView =
             ComposeView(this).apply {
                 setContent {
-                    MaterialTheme {
+                    KotlinAgentAppTheme {
                         BilingualPlayerScreen(
                             vm = vm,
                             onBack = { finish() },

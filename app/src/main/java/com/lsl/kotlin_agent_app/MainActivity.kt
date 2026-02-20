@@ -59,6 +59,8 @@ class MainActivity : AppCompatActivity() {
                 R.id.navigation_terminal,
             )
         )
+
+        setSupportActionBar(binding.toolbar)
         setupActionBarWithNavController(navController, appBarConfiguration)
         navView.setupWithNavController(navController)
 

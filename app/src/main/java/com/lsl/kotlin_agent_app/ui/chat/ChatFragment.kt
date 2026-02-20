@@ -7,7 +7,6 @@ import android.view.ViewGroup
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +23,7 @@ import com.lsl.kotlin_agent_app.agent.tools.irc.IrcConnectionState
 import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
+import com.lsl.kotlin_agent_app.ui.theme.KotlinAgentAppTheme
 import com.lsl.kotlin_agent_app.web.WebPreviewCoordinator
 import com.lsl.kotlin_agent_app.web.WebViewControllerProvider
 import java.io.File
@@ -91,7 +91,7 @@ class ChatFragment : Fragment() {
 
                 val uiState by viewModel.uiState.collectAsState()
                 val frame by coordinator.frame.collectAsState()
-                MaterialTheme {
+                KotlinAgentAppTheme {
                     ChatScreen(
                         uiState = uiState,
                         onSend = viewModel::sendUserMessage,
