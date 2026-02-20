@@ -57,9 +57,11 @@ import com.lsl.kotlin_agent_app.radios.RadioPathNaming
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.radio.RadioCommand
 import com.lsl.kotlin_agent_app.radio_recordings.RecordingMetaV1
+import com.lsl.kotlin_agent_app.radio_translation.TranslationChunkV1
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptCliException
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTaskManager
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTasksIndexV1
+import com.lsl.kotlin_agent_app.radio_transcript.RecordingPipelineManager
 
 class DashboardFragment : Fragment() {
 
@@ -323,6 +325,7 @@ class DashboardFragment : Fragment() {
              if (!openPath.isNullOrBlank() && openText != null) {
                  val desiredKind =
                     when {
+                        isTranslationChunk(openPath, openText) -> EditorDialogKind.TranslationPreview
                         isMarkdownPath(openPath) -> EditorDialogKind.MarkdownPreview
                         isJsonPath(openPath) -> EditorDialogKind.PlainPreview
                         else -> EditorDialogKind.PlainEditor
@@ -352,6 +355,22 @@ class DashboardFragment : Fragment() {
 
                         EditorDialogKind.PlainPreview ->
                             showPlainPreview(openPath, openText) { action ->
+                                when (action) {
+                                    EditorAction.Edit -> showEditor(openPath, openText) { editor ->
+                                        when (editor) {
+                                            is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
+                                            EditorAction.Close -> filesViewModel.closeEditor()
+                                            else -> Unit
+                                        }
+                                    }
+
+                                    EditorAction.Close -> filesViewModel.closeEditor()
+                                    else -> Unit
+                                }
+                            }
+
+                        EditorDialogKind.TranslationPreview ->
+                            showTranslationPreview(openPath, openText) { action ->
                                 when (action) {
                                     EditorAction.Edit -> showEditor(openPath, openText) { editor ->
                                         when (editor) {
@@ -564,23 +583,28 @@ class DashboardFragment : Fragment() {
         }
 
         val existingSessionId = recordingByAgentsPath[agentsPath]
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val cmd = RadioCommand(appContext)
-                val out =
-                    withContext(Dispatchers.IO) {
-                        if (existingSessionId.isNullOrBlank()) {
-                            cmd.run(listOf("radio", "record", "start"), stdin = null)
-                        } else {
-                            cmd.run(listOf("radio", "record", "stop", "--session", existingSessionId), stdin = null)
+        fun startRecording(recordOnly: Boolean, targetLang: String?) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    val cmd = RadioCommand(appContext)
+                    val argv =
+                        buildList {
+                            add("radio")
+                            add("record")
+                            add("start")
+                            if (recordOnly) {
+                                add("--record_only")
+                            } else if (!targetLang.isNullOrBlank()) {
+                                add("--target_lang")
+                                add(targetLang.trim())
+                            }
                         }
+                    val out = withContext(Dispatchers.IO) { cmd.run(argv, stdin = null) }
+                    if (out.exitCode != 0) {
+                        Toast.makeText(requireContext(), out.stderr.ifBlank { out.errorMessage ?: "录制失败" }, Toast.LENGTH_SHORT).show()
+                        return@launch
                     }
-                if (out.exitCode != 0) {
-                    Toast.makeText(requireContext(), out.stderr.ifBlank { out.errorMessage ?: "录制失败" }, Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
 
-                if (existingSessionId.isNullOrBlank()) {
                     val sid: String? =
                         runCatching {
                             out.result
@@ -597,15 +621,50 @@ class DashboardFragment : Fragment() {
                     } else {
                         Toast.makeText(requireContext(), "开始录制（无 session_id）", Toast.LENGTH_SHORT).show()
                     }
-                } else {
-                    recordingByAgentsPath.remove(agentsPath)
-                    Toast.makeText(requireContext(), "已停止录制", Toast.LENGTH_SHORT).show()
+                    updateRecordingButtons(st)
+                } catch (t: Throwable) {
+                    Toast.makeText(requireContext(), "录制失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
                 }
-                updateRecordingButtons(st)
-            } catch (t: Throwable) {
-                Toast.makeText(requireContext(), "录制失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
             }
         }
+
+        if (!existingSessionId.isNullOrBlank()) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    val cmd = RadioCommand(appContext)
+                    val out =
+                        withContext(Dispatchers.IO) {
+                            cmd.run(listOf("radio", "record", "stop", "--session", existingSessionId), stdin = null)
+                        }
+                    if (out.exitCode != 0) {
+                        Toast.makeText(requireContext(), out.stderr.ifBlank { out.errorMessage ?: "停止录制失败" }, Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    recordingByAgentsPath.remove(agentsPath)
+                    Toast.makeText(requireContext(), "已停止录制", Toast.LENGTH_SHORT).show()
+                    updateRecordingButtons(st)
+                } catch (t: Throwable) {
+                    Toast.makeText(requireContext(), "停止录制失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            return
+        }
+
+        val actions = arrayOf("仅录制（不转录/翻译）", "不翻译（仅转录）", "翻译（选择目标语言）")
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("录制设置")
+            .setItems(actions) { _, which ->
+                when (actions.getOrNull(which)) {
+                    "仅录制（不转录/翻译）" -> startRecording(recordOnly = true, targetLang = null)
+                    "不翻译（仅转录）" -> startRecording(recordOnly = false, targetLang = null)
+                    "翻译（选择目标语言）" ->
+                        TranslationLanguagePickerDialog.show(requireContext()) { lang ->
+                            startRecording(recordOnly = false, targetLang = lang.code)
+                        }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun updateRecordingButtons(st: com.lsl.kotlin_agent_app.media.MusicNowPlayingState) {
@@ -678,6 +737,7 @@ class DashboardFragment : Fragment() {
             val actions =
                 buildList {
                     add(primary)
+                    add("转录+翻译")
                     if (failedTasks.isNotEmpty()) add("重跑失败")
                     add("进入目录")
                     add("删除会话")
@@ -717,6 +777,15 @@ class DashboardFragment : Fragment() {
                                 promptSourceLangAndStartTranscript(sessionId = sid, mayOverwrite = hasAnyTasks)
                             }
                         }
+                        "转录+翻译" -> {
+                            if (stillRecording) {
+                                Toast.makeText(requireContext(), "请先停止录制", Toast.LENGTH_SHORT).show()
+                            } else {
+                                TranslationLanguagePickerDialog.show(requireContext()) { lang ->
+                                    startOfflinePipelineTranslation(sessionId = sid, targetLang = lang.code)
+                                }
+                            }
+                        }
                         "重跑失败" -> {
                             if (stillRecording) {
                                 Toast.makeText(requireContext(), "请先停止录制", Toast.LENGTH_SHORT).show()
@@ -727,6 +796,42 @@ class DashboardFragment : Fragment() {
                     }
                 }
                 .show()
+        }
+    }
+
+    private fun startOfflinePipelineTranslation(
+        sessionId: String,
+        targetLang: String,
+    ) {
+        val sid = sessionId.trim()
+        val tgt = targetLang.trim().ifBlank { return }
+        val appContext = requireContext().applicationContext
+        val ws = AgentsWorkspace(appContext)
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val metaPath = ".agents/workspace/radio_recordings/$sid/_meta.json"
+                    if (!ws.exists(metaPath)) return@withContext
+                    val raw = ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+                    val meta = RecordingMetaV1.parse(raw)
+                    val prev = meta.pipeline
+                    val nextPipe =
+                        (prev ?: RecordingMetaV1.Pipeline())
+                            .copy(
+                                targetLanguage = tgt,
+                                transcriptState = prev?.transcriptState?.ifBlank { "pending" } ?: "pending",
+                                translationState = "pending",
+                                lastError = null,
+                            )
+                    val store = com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore(ws)
+                    store.writeSessionMeta(sid, meta.copy(updatedAt = RecordingMetaV1.nowIso(), pipeline = nextPipe))
+                }
+                RecordingPipelineManager(appContext = appContext).enqueue(sessionId = sid, targetLanguage = tgt, replace = false)
+                Toast.makeText(requireContext(), "已开始：转录+翻译（$tgt）", Toast.LENGTH_SHORT).show()
+                filesViewModel?.refresh(force = true)
+            } catch (t: Throwable) {
+                Toast.makeText(requireContext(), "启动失败：${t.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -1121,6 +1226,72 @@ class DashboardFragment : Fragment() {
         PlainEditor,
         PlainPreview,
         MarkdownPreview,
+        TranslationPreview,
+    }
+
+    private fun showTranslationPreview(path: String, rawJson: String, onAction: (EditorAction) -> Unit) {
+        val chunk = runCatching { TranslationChunkV1.parse(rawJson) }.getOrNull()
+        if (chunk == null) {
+            showPlainPreview(path, rawJson, onAction)
+            return
+        }
+
+        fun fmt(ms: Long): String {
+            val v = ms.coerceAtLeast(0L)
+            val totalSec = (v / 1000L).toInt()
+            val m = totalSec / 60
+            val s = totalSec % 60
+            return "%02d:%02d".format(m, s)
+        }
+
+        val rendered =
+            buildString {
+                for (seg in chunk.segments) {
+                    appendLine("[${fmt(seg.startMs)} - ${fmt(seg.endMs)}]")
+                    appendLine(seg.sourceText.trim())
+                    appendLine(seg.translatedText.trim())
+                    appendLine()
+                }
+            }.trimEnd()
+
+        val tv =
+            TextView(requireContext()).apply {
+                setTextIsSelectable(true)
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15.5f)
+                setTextColor(
+                    MaterialColors.getColor(
+                        this,
+                        com.google.android.material.R.attr.colorOnSurface,
+                        android.graphics.Color.BLACK,
+                    ),
+                )
+                text = rendered
+            }
+        val scroll = ScrollView(requireContext()).apply { addView(tv) }
+
+        if (editorDialog?.isShowing == true) {
+            suppressCloseOnDismissOnce = true
+            editorDialog?.dismiss()
+        }
+        val dialog =
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(path)
+                .setView(scroll)
+                .setNegativeButton("关闭") { _, _ -> onAction(EditorAction.Close) }
+                .setPositiveButton("编辑JSON") { _, _ -> onAction(EditorAction.Edit) }
+                .create()
+        dialog.setOnDismissListener { handleDialogDismiss(onAction, closeAction = EditorAction.Close) }
+        editorDialog = dialog
+        editorDialogPath = path
+        editorDialogKind = EditorDialogKind.TranslationPreview
+        dialog.show()
+    }
+
+    private fun isTranslationChunk(path: String, rawJson: String): Boolean {
+        val p = path.lowercase()
+        if (!p.endsWith(".translation.json")) return false
+        return runCatching { TranslationChunkV1.parse(rawJson) }.isSuccess
     }
 
     private fun showPlainPreview(path: String, content: String, onAction: (EditorAction) -> Unit) {

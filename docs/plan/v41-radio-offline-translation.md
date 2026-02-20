@@ -368,9 +368,10 @@ class RecordingPipeline(
 - CLI：
   - `RadioCommand.kt` 扩展 `radio translate start --session <sid> --target_lang zh`
 - UI：
-  - 录制设置页增加语言选项
+  - 录制设置页：仅录制 / 仅转录 / 转录+翻译（含目标语言选择）
   - 长按菜单增加"转录+翻译"
   - `TranslationLanguagePickerDialog.kt`
+  - 录制列表：第一行显示「名称 + 开始时间」，第二行显示「转录/翻译状态」
   - 进度展示 + 双语对照 UI
 - Tests：
   - `RecordingPipelineTest.kt`（完整 pipeline 流程、断点续跑、失败处理）
@@ -401,3 +402,13 @@ class RecordingPipeline(
 - LLM 返回 JSON 格式不稳定：需要 robust parsing + 重试。测试用 mock。
 - 翻译一致性：v41 先保证可用，术语表后续增强。
 - 换语言重新翻译：需要清空 `translations/` 目录，UI 上要有确认提示。
+
+## Implementation Notes（现状说明，2026-02-20）
+
+为避免未来读者误解，这里记录当前实现与本文“理想规划”的差异/细节：
+
+- 调度方式：离线 pipeline 通过 WorkManager 以 unique work 形式排队执行（`RecordingPipelineManager`），不是直接在 UI/Service 里同步 for-loop 跑完。
+- 仅录制：`radio record start --record_only` 会写入 `_meta.json` 的 `pipeline=null`；录制结束时 Service 不会自动 enqueue pipeline（也就不会自动转录/翻译）。
+- 断点续跑进度：如果某些 `translations/chunk_XXX.translation.json` 已存在，运行中会跳过，但中途不一定每次都把“跳过计数”写回 `_meta.json`；最终完成时会写入 `completed` 的总数。
+- 错误码映射：`sourceLanguage == targetLanguage` 这类参数错误在某些路径下可能最终表现为 `LlmNetworkError`（而非 `InvalidArgs`），需以代码为准。
+- 换语言重翻译：当前不会自动清理旧的 `translations/` 目录；如果要更换目标语言并确保产物一致，需手动删除 `translations/` 后重跑 pipeline。

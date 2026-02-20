@@ -19,6 +19,8 @@ import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsPaths
 import com.lsl.kotlin_agent_app.radio_recordings.RadioRecordingsStore
 import com.lsl.kotlin_agent_app.radio_recordings.RecordingsIndexV1
 import com.lsl.kotlin_agent_app.radio_recordings.RecordingMetaV1
+import com.lsl.kotlin_agent_app.radio_transcript.RecordingPipelineException
+import com.lsl.kotlin_agent_app.radio_transcript.RecordingPipelineManager
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptCliException
 import com.lsl.kotlin_agent_app.radio_transcript.TranscriptTaskManager
 import java.io.File
@@ -100,6 +102,7 @@ internal class RadioCommand(
                 "sync" -> handleSync(argv)
                 "record" -> handleRecord(argv)
                 "transcript" -> handleTranscript(argv)
+                "translate" -> handleTranslate(argv)
                 else -> invalidArgs("unknown subcommand: $subRaw")
             }
         } catch (t: NotInRadiosDir) {
@@ -147,6 +150,14 @@ internal class RadioCommand(
                 exitCode = 2,
                 stdout = "",
                 stderr = (t.message ?: "transcript error"),
+                errorCode = t.errorCode,
+                errorMessage = t.message,
+            )
+        } catch (t: RecordingPipelineException) {
+            TerminalCommandOutput(
+                exitCode = 2,
+                stdout = "",
+                stderr = (t.message ?: "pipeline error"),
                 errorCode = t.errorCode,
                 errorMessage = t.message,
             )
@@ -687,7 +698,7 @@ internal class RadioCommand(
                           radio fav list
                           radio sync countries [--force]
                           radio sync stations (--dir <country-dir> | --cc <CC>) [--force]
-                          radio record start [--in <agents-path> | --in_b64 <base64-utf8-path>]
+                          radio record start [--in <agents-path> | --in_b64 <base64-utf8-path>] [--record_only] [--target_lang <lang>]
                           radio record stop (--session <session_id> | --all)
                           radio record status [--session <session_id>]
                           radio record list
@@ -695,6 +706,7 @@ internal class RadioCommand(
                           radio transcript status --task <task_id>
                           radio transcript list (--session <session_id> | --dir <recording_dir>)
                           radio transcript cancel --task <task_id>
+                          radio translate start (--session <session_id> | --dir <recording_dir>) --target_lang <lang>
                         
                         Help:
                           radio --help
@@ -714,6 +726,7 @@ internal class RadioCommand(
                         "radio sync stations --cc EG",
                         "radio record start --in workspace/radios/demo.radio",
                         "radio transcript start --session rec_20260219_140000_a1b2c3 --source_lang ja",
+                        "radio translate start --session rec_20260219_140000_a1b2c3 --target_lang zh",
                     )
                 }
                 "status" -> "Usage: radio status" to listOf("radio status")
@@ -750,7 +763,7 @@ internal class RadioCommand(
                     val u =
                         """
                         Usage:
-                          radio record start [--in <agents-path> | --in_b64 <base64-utf8-path>]
+                          radio record start [--in <agents-path> | --in_b64 <base64-utf8-path>] [--record_only] [--target_lang <lang>]
                           radio record stop (--session <session_id> | --all)
                           radio record status [--session <session_id>]
                           radio record list
@@ -775,6 +788,16 @@ internal class RadioCommand(
                         "radio transcript list --session rec_20260219_140000_a1b2c3",
                     )
                 }
+                "translate" -> {
+                    val u =
+                        """
+                        Usage:
+                          radio translate start (--session <session_id> | --dir <recording_dir>) --target_lang <lang>
+                        """.trimIndent()
+                    u to listOf(
+                        "radio translate start --session rec_20260219_140000_a1b2c3 --target_lang zh",
+                    )
+                }
                 else -> return invalidArgs("unknown subcommand: $sub")
             }
 
@@ -796,6 +819,7 @@ internal class RadioCommand(
                         add(JsonPrimitive("sync"))
                         add(JsonPrimitive("record"))
                         add(JsonPrimitive("transcript"))
+                        add(JsonPrimitive("translate"))
                     },
                 )
                 if (sub == null || sub == "play") {
@@ -845,6 +869,20 @@ internal class RadioCommand(
                             )
                             add(
                                 buildJsonObject {
+                                    put("name", JsonPrimitive("--target_lang"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Optional target language for offline translation pipeline (e.g. zh/en/ja)."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--record_only"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Record only: do not enqueue offline transcript/translation pipeline after stop. Incompatible with --target_lang."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
                                     put("name", JsonPrimitive("--session"))
                                     put("required", JsonPrimitive(false))
                                     put("description", JsonPrimitive("Recording session id. Used by stop/status."))
@@ -882,6 +920,33 @@ internal class RadioCommand(
                                     put("name", JsonPrimitive("--task"))
                                     put("required", JsonPrimitive(false))
                                     put("description", JsonPrimitive("Transcript task id. Used by status/cancel."))
+                                },
+                            )
+                        },
+                    )
+                } else if (sub == "translate") {
+                    put(
+                        "flags",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--session"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Recording session id. Used by start."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--dir"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Recording session dir under workspace/radio_recordings/. Used by start."))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("name", JsonPrimitive("--target_lang"))
+                                    put("required", JsonPrimitive(false))
+                                    put("description", JsonPrimitive("Target language code (e.g. zh/en/ja). Used by start."))
                                 },
                             )
                         },
@@ -1012,6 +1077,58 @@ internal class RadioCommand(
         }
     }
 
+    private suspend fun handleTranslate(argv: List<String>): TerminalCommandOutput {
+        if (argv.size < 3) return help(sub = "translate")
+        val action = argv[2].trim().lowercase(Locale.ROOT)
+        return when (action) {
+            "start" -> {
+                val sid = resolveTranscriptSessionId(argv)
+                val targetLang = optionalFlagValueSingle(argv, "--target_lang") ?: throw IllegalArgumentException("missing required flag: --target_lang")
+                val tgt = targetLang.trim().ifBlank { throw IllegalArgumentException("missing required flag: --target_lang") }
+
+                val metaPath = RadioRecordingsPaths.sessionMetaJson(sid)
+                if (!ws.exists(metaPath)) throw RecordingPipelineException("SessionNotFound", "session not found: ${sid.trim()}")
+                val raw = ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+                val meta = RecordingMetaV1.parse(raw)
+                val st = meta.state.trim().lowercase(Locale.ROOT)
+                if (st == "recording" || st == "pending") {
+                    throw RecordingPipelineException("SessionStillRecording", "session ${sid.trim()} is still recording. Stop recording first.")
+                }
+                if (meta.chunks.isEmpty()) throw RecordingPipelineException("SessionNoChunks", "session ${sid.trim()} has no chunks")
+
+                val prevPipe = meta.pipeline
+                if (prevPipe?.transcriptState == "running" || prevPipe?.translationState == "running") {
+                    throw RecordingPipelineException("PipelineAlreadyRunning", "pipeline already running for session: ${sid.trim()}")
+                }
+
+                val nextPipe =
+                    (prevPipe ?: RecordingMetaV1.Pipeline())
+                        .copy(
+                            targetLanguage = tgt,
+                            transcriptState = prevPipe?.transcriptState?.ifBlank { "pending" } ?: "pending",
+                            translationState = "pending",
+                            lastError = null,
+                        )
+                val next = meta.copy(updatedAt = RecordingMetaV1.nowIso(), pipeline = nextPipe)
+                RadioRecordingsStore(ws).writeSessionMeta(sid, next)
+
+                RecordingPipelineManager(appContext = ctx).enqueue(sessionId = sid, targetLanguage = tgt, replace = false)
+
+                val result =
+                    buildJsonObject {
+                        put("ok", JsonPrimitive(true))
+                        put("command", JsonPrimitive("radio translate start"))
+                        put("session_id", JsonPrimitive(sid.trim()))
+                        put("target_lang", JsonPrimitive(tgt))
+                        put("meta_path", JsonPrimitive("workspace/radio_recordings/${sid.trim()}/_meta.json"))
+                        put("translations_dir", JsonPrimitive("workspace/radio_recordings/${sid.trim()}/translations"))
+                    }
+                TerminalCommandOutput(exitCode = 0, stdout = "translate: queued", result = result)
+            }
+            else -> invalidArgs("unknown translate action: ${argv[2]}")
+        }
+    }
+
     private fun resolveTranscriptSessionId(argv: List<String>): String {
         val session = optionalFlagValueSingle(argv, "--session")
         val dir = optionalFlagValueSingle(argv, "--dir")
@@ -1123,6 +1240,11 @@ internal class RadioCommand(
         ws.mkdir(sessionDir)
 
         val nowIso = RecordingMetaV1.nowIso()
+        val recordOnly = argv.any { it == "--record_only" }
+        val targetLang = optionalFlagValueSingle(argv, "--target_lang")?.trim()?.ifBlank { null }
+        if (recordOnly && targetLang != null) {
+            throw IllegalArgumentException("--record_only is incompatible with --target_lang")
+        }
         val meta =
             RecordingMetaV1(
                 schema = RecordingMetaV1.SCHEMA_V1,
@@ -1140,6 +1262,20 @@ internal class RadioCommand(
                 createdAt = nowIso,
                 updatedAt = nowIso,
                 chunks = emptyList(),
+                pipeline =
+                    if (recordOnly) {
+                        null
+                    } else {
+                        RecordingMetaV1.Pipeline(
+                            targetLanguage = targetLang,
+                            transcriptState = "pending",
+                            translationState = "pending",
+                            transcribedChunks = 0,
+                            translatedChunks = 0,
+                            failedChunks = 0,
+                            lastError = null,
+                        )
+                    },
             )
 
         store.writeSessionMeta(sessionId, meta)
@@ -1173,6 +1309,8 @@ internal class RadioCommand(
                 put("dir", JsonPrimitive("workspace/radio_recordings/$sessionId"))
                 put("meta_path", JsonPrimitive("workspace/radio_recordings/$sessionId/_meta.json"))
                 put("chunk_path", JsonPrimitive("workspace/radio_recordings/$sessionId/chunk_001.ogg"))
+                put("target_lang", JsonPrimitive(targetLang ?: ""))
+                put("record_only", JsonPrimitive(recordOnly))
                 put(
                     "station",
                     buildJsonObject {

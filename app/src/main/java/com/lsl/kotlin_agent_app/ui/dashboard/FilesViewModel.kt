@@ -33,6 +33,10 @@ import me.lemonhall.openagentic.sdk.providers.OpenAIResponsesHttpProvider
 import me.lemonhall.openagentic.sdk.providers.ResponsesRequest
 import me.lemonhall.openagentic.sdk.runtime.ProviderStreamEvent
 import java.text.SimpleDateFormat
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 
@@ -448,33 +452,66 @@ class FilesViewModel(
                     return@map e
                 }
 
-            val txLabel: String? =
-                run {
-                    val idxPath = "${RadioRecordingsPaths.ROOT_DIR}/$sid/transcripts/_tasks.index.json"
-                    val idxRaw =
-                        try {
-                            if (!workspace.exists(idxPath)) return@run null
-                            workspace.readTextFile(idxPath, maxBytes = 256 * 1024)
-                        } catch (_: Throwable) {
-                            return@run null
+            val pipeLabel: String? =
+                meta.pipeline?.let { p ->
+                    val total = meta.chunks.size.coerceAtLeast(0)
+                    val tx =
+                        when (p.transcriptState.trim()) {
+                            "running" -> "📝转录 ${p.transcribedChunks}/${total}"
+                            "completed" -> "📝转录 ✅"
+                            "failed" -> "📝转录 ❌"
+                            else -> "📝转录 pending"
                         }
-                    val idx =
-                        try {
-                            TranscriptTasksIndexV1.parse(idxRaw)
-                        } catch (_: Throwable) {
-                            return@run null
+                    val tgt = p.targetLanguage?.trim()?.ifBlank { null }
+                    val tl =
+                        if (tgt == null) {
+                            null
+                        } else {
+                            when (p.translationState.trim()) {
+                                "running" -> "🌐翻译 ${p.translatedChunks}/${total} → $tgt"
+                                "completed" -> "🌐翻译 ✅ → $tgt"
+                                "failed" -> {
+                                    val code = p.lastError?.code?.trim()?.ifBlank { null }
+                                    if (code != null) "🌐翻译 ❌ ($code)" else "🌐翻译 ❌"
+                                }
+                                else -> "🌐翻译 pending → $tgt"
+                            }
                         }
-                    val running = idx.tasks.firstOrNull { it.state == "pending" || it.state == "running" }
-                    when {
-                        running != null -> "转录中 ${running.transcribedChunks}/${running.totalChunks}"
-                        idx.tasks.any { it.state == "completed" } -> "已转录"
-                        else -> null
-                    }
+
+                    listOfNotNull(tx, tl).joinToString(" · ").trim().ifBlank { null }
                 }
 
-            val subtitleBase = "state=${meta.state} · chunks=${meta.chunks.size}"
-            val subtitle = if (txLabel != null) "$subtitleBase · $txLabel" else subtitleBase
-            e.copy(displayName = meta.station.name, subtitle = subtitle)
+            val startLabel = formatRecordingStartLabel(meta.createdAt)
+            val displayName =
+                (meta.station.name + (startLabel?.let { "  $it" } ?: "")).trim().ifBlank { e.displayName ?: e.name }
+
+            val subtitle =
+                pipeLabel
+                    ?: run {
+                        val idxPath = "${RadioRecordingsPaths.ROOT_DIR}/$sid/transcripts/_tasks.index.json"
+                        val idxRaw =
+                            try {
+                                if (!workspace.exists(idxPath)) return@run null
+                                workspace.readTextFile(idxPath, maxBytes = 256 * 1024)
+                            } catch (_: Throwable) {
+                                return@run null
+                            }
+                        val idx =
+                            try {
+                                TranscriptTasksIndexV1.parse(idxRaw)
+                            } catch (_: Throwable) {
+                                return@run null
+                            }
+                        val running = idx.tasks.firstOrNull { it.state == "pending" || it.state == "running" }
+                        when {
+                            running != null -> "📝转录 ${running.transcribedChunks}/${running.totalChunks}"
+                            idx.tasks.any { it.state == "completed" } -> "📝转录 ✅"
+                            else -> null
+                        }
+                    }
+                    ?: "🎙️仅录制"
+
+            e.copy(displayName = displayName, subtitle = subtitle)
         }
     }
 
@@ -739,6 +776,19 @@ class FilesViewModel(
         if (ms <= 0L) return ""
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
         return fmt.format(Date(ms))
+    }
+
+    private fun formatRecordingStartLabel(iso: String): String? {
+        val raw = iso.trim().ifBlank { return null }
+        return try {
+            val odt = OffsetDateTime.parse(raw)
+            val local = odt.atZoneSameInstant(ZoneId.systemDefault())
+            val now = ZonedDateTime.now(ZoneId.systemDefault())
+            val pattern = if (local.year == now.year) "MM-dd HH:mm" else "yyyy-MM-dd HH:mm"
+            local.format(DateTimeFormatter.ofPattern(pattern))
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun readSessionTitle(sessionId: String): String? {

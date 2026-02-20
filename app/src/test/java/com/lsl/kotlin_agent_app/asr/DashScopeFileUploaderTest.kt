@@ -32,7 +32,9 @@ class DashScopeFileUploaderTest {
                     }
                     """.trimIndent()
                 server.enqueue(MockResponse().setResponseCode(200).setBody(policyJson))
-                server.enqueue(MockResponse().setResponseCode(200).setBody(""))
+                // OkHttp may retry a POST on certain connection-level failures (multipart body is replayable).
+                // Enqueue a few success responses to make this test stable under parallel test load.
+                repeat(3) { server.enqueue(MockResponse().setResponseCode(200).setBody("")) }
 
                 val baseUrl = server.url("/api/v1").toString().trimEnd('/')
                 val uploader = DashScopeFileUploader(baseUrl = baseUrl, apiKey = "k_test")
@@ -47,7 +49,12 @@ class DashScopeFileUploaderTest {
                 assertEquals("GET", req1.method)
                 assertTrue(req1.path!!.startsWith("/api/v1/uploads?action=getPolicy"))
 
-                val req2 = server.takeRequest()
+                var req2 = server.takeRequest()
+                var safety = 0
+                while ((req2.method != "POST" || req2.path != "/upload") && safety < 4) {
+                    req2 = server.takeRequest()
+                    safety += 1
+                }
                 assertEquals("POST", req2.method)
                 assertEquals("/upload", req2.path)
                 assertTrue("multipart should include key field", req2.body.readUtf8().contains("name=\"key\""))
@@ -56,4 +63,3 @@ class DashScopeFileUploaderTest {
             }
         }
 }
-

@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.lsl.kotlin_agent_app.R
 import com.lsl.kotlin_agent_app.agent.AgentsWorkspace
+import com.lsl.kotlin_agent_app.radio_transcript.RecordingPipelineManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -106,8 +107,28 @@ class RadioRecordingService : Service() {
         val s = sessions.remove(sessionId) ?: RecordingSession(applicationContext, sessionId)
         if (completed) {
             s.stopCompleted(note = "completed (service)")
+            maybeEnqueueOfflinePipeline(sessionId)
         } else {
             s.stopCancelled(note = "cancelled (service)")
+        }
+    }
+
+    private fun maybeEnqueueOfflinePipeline(sessionId: String) {
+        try {
+            val sid = sessionId.trim()
+            if (sid.isBlank()) return
+            val ws = AgentsWorkspace(applicationContext)
+            val metaPath = RadioRecordingsPaths.sessionMetaJson(sid)
+            if (!ws.exists(metaPath)) return
+            val raw = ws.readTextFile(metaPath, maxBytes = 2L * 1024L * 1024L)
+            val meta = runCatching { RecordingMetaV1.parse(raw) }.getOrNull() ?: return
+            val pipe = meta.pipeline ?: return
+            RecordingPipelineManager(appContext = applicationContext).enqueue(
+                sessionId = sid,
+                targetLanguage = pipe.targetLanguage,
+                replace = false,
+            )
+        } catch (_: Throwable) {
         }
     }
 

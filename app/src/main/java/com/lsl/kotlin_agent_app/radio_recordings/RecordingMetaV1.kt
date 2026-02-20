@@ -26,6 +26,7 @@ internal data class RecordingMetaV1(
     val chunks: List<Chunk>,
     val error: ErrorInfo? = null,
     val transcriptRequest: JsonObject? = null,
+    val pipeline: Pipeline? = null,
 ) {
     internal data class Station(
         val stationId: String,
@@ -46,6 +47,16 @@ internal data class RecordingMetaV1(
     internal data class ErrorInfo(
         val code: String,
         val message: String? = null,
+    )
+
+    internal data class Pipeline(
+        val targetLanguage: String? = null,
+        val transcriptState: String = "pending",
+        val translationState: String = "pending",
+        val transcribedChunks: Int = 0,
+        val translatedChunks: Int = 0,
+        val failedChunks: Int = 0,
+        val lastError: ErrorInfo? = null,
     )
 
     fun toJsonObject(): JsonObject {
@@ -95,6 +106,32 @@ internal data class RecordingMetaV1(
                 )
             }
             put("transcriptRequest", transcriptRequest ?: JsonNull)
+            if (pipeline == null) {
+                put("pipeline", JsonNull)
+            } else {
+                put(
+                    "pipeline",
+                    buildJsonObject {
+                        put("targetLanguage", pipeline.targetLanguage?.let { JsonPrimitive(it) } ?: JsonNull)
+                        put("transcriptState", JsonPrimitive(pipeline.transcriptState))
+                        put("translationState", JsonPrimitive(pipeline.translationState))
+                        put("transcribedChunks", JsonPrimitive(pipeline.transcribedChunks))
+                        put("translatedChunks", JsonPrimitive(pipeline.translatedChunks))
+                        put("failedChunks", JsonPrimitive(pipeline.failedChunks))
+                        if (pipeline.lastError == null) {
+                            put("lastError", JsonNull)
+                        } else {
+                            put(
+                                "lastError",
+                                buildJsonObject {
+                                    put("code", JsonPrimitive(pipeline.lastError.code))
+                                    put("message", pipeline.lastError.message?.let { JsonPrimitive(it) } ?: JsonNull)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
         }
     }
 
@@ -168,6 +205,38 @@ internal data class RecordingMetaV1(
 
             val transcriptRequest = (o["transcriptRequest"] as? JsonObject)
 
+            val pipelineObj = o["pipeline"] as? JsonObject
+            val pipeline =
+                pipelineObj?.let { po ->
+                    val targetLanguage = runCatching { po["targetLanguage"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.ifBlank { null }
+                    val transcriptState = runCatching { po["transcriptState"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.ifBlank { null } ?: "pending"
+                    val translationState = runCatching { po["translationState"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.ifBlank { null } ?: "pending"
+                    val transcribedChunks = runCatching { po["transcribedChunks"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.toIntOrNull() ?: 0
+                    val translatedChunks = runCatching { po["translatedChunks"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.toIntOrNull() ?: 0
+                    val failedChunks = runCatching { po["failedChunks"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.toIntOrNull() ?: 0
+                    val lastErrorObj = po["lastError"] as? JsonObject
+                    val lastError =
+                        if (lastErrorObj == null) {
+                            null
+                        } else {
+                            val code = runCatching { lastErrorObj["code"]?.jsonPrimitive?.content }.getOrNull()?.trim()?.ifBlank { null }
+                            if (code == null) {
+                                null
+                            } else {
+                                ErrorInfo(code = code, message = runCatching { lastErrorObj["message"]?.jsonPrimitive?.content }.getOrNull())
+                            }
+                        }
+                    Pipeline(
+                        targetLanguage = targetLanguage,
+                        transcriptState = transcriptState,
+                        translationState = translationState,
+                        transcribedChunks = transcribedChunks,
+                        translatedChunks = translatedChunks,
+                        failedChunks = failedChunks,
+                        lastError = lastError,
+                    )
+                }
+
             return RecordingMetaV1(
                 schema = schema,
                 sessionId = sessionId,
@@ -186,8 +255,8 @@ internal data class RecordingMetaV1(
                 chunks = chunks,
                 error = error,
                 transcriptRequest = transcriptRequest,
+                pipeline = pipeline,
             )
         }
     }
 }
-

@@ -99,4 +99,36 @@ class TerminalExecToolRadioRecordTest {
             val meta1 = File(out1.filesDir, ".agents/workspace/radio_recordings/$sid1/_meta.json")
             assertTrue("meta should exist: ${meta1.path}", meta1.exists())
         }
+
+    @Test
+    fun radio_record_start_recordOnly_writesMetaWithNullPipeline() =
+        runTerminalExecToolTest(
+            setup = { context ->
+                AgentsWorkspace(context).ensureInitialized()
+                val radioJson =
+                    """
+                    {
+                      "schema": "kotlin-agent-app/radio-station@v1",
+                      "id": "radio-browser:test-ro",
+                      "name": "Record Only Station",
+                      "streamUrl": "https://example.com/live"
+                    }
+                    """.trimIndent()
+                val f = File(context.filesDir, ".agents/workspace/radios/record_only.radio")
+                f.parentFile?.mkdirs()
+                f.writeText(radioJson, Charsets.UTF_8)
+                val teardown: () -> Unit = { }
+                teardown
+            },
+        ) { tool ->
+            val out = tool.exec("radio record start --in workspace/radios/record_only.radio --record_only")
+            assertEquals(0, out.exitCode)
+            assertEquals("true", out.result!!["record_only"]!!.jsonPrimitive.content)
+
+            val sid = out.result!!["session_id"]!!.jsonPrimitive.content
+            val meta = File(out.filesDir, ".agents/workspace/radio_recordings/$sid/_meta.json")
+            assertTrue(meta.exists())
+            val raw = meta.readText(Charsets.UTF_8)
+            assertTrue("meta should contain pipeline=null", raw.contains("\"pipeline\": null"))
+        }
 }
