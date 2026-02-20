@@ -121,20 +121,31 @@ class SmbMediaContentProvider : ContentProvider() {
                         }
                     }
 
-                    override fun onRead(
-                        offset: Long,
-                        size: Int,
-                        data: ByteArray,
-                    ): Int {
-                        try {
-                            val total = r.size()
-                            if (offset >= total) return -1
-                            val bytes = cache.read(offset = offset, size = size)
-                            if (bytes.isEmpty()) return -1
-                            bytes.copyInto(data, destinationOffset = 0, startIndex = 0, endIndex = bytes.size)
-                            return bytes.size
-                        } catch (t: Throwable) {
-                            throw ErrnoException("read", errnoFor(t))
+                override fun onRead(
+                    offset: Long,
+                    size: Int,
+                    data: ByteArray,
+                ): Int {
+                    try {
+                        val total = r.size()
+                        if (offset >= total) return -1
+                        val maxReadable = (total - offset).coerceAtLeast(0L)
+                        val want = minOf(size.toLong(), maxReadable).toInt().coerceAtLeast(0)
+                        if (want == 0) return -1
+
+                        // Some external players (notably OEM ones) have very aggressive metadata timeouts.
+                        // Avoid over-reading on small requests (e.g., MP4 header probes) to improve compatibility.
+                        val bytes =
+                            if (want <= 64 * 1024) {
+                                r.readAt(offset = offset, size = want)
+                            } else {
+                                cache.read(offset = offset, size = want)
+                            }
+                        if (bytes.isEmpty()) return -1
+                        bytes.copyInto(data, destinationOffset = 0, startIndex = 0, endIndex = bytes.size)
+                        return bytes.size
+                    } catch (t: Throwable) {
+                        throw ErrnoException("read", errnoFor(t))
                         }
                     }
 
