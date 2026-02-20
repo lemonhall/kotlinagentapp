@@ -34,6 +34,14 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <provider
+            android:name=".smb_media.SmbMediaContentProvider"
+            android:authorities="com.lsl.kotlin_agent_app.smbmedia"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <grant-uri-permission android:pathPrefix="/v1/" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -77,6 +85,11 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <service
+            android:name=".smb_media.SmbMediaStreamingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <service
             android:name=".radio_recordings.RadioRecordingService"

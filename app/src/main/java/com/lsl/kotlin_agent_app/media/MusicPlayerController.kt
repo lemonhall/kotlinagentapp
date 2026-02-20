@@ -129,6 +129,22 @@ class MusicPlayerController(
         scope.launch { runCatching { playAgentsMp3Now(p) } }
     }
 
+    fun playNasSmbContentMp3(
+        agentsPath: String,
+        contentUriString: String,
+        displayName: String? = null,
+    ) {
+        val p = normalizeAgentsPathInput(agentsPath)
+        val uri = contentUriString.trim()
+        val okPath = p.replace('\\', '/').trim().startsWith(".agents/nas_smb/")
+        val okUri = uri.startsWith("content://com.lsl.kotlin_agent_app.smbmedia/")
+        if (!okPath || !okUri) {
+            _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 nas_smb/ 下的 mp3（content://）") }
+            return
+        }
+        scope.launch { runCatching { playNasSmbContentMp3Now(agentsPath = p, uriString = uri, displayName = displayName) } }
+    }
+
     fun playAgentsRadio(agentsPath: String) {
         val p = normalizeAgentsPathInput(agentsPath)
         if (!isInRadiosTree(p) || !p.lowercase().endsWith(".radio")) {
@@ -296,6 +312,60 @@ class MusicPlayerController(
                     isMuted = isMuted,
                     coverArtBytes = extras.coverArtBytes,
                     lyrics = extras.lyrics,
+                    warningMessage = warning,
+                    errorMessage = null,
+                )
+            }
+
+            logEventBestEffort(source = "music", action = "play", item = buildMusicItem(p), userInitiated = true)
+        }
+    }
+
+    private suspend fun playNasSmbContentMp3Now(
+        agentsPath: String,
+        uriString: String,
+        displayName: String?,
+    ) {
+        withContext(Dispatchers.Main.immediate) {
+            val p = normalizeAgentsPathInput(agentsPath)
+            val title = displayName?.trim()?.ifBlank { null } ?: p.substringAfterLast('/', missingDelimiterValue = p)
+            val warning = computeNotificationWarning()
+
+            val q = queueCtrl.setQueue(newItems = listOf(p), current = p)
+            val i = q.index?.coerceAtLeast(0) ?: 0
+
+            try {
+                transport.play(
+                    MusicPlaybackRequest(
+                        agentsPath = p,
+                        uri = Uri.parse(uriString).toString(),
+                        metadata = MusicMediaMetadata(title = title),
+                        isLive = false,
+                    )
+                )
+            } catch (t: Throwable) {
+                logErrorBestEffort(source = "music", item = buildMusicItem(p), code = "PlayFailed", message = sanitizeErrorMessage(t.message))
+                throw t
+            }
+            applyVolumeToTransportNow()
+            _state.update {
+                it.copy(
+                    agentsPath = p,
+                    isLive = false,
+                    title = title,
+                    artist = null,
+                    album = null,
+                    durationMs = null,
+                    positionMs = 0L,
+                    isPlaying = true,
+                    playbackState = MusicPlaybackState.Playing,
+                    queueIndex = i,
+                    queueSize = q.items.size.takeIf { it > 0 },
+                    playbackMode = playbackMode,
+                    volume = volume,
+                    isMuted = isMuted,
+                    coverArtBytes = null,
+                    lyrics = null,
                     warningMessage = warning,
                     errorMessage = null,
                 )

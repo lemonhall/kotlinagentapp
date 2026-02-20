@@ -53,6 +53,7 @@ import com.lsl.kotlin_agent_app.media.MusicPlayerControllerProvider
 import com.lsl.kotlin_agent_app.databinding.BottomSheetMusicPlayerBinding
 import com.lsl.kotlin_agent_app.media.lyrics.LrcParser
 import com.lsl.kotlin_agent_app.media.lyrics.LrcLine
+import com.lsl.kotlin_agent_app.smb_media.SmbMediaActions
 import com.lsl.kotlin_agent_app.radios.RadioPathNaming
 import com.lsl.kotlin_agent_app.radios.RadioStationFileV1
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.radio.RadioCommand
@@ -140,6 +141,21 @@ class DashboardFragment : Fragment() {
                             musicController.playAgentsRadio(path)
                         } else if (isMp3Name(entry.name) && isInMusicsTree(path)) {
                             musicController.playAgentsMp3(path)
+                        } else if (isMp3Name(entry.name) && isInNasSmbTree(path)) {
+                            val display = entry.displayName ?: entry.name
+                            SmbMediaActions.playNasSmbMp3(
+                                context = requireContext(),
+                                agentsPath = path,
+                                displayName = display,
+                                musicController = musicController,
+                            )
+                        } else if (isMp4Name(entry.name) && isInNasSmbTree(path)) {
+                            val display = entry.displayName ?: entry.name
+                            SmbMediaActions.openNasSmbMp4External(
+                                context = requireContext(),
+                                agentsPath = path,
+                                displayName = display,
+                            )
                         } else if (isOggName(entry.name) && isInRadioRecordingsTree(path)) {
                             musicController.playAgentsRecordingOgg(path)
                         } else {
@@ -1273,6 +1289,18 @@ class DashboardFragment : Fragment() {
 
     private fun isMp3Name(name: String): Boolean {
         return name.trim().lowercase().endsWith(".mp3")
+    }
+
+    private fun isMp4Name(name: String): Boolean {
+        return name.trim().lowercase().endsWith(".mp4")
+    }
+
+    private fun isInNasSmbTree(agentsPath: String): Boolean {
+        val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
+        if (p == ".agents/nas_smb") return true
+        if (!p.startsWith(".agents/nas_smb/")) return false
+        if (p.startsWith(".agents/nas_smb/secrets")) return false
+        return true
     }
 
     private fun isInMusicsTree(agentsPath: String): Boolean {

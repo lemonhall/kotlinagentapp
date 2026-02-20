@@ -1,0 +1,104 @@
+package com.lsl.kotlin_agent_app.smb_media
+
+import android.content.ClipData
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.widget.Toast
+import com.lsl.kotlin_agent_app.media.MusicPlayerController
+
+object SmbMediaActions {
+
+    fun playNasSmbMp3(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+        musicController: MusicPlayerController,
+    ) {
+        val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return
+        val mime = SmbMediaMime.AUDIO_MPEG
+
+        val ticket =
+            SmbMediaRuntime.ticketStore(context).issue(
+                SmbMediaTicketSpec(
+                    mountName = ref.mountName,
+                    remotePath = ref.relPath,
+                    mime = mime,
+                    sizeBytes = -1L,
+                )
+            )
+        val uri = Uri.parse(SmbMediaUri.build(token = ticket.token, displayName = displayName))
+
+        musicController.playNasSmbContentMp3(
+            agentsPath = agentsPath,
+            contentUriString = uri.toString(),
+            displayName = displayName,
+        )
+    }
+
+    fun openNasSmbMp4External(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+    ) {
+        if (Build.VERSION.SDK_INT < 26) {
+            Toast.makeText(context, "系统版本过低：外部播放器 seek 串流需要 Android 8.0+（API 26）", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return
+        val mime = SmbMediaMime.VIDEO_MP4
+
+        val ticket =
+            SmbMediaRuntime.ticketStore(context).issue(
+                SmbMediaTicketSpec(
+                    mountName = ref.mountName,
+                    remotePath = ref.relPath,
+                    mime = mime,
+                    sizeBytes = -1L,
+                )
+            )
+        val uri = Uri.parse(SmbMediaUri.build(token = ticket.token, displayName = displayName))
+
+        SmbMediaStreamingService.requestPrepare(context)
+
+        val intent =
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = ClipData.newRawUri("SMB media", uri)
+            }
+
+        grantToAllCandidates(context, intent, uri)
+
+        try {
+            context.startActivity(intent)
+        } catch (_: Throwable) {
+            try {
+                context.startActivity(Intent.createChooser(intent, "打开视频"))
+            } catch (t: Throwable) {
+                Toast.makeText(context, t.message ?: "无法打开播放器", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun grantToAllCandidates(
+        context: Context,
+        intent: Intent,
+        uri: Uri,
+    ) {
+        val pm = context.packageManager ?: return
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        val candidates =
+            runCatching {
+                pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            }.getOrNull().orEmpty()
+        for (ri in candidates) {
+            val pkg = ri.activityInfo?.packageName ?: continue
+            runCatching { context.grantUriPermission(pkg, uri, flags) }
+        }
+    }
+}
+

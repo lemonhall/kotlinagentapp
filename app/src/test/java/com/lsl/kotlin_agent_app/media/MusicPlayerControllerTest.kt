@@ -356,4 +356,31 @@ class MusicPlayerControllerTest {
             controller.close()
         }
     }
+
+    @Test
+    fun playNasSmbContentMp3_playsContentUri_andUpdatesState() = runTest {
+        val ctx = RuntimeEnvironment.getApplication()
+        val transport = FakeTransport()
+        val controller =
+            MusicPlayerController(
+                ctx,
+                transport = transport,
+                metadataReader = Mp3MetadataReader(Mp3MetadataExtractor { null }),
+                ioDispatcher = Dispatchers.Main,
+            )
+        val agentsPath = ".agents/nas_smb/home/musics/a.mp3"
+        val uri = "content://com.lsl.kotlin_agent_app.smbmedia/v1/t123/a.mp3"
+
+        try {
+            controller.playNasSmbContentMp3(agentsPath = agentsPath, contentUriString = uri, displayName = "a.mp3")
+            testScheduler.runCurrent()
+
+            assertEquals(agentsPath, controller.state.value.agentsPath)
+            assertEquals(true, controller.state.value.isPlaying)
+            assertEquals("a.mp3", controller.state.value.title)
+            assertEquals(uri, transport.lastPlayed?.uri)
+        } finally {
+            controller.close()
+        }
+    }
 }
