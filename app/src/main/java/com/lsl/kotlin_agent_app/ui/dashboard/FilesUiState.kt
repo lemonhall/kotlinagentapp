@@ -9,6 +9,7 @@ data class FilesUiState(
     val errorMessage: String? = null,
     val openFilePath: String? = null,
     val openFileText: String? = null,
+    val openFileIsTruncated: Boolean = false,
     val clipboardCutPath: String? = null,
     val clipboardCutIsDir: Boolean = false,
     val clipboardCopyPath: String? = null,

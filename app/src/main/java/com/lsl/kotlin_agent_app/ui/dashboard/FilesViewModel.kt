@@ -129,13 +129,38 @@ class FilesViewModel(
         if (entry.type != AgentsDirEntryType.File) return
         val prev = _state.value ?: FilesUiState()
         val filePath = workspace.joinPath(prev.cwd, entry.name)
-        _state.value = prev.copy(isLoading = true, errorMessage = null)
+        _state.value = prev.copy(isLoading = true, errorMessage = null, openFileIsTruncated = false)
         viewModelScope.launch {
             try {
                 val text = withContext(Dispatchers.IO) { workspace.readTextFile(filePath) }
                 val now = _state.value ?: prev
-                _state.value = now.copy(isLoading = false, openFilePath = filePath, openFileText = text)
+                _state.value =
+                    now.copy(
+                        isLoading = false,
+                        openFilePath = filePath,
+                        openFileText = text,
+                        openFileIsTruncated = false,
+                    )
             } catch (t: Throwable) {
+                val msg = t.message?.trim().orEmpty()
+                if (msg.startsWith("File too large") || msg.startsWith("文件过大")) {
+                    val head =
+                        runCatching {
+                            withContext(Dispatchers.IO) { workspace.readTextFileHead(filePath, maxBytes = 256 * 1024) }
+                        }.getOrNull()
+                    if (head != null) {
+                        val note = "⚠️ 文件过大，当前仅预览前 256KB（只读）。\n\n"
+                        val now = _state.value ?: prev
+                        _state.value =
+                            now.copy(
+                                isLoading = false,
+                                openFilePath = filePath,
+                                openFileText = note + head,
+                                openFileIsTruncated = true,
+                            )
+                        return@launch
+                    }
+                }
                 val now = _state.value ?: prev
                 _state.value = now.copy(isLoading = false, errorMessage = t.message ?: "Open failed")
             }
@@ -144,18 +169,22 @@ class FilesViewModel(
 
     fun closeEditor() {
         val prev = _state.value ?: FilesUiState()
-        _state.value = prev.copy(openFilePath = null, openFileText = null)
+        _state.value = prev.copy(openFilePath = null, openFileText = null, openFileIsTruncated = false)
     }
 
     fun saveEditor(text: String) {
         val prev = _state.value ?: FilesUiState()
         val path = prev.openFilePath ?: return
+        if (prev.openFileIsTruncated) {
+            _state.value = prev.copy(errorMessage = "文件过大：当前为只读预览，无法直接编辑保存")
+            return
+        }
         _state.value = prev.copy(isLoading = true, errorMessage = null)
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { workspace.writeTextFile(path, text) }
                 val now = _state.value ?: prev
-                _state.value = now.copy(isLoading = false, openFileText = text)
+                _state.value = now.copy(isLoading = false, openFileText = text, openFileIsTruncated = false)
                 refresh()
             } catch (t: Throwable) {
                 val now = _state.value ?: prev

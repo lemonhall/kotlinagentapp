@@ -535,9 +535,10 @@ class DashboardFragment : Fragment() {
                  binding.textMusicHint.text = "仅 radios/ 启用电台目录与 .radio 播放；长按 .radio 可收藏到 favorites/；点“刷新”可强制拉取目录。"
              }
 
-             val openPath = st.openFilePath
-             val openText = st.openFileText
-             if (!openPath.isNullOrBlank() && openText != null) {
+              val openPath = st.openFilePath
+              val openText = st.openFileText
+              val isTruncated = st.openFileIsTruncated
+              if (!openPath.isNullOrBlank() && openText != null) {
                  val desiredKind =
                     when {
                         isTranslationChunk(openPath, openText) -> EditorDialogKind.TranslationPreview
@@ -551,13 +552,13 @@ class DashboardFragment : Fragment() {
                         (editorDialogKind != desiredKind)
 
                 if (shouldShow) {
-                    when (desiredKind) {
-                        EditorDialogKind.MarkdownPreview ->
-                            showMarkdownPreview(openPath, openText) { action ->
-                                when (action) {
-                                    EditorAction.Edit -> showEditor(openPath, openText) { editor ->
-                                        when (editor) {
-                                            is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
+                     when (desiredKind) {
+                         EditorDialogKind.MarkdownPreview ->
+                             showMarkdownPreview(openPath, openText, allowEdit = !isTruncated) { action ->
+                                 when (action) {
+                                     EditorAction.Edit -> showEditor(openPath, openText) { editor ->
+                                         when (editor) {
+                                             is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
                                             EditorAction.Close -> filesViewModel.closeEditor()
                                             else -> Unit
                                         }
@@ -567,13 +568,13 @@ class DashboardFragment : Fragment() {
                                     else -> Unit
                                 }
                             }
-
-                        EditorDialogKind.PlainPreview ->
-                            showPlainPreview(openPath, openText) { action ->
-                                when (action) {
-                                    EditorAction.Edit -> showEditor(openPath, openText) { editor ->
-                                        when (editor) {
-                                            is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
+ 
+                         EditorDialogKind.PlainPreview ->
+                             showPlainPreview(openPath, openText, allowEdit = !isTruncated) { action ->
+                                 when (action) {
+                                     EditorAction.Edit -> showEditor(openPath, openText) { editor ->
+                                         when (editor) {
+                                             is EditorAction.Save -> filesViewModel.saveEditor(editor.text)
                                             EditorAction.Close -> filesViewModel.closeEditor()
                                             else -> Unit
                                         }
@@ -1539,6 +1540,7 @@ class DashboardFragment : Fragment() {
             n.endsWith(".md") ||
             n.endsWith(".markdown") ||
             n.endsWith(".json") ||
+            n.endsWith(".jsonl") ||
             n.endsWith(".yaml") ||
             n.endsWith(".yml") ||
             n.endsWith(".xml") ||
@@ -1746,7 +1748,7 @@ class DashboardFragment : Fragment() {
     private fun showTranslationPreview(path: String, rawJson: String, onAction: (EditorAction) -> Unit) {
         val chunk = runCatching { TranslationChunkV1.parse(rawJson) }.getOrNull()
         if (chunk == null) {
-            showPlainPreview(path, rawJson, onAction)
+            showPlainPreview(path, rawJson, allowEdit = true, onAction = onAction)
             return
         }
 
@@ -1808,7 +1810,7 @@ class DashboardFragment : Fragment() {
         return runCatching { TranslationChunkV1.parse(rawJson) }.isSuccess
     }
 
-    private fun showPlainPreview(path: String, content: String, onAction: (EditorAction) -> Unit) {
+    private fun showPlainPreview(path: String, content: String, allowEdit: Boolean = true, onAction: (EditorAction) -> Unit) {
         val tv =
             TextView(requireContext()).apply {
                 setTextIsSelectable(true)
@@ -1835,7 +1837,11 @@ class DashboardFragment : Fragment() {
                 .setTitle(path)
                 .setView(scroll)
                 .setNegativeButton("关闭") { _, _ -> onAction(EditorAction.Close) }
-                .setPositiveButton("编辑") { _, _ -> onAction(EditorAction.Edit) }
+                .apply {
+                    if (allowEdit) {
+                        setPositiveButton("编辑") { _, _ -> onAction(EditorAction.Edit) }
+                    }
+                }
                 .create()
         dialog.setOnDismissListener { handleDialogDismiss(onAction, closeAction = EditorAction.Close) }
         editorDialog = dialog
@@ -2033,7 +2039,7 @@ class DashboardFragment : Fragment() {
         }
     }
 
-    private fun showMarkdownPreview(path: String, text: String, onAction: (EditorAction) -> Unit) {
+    private fun showMarkdownPreview(path: String, text: String, allowEdit: Boolean = true, onAction: (EditorAction) -> Unit) {
         val tv =
             TextView(requireContext()).apply {
                 setTextIsSelectable(true)
@@ -2053,7 +2059,11 @@ class DashboardFragment : Fragment() {
                 .setTitle(path)
                 .setView(scroll)
                 .setNegativeButton("关闭") { _, _ -> onAction(EditorAction.Close) }
-                .setPositiveButton("编辑") { _, _ -> onAction(EditorAction.Edit) }
+                .apply {
+                    if (allowEdit) {
+                        setPositiveButton("编辑") { _, _ -> onAction(EditorAction.Edit) }
+                    }
+                }
                 .create()
         dialog.setOnDismissListener { handleDialogDismiss(onAction, closeAction = EditorAction.Close) }
         editorDialog = dialog
