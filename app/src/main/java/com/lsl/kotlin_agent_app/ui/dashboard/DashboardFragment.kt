@@ -15,6 +15,10 @@ import android.webkit.MimeTypeMap
 import android.content.ClipData
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -1801,7 +1805,7 @@ class DashboardFragment : Fragment() {
                     ),
                 )
                 typeface = android.graphics.Typeface.MONOSPACE
-                text = content
+                text = buildPrettyHighlightedText(this, path = path, content = content)
             }
         val scroll = ScrollView(requireContext()).apply { addView(tv) }
 
@@ -1821,6 +1825,192 @@ class DashboardFragment : Fragment() {
         editorDialogPath = path
         editorDialogKind = EditorDialogKind.PlainPreview
         dialog.show()
+    }
+
+    private fun buildPrettyHighlightedText(
+        tv: TextView,
+        path: String,
+        content: String,
+    ): CharSequence {
+        val p = path.trim().lowercase()
+        val tooLargeForHighlight = content.length > 120_000
+
+        if (tooLargeForHighlight) return content
+
+        val onSurface = MaterialColors.getColor(tv, com.google.android.material.R.attr.colorOnSurface, android.graphics.Color.BLACK)
+        val onSurfaceVariant =
+            MaterialColors.getColor(
+                tv,
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                onSurface,
+            )
+        val primary = MaterialColors.getColor(tv, androidx.appcompat.R.attr.colorPrimary, onSurface)
+        val secondary = MaterialColors.getColor(tv, com.google.android.material.R.attr.colorSecondary, onSurfaceVariant)
+        val error = 0xFFB00020.toInt()
+
+        if (p.endsWith(".json")) {
+            val pretty = prettyJsonOrNull(content) ?: content
+            return highlightJson(pretty, primary = primary, stringColor = secondary, numberColor = onSurfaceVariant, keywordColor = error)
+        }
+        if (p.endsWith(".py")) {
+            return highlightPython(content, keywordColor = primary, stringColor = secondary, commentColor = onSurfaceVariant, numberColor = error)
+        }
+        if (p.endsWith(".css")) {
+            return highlightCss(content, selectorColor = primary, propColor = secondary, commentColor = onSurfaceVariant, literalColor = error)
+        }
+        return content
+    }
+
+    private fun prettyJsonOrNull(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+        return runCatching {
+            val pretty =
+                Json {
+                    prettyPrint = true
+                    ignoreUnknownKeys = true
+                    explicitNulls = false
+                }
+            pretty.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), pretty.parseToJsonElement(trimmed))
+        }.getOrNull()
+    }
+
+    private fun highlightJson(
+        raw: String,
+        primary: Int,
+        stringColor: Int,
+        numberColor: Int,
+        keywordColor: Int,
+    ): CharSequence {
+        val sb = SpannableStringBuilder(raw)
+
+        val stringRx = Regex("\"(?:\\\\.|[^\"\\\\])*\"")
+        val keyRx = Regex("\"(?:\\\\.|[^\"\\\\])*\"(?=\\s*:)")
+        val numberRx = Regex("(?<![\\w.])-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?![\\w.])")
+        val keywordRx = Regex("\\b(true|false|null)\\b")
+
+        applyColorSpans(sb, stringRx, stringColor)
+        applyColorSpans(sb, numberRx, numberColor)
+        applyColorSpans(sb, keywordRx, keywordColor, bold = true)
+        applyColorSpans(sb, keyRx, primary, bold = true)
+        return sb
+    }
+
+    private fun highlightPython(
+        raw: String,
+        keywordColor: Int,
+        stringColor: Int,
+        commentColor: Int,
+        numberColor: Int,
+    ): CharSequence {
+        val sb = SpannableStringBuilder(raw)
+        val stringRx =
+            Regex(
+                "(?s)('''.*?'''|\"\"\".*?\"\"\"|'([^'\\\\]|\\\\.)*'|\"([^\"\\\\]|\\\\.)*\")",
+            )
+        val commentRx = Regex("#.*$", setOf(RegexOption.MULTILINE))
+        val numberRx = Regex("(?<![\\w.])\\d+(?:\\.\\d+)?(?![\\w.])")
+        val kw =
+            listOf(
+                "and",
+                "as",
+                "assert",
+                "break",
+                "class",
+                "continue",
+                "def",
+                "del",
+                "elif",
+                "else",
+                "except",
+                "False",
+                "finally",
+                "for",
+                "from",
+                "global",
+                "if",
+                "import",
+                "in",
+                "is",
+                "lambda",
+                "None",
+                "nonlocal",
+                "not",
+                "or",
+                "pass",
+                "raise",
+                "return",
+                "True",
+                "try",
+                "while",
+                "with",
+                "yield",
+            ).joinToString("|") { Regex.escape(it) }
+        val keywordRx = Regex("\\b($kw)\\b")
+
+        applyColorSpans(sb, stringRx, stringColor)
+        applyColorSpans(sb, commentRx, commentColor)
+        applyColorSpans(sb, numberRx, numberColor)
+        applyColorSpans(sb, keywordRx, keywordColor, bold = true)
+        return sb
+    }
+
+    private fun highlightCss(
+        raw: String,
+        selectorColor: Int,
+        propColor: Int,
+        commentColor: Int,
+        literalColor: Int,
+    ): CharSequence {
+        val sb = SpannableStringBuilder(raw)
+        val commentRx = Regex("(?s)/\\*.*?\\*/")
+        val stringRx = Regex("'([^'\\\\]|\\\\.)*'|\"([^\"\\\\]|\\\\.)*\"")
+        val hexRx = Regex("#[0-9a-fA-F]{3,8}\\b")
+        val propRx = Regex("\\b([a-zA-Z_-][a-zA-Z0-9_-]*)\\s*:")
+        val selectorRx = Regex("^\\s*([^\\{\\n]+)\\{", setOf(RegexOption.MULTILINE))
+
+        applyColorSpans(sb, commentRx, commentColor)
+        applyColorSpans(sb, stringRx, literalColor)
+        applyColorSpans(sb, hexRx, literalColor)
+        applyColorGroup1Spans(sb, propRx, propColor, bold = true)
+        applyColorGroup1Spans(sb, selectorRx, selectorColor, bold = true)
+        return sb
+    }
+
+    private fun applyColorSpans(
+        sb: SpannableStringBuilder,
+        rx: Regex,
+        color: Int,
+        bold: Boolean = false,
+    ) {
+        for (m in rx.findAll(sb)) {
+            val start = m.range.first
+            val end = m.range.last + 1
+            if (start >= end) continue
+            sb.setSpan(ForegroundColorSpan(color), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (bold) {
+                sb.setSpan(StyleSpan(android.graphics.Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+    }
+
+    private fun applyColorGroup1Spans(
+        sb: SpannableStringBuilder,
+        rx: Regex,
+        color: Int,
+        bold: Boolean = false,
+    ) {
+        for (m in rx.findAll(sb)) {
+            val group = m.groups[1] ?: continue
+            val range = group.range
+            val start = range.first
+            val end = range.last + 1
+            if (start >= end) continue
+            sb.setSpan(ForegroundColorSpan(color), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (bold) {
+                sb.setSpan(StyleSpan(android.graphics.Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
     }
 
     private fun showMarkdownPreview(path: String, text: String, onAction: (EditorAction) -> Unit) {
