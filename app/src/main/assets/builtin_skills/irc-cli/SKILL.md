@@ -1,6 +1,6 @@
 ---
 name: irc-cli
-description: 通过 `terminal_exec` 提供 IRC 的 `irc connect/disconnect/status/send/pull`（dotenv 凭据、NICK<=9、send 非默认目标需 --confirm、pull cursor 去重 + 截断）。
+description: 通过 `terminal_exec` 提供 IRC 的 `irc connect/disconnect/status/history/send/pull`（dotenv 凭据、NICK<=9、send 非默认目标需 --confirm、pull cursor 去重 + 截断）。
 ---
 
 # irc-cli（IRC / Pseudo CLI）
@@ -12,6 +12,7 @@ description: 通过 `terminal_exec` 提供 IRC 的 `irc connect/disconnect/statu
 - `irc connect`：请求连接并加入默认频道（后台异步）
 - `irc disconnect`：断开并释放当前 session 的连接
 - `irc status`：查看当前 session 的 IRC 状态（不泄露 secret）
+- `irc history`：读取本地历史消息（从 `.agents/workspace/irc/sessions/<session>/inbound.jsonl` / `outbound.jsonl` 汇总）
 - `irc send`：发送消息（写操作门禁：非默认目标必须 `--confirm`；正文建议用 `--text-stdin`）
 - `irc pull`：拉取新消息（按频道 cursor 去重，默认只返回上次 pull 以来的新消息，并执行截断策略）
 
@@ -26,7 +27,7 @@ description: 通过 `terminal_exec` 提供 IRC 的 `irc connect/disconnect/statu
 - App 启动时如果发现 `.agents/skills/irc-cli/secrets/.env` 不存在，会从内置模板自动生成一份（便于你在 Files 页签直接编辑）。
 - 模板文件位于同目录：`.agents/skills/irc-cli/secrets/env.example`（只读参考，不要改它；请改 `.env`）。
 
-## Commands（v29）
+## Commands（v30）
 
 ### 0) connect / disconnect
 
@@ -51,6 +52,15 @@ description: 通过 `terminal_exec` 提供 IRC 的 `irc connect/disconnect/statu
 - `exit_code=0`
 - `result.command="irc status"`
 - `result.state` 为 `not_initialized|connecting|connected|joined|reconnecting|disconnected|error`
+
+### 1.5) history（本地历史，不推进 cursor）
+
+- `irc history --from "#channel" --limit 50`
+
+期望：
+- `exit_code=0`
+- `result.command="irc history"`
+- `result.messages` 为数组（每条含 `id/ts/channel/nick/text/direction`）
 
 ### 2) send（建议 --text-stdin；非默认目标必须 --confirm）
 

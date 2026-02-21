@@ -64,9 +64,14 @@ internal class IrcViewModel(
                     ws.mkdir(".agents/workspace/irc")
                 }
 
+                // Best-effort: show last known local history immediately (even if credentials are missing now).
+                loadHistory(channel = null)
+
                 refreshCredentials()
-                refreshStatus()
                 if ((_uiState.value.hasCredentials)) {
+                    refreshStatus()
+                    val ch0 = _uiState.value.selectedChannel.ifBlank { _uiState.value.defaultChannel }.ifBlank { null }
+                    loadHistory(channel = ch0)
                     connect()
                 }
 
@@ -96,6 +101,12 @@ internal class IrcViewModel(
         val ch = channel.trim()
         _uiState.update { prev ->
             prev.copy(selectedChannel = ch)
+        }
+        viewModelScope.launch {
+            try {
+                loadHistory(channel = ch.ifBlank { null })
+            } catch (_: Throwable) {
+            }
         }
     }
 
@@ -272,6 +283,52 @@ internal class IrcViewModel(
                     .sortedBy { it.tsMs }
                     .takeLast(240)
             prev.copy(messages = merged)
+        }
+    }
+
+    private suspend fun loadHistory(channel: String?) {
+        val argv =
+            buildList {
+                add("irc")
+                add("history")
+                add("--limit")
+                add("120")
+                if (!channel.isNullOrBlank()) {
+                    add("--from")
+                    add(channel)
+                }
+            }
+        val out =
+            withContext(Dispatchers.IO) {
+                cmd.run(argv = argv, stdin = null)
+            }
+        if (out.exitCode != 0) return
+        val arr = out.result?.jsonObject?.get("messages")?.jsonArray ?: return
+
+        val list =
+            arr.mapNotNull { el ->
+                val obj = el.jsonObject
+                val id = obj["id"]?.jsonPrimitive?.content?.trim().orEmpty()
+                val ts = obj["ts"]?.jsonPrimitive?.content?.toLongOrNull() ?: return@mapNotNull null
+                val ch = obj["channel"]?.jsonPrimitive?.content?.trim().orEmpty()
+                val nick = obj["nick"]?.jsonPrimitive?.content?.trim().orEmpty()
+                val text = obj["text"]?.jsonPrimitive?.content?.trim().orEmpty()
+                val direction = obj["direction"]?.jsonPrimitive?.content?.trim().orEmpty()
+                if (id.isBlank() || ch.isBlank() || text.isBlank() || direction.isBlank()) return@mapNotNull null
+                IrcChatLine(
+                    key = "$direction:$ch:$id",
+                    tsMs = ts,
+                    channel = ch,
+                    nick = nick,
+                    text = text,
+                    direction = direction,
+                )
+            }
+                .sortedBy { it.tsMs }
+                .takeLast(240)
+
+        _uiState.update { prev ->
+            prev.copy(messages = list)
         }
     }
 

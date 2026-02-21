@@ -294,6 +294,56 @@ class TerminalExecToolIrcTest {
         }
 
     @Test
+    fun irc_history_readsInboundAndOutboundJsonl() =
+        runTerminalExecToolTest(
+            setup = { ctx ->
+                val prefs = ctx.getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
+                val sid = "sess_irc_" + UUID.randomUUID().toString().replace("-", "")
+                prefs.edit().putString(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID, sid).apply()
+                CapturingIrcClient.connectCalls = 0
+                CapturingIrcClient.last = null
+                val agentsRoot = File(ctx.filesDir, ".agents")
+                val env = File(agentsRoot, "skills/irc-cli/secrets/.env")
+                env.parentFile?.mkdirs()
+                env.writeText(
+                    """
+                    IRC_SERVER=example.com
+                    IRC_PORT=6697
+                    IRC_TLS=0
+                    IRC_CHANNEL=#default
+                    IRC_NICK=lemonbot
+                    """.trimIndent() + "\n",
+                    Charsets.UTF_8,
+                )
+
+                val fake = CapturingIrcClient()
+                IrcClientTestHooks.install { _: IrcConfig, _: kotlinx.coroutines.CoroutineScope, listener: IrcClientListener ->
+                    fake.listener = listener
+                    fake
+                }
+                ;
+
+                {
+                    prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
+                    IrcClientTestHooks.clear()
+                    IrcSessionRuntimeStore.clearForTest()
+                }
+            },
+        ) { tool ->
+            assertEquals(0, tool.exec("irc status").exitCode)
+            CapturingIrcClient.last!!.emitPrivmsg("#default", "a", "hello")
+            assertEquals(0, tool.exec("irc send --text-stdin", stdin = "out").exitCode)
+
+            val out = tool.exec("irc history --from #default --limit 50")
+            assertEquals(0, out.exitCode)
+            val arr = out.result!!.jsonObject["messages"]!!.jsonArray
+            assertTrue(arr.size >= 2)
+            val dirs = arr.map { it.jsonObject["direction"]!!.jsonPrimitive.content }.toSet()
+            assertTrue(dirs.contains("in"))
+            assertTrue(dirs.contains("out"))
+        }
+
+    @Test
     fun irc_pull_truncates_and_audit_doesNotContainSecrets() =
         runTerminalExecToolTest(
             setup = { ctx ->

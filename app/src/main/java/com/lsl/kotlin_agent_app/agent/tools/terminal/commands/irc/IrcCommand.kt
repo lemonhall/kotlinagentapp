@@ -14,9 +14,15 @@ import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.archive.optionalFl
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.archive.parseIntFlag
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.archive.requireConfirm
 import java.io.File
+import java.util.ArrayDeque
+import java.util.UUID
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 internal class IrcMissingCredentials(
     message: String,
@@ -35,6 +41,7 @@ internal class IrcCommand(
 ) : TerminalCommand {
     private val ctx = appContext.applicationContext
     private val agentsRoot = File(ctx.filesDir, ".agents").canonicalFile
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     override val name: String = "irc"
     override val description: String =
@@ -52,6 +59,7 @@ internal class IrcCommand(
                 "connect" -> handleConnect(argv)
                 "disconnect" -> handleDisconnect()
                 "status" -> handleStatus()
+                "history" -> handleHistory(argv)
                 "send" -> handleSend(argv, stdin)
                 "pull" -> handlePull(argv)
                 else -> invalidArgs("unknown subcommand: ${argv[1]}")
@@ -242,7 +250,15 @@ internal class IrcCommand(
 
         // Ensure connected+joined before send (v28: session-bound long connection).
         rt.ensureConnectedAndJoinedDefault()
+        val now = System.currentTimeMillis()
         rt.sendPrivmsg(to = to, text = text)
+        appendOutboundJsonl(
+            sessionKey = sessionKey,
+            channel = to,
+            nick = config.nick,
+            text = text,
+            tsMs = now,
+        )
 
         val st = IrcSessionRuntimeStore.statusFlow(sessionKey).value
         val connected = st.state == IrcConnectionState.Connected || st.state == IrcConnectionState.Joined
@@ -260,6 +276,91 @@ internal class IrcCommand(
                     put("session_bound", JsonPrimitive(true))
                     put("connected", JsonPrimitive(connected))
                     put("joined_default_channel", JsonPrimitive(joined))
+                },
+        )
+    }
+
+    private fun handleHistory(argv: List<String>): TerminalCommandOutput {
+        val sessionKey = requireSessionKey()
+        val channelFilter = optionalFlagValue(argv, "--from")?.trim()?.takeIf { it.isNotBlank() }
+        val limit = parseIntFlag(argv, "--limit", defaultValue = 50).coerceIn(0, 200)
+        val scanLines = (limit.coerceAtLeast(50) * 20).coerceIn(200, 4_000)
+
+        val dir = sessionDir(sessionKey)
+        val inbound = File(dir, "inbound.jsonl")
+        val outbound = File(dir, "outbound.jsonl")
+
+        data class Msg(
+            val id: String,
+            val tsMs: Long,
+            val channel: String,
+            val nick: String,
+            val text: String,
+            val direction: String,
+        )
+
+        fun parseLine(
+            line: String,
+            direction: String,
+        ): Msg? {
+            val s = line.trim()
+            if (s.isBlank()) return null
+            val obj =
+                try {
+                    json.parseToJsonElement(s).jsonObject
+                } catch (_: Throwable) {
+                    return null
+                }
+            val id = obj["id"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val ts = obj["ts_ms"]?.jsonPrimitive?.content?.trim()?.toLongOrNull() ?: 0L
+            val ch = obj["channel"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val nick = obj["nick"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val text = obj["text"]?.jsonPrimitive?.content?.trim().orEmpty()
+            if (id.isBlank() || ts <= 0L || ch.isBlank() || text.isBlank()) return null
+            if (channelFilter != null && ch != channelFilter) return null
+            return Msg(id = id, tsMs = ts, channel = ch, nick = nick, text = text, direction = direction)
+        }
+
+        val merged = ArrayList<Msg>(limit * 2)
+        tailLines(inbound, maxLines = scanLines).forEach { line ->
+            parseLine(line, direction = "in")?.let { merged.add(it) }
+        }
+        tailLines(outbound, maxLines = scanLines).forEach { line ->
+            parseLine(line, direction = "out")?.let { merged.add(it) }
+        }
+
+        val final =
+            merged
+                .sortedWith(compareBy<Msg> { it.tsMs }.thenBy { it.direction }.thenBy { it.id })
+                .takeLast(limit)
+
+        return TerminalCommandOutput(
+            exitCode = 0,
+            stdout = "history ${final.size} message(s)",
+            result =
+                buildJsonObject {
+                    put("ok", JsonPrimitive(true))
+                    put("command", JsonPrimitive("irc history"))
+                    put("session_bound", JsonPrimitive(true))
+                    channelFilter?.let { put("from", JsonPrimitive(it)) }
+                    put("returned", JsonPrimitive(final.size))
+                    put(
+                        "messages",
+                        buildJsonArray {
+                            for (m in final) {
+                                add(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(m.id))
+                                        put("ts", JsonPrimitive(m.tsMs))
+                                        put("channel", JsonPrimitive(m.channel))
+                                        put("nick", JsonPrimitive(m.nick))
+                                        put("text", JsonPrimitive(m.text))
+                                        put("direction", JsonPrimitive(m.direction))
+                                    },
+                                )
+                            }
+                        },
+                    )
                 },
         )
     }
@@ -356,5 +457,61 @@ internal class IrcCommand(
             errorCode = "InvalidArgs",
             errorMessage = message,
         )
+    }
+
+    private fun sessionDir(sessionKey: String): File {
+        val safe = sessionKey.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        return File(agentsRoot, "workspace/irc/sessions/$safe")
+    }
+
+    private fun tailLines(
+        file: File,
+        maxLines: Int,
+    ): List<String> {
+        if (maxLines <= 0) return emptyList()
+        if (!file.exists() || !file.isFile) return emptyList()
+        val deque = ArrayDeque<String>(maxLines + 1)
+        return try {
+            file.forEachLine(Charsets.UTF_8) { line ->
+                val s = line.trimEnd()
+                if (s.isBlank()) return@forEachLine
+                if (deque.size >= maxLines) deque.removeFirst()
+                deque.addLast(s)
+            }
+            deque.toList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    private fun appendOutboundJsonl(
+        sessionKey: String,
+        channel: String,
+        nick: String,
+        text: String,
+        tsMs: Long,
+    ) {
+        try {
+            val dir = sessionDir(sessionKey)
+            dir.mkdirs()
+            val f = File(dir, "outbound.jsonl")
+            val id = UUID.randomUUID().toString().replace("-", "")
+            val safeText = text.replace("\u0000", "").replace("\r\n", "\n").take(16_000)
+            val jsonLine =
+                """{"id":${escapeJson(id)},"ts_ms":$tsMs,"channel":${escapeJson(channel)},"nick":${escapeJson(nick)},"text":${escapeJson(safeText)}}"""
+            f.appendText(jsonLine + "\n", Charsets.UTF_8)
+        } catch (_: Throwable) {
+            // best-effort
+        }
+    }
+
+    private fun escapeJson(s: String): String {
+        val escaped =
+            s
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+        return "\"$escaped\""
     }
 }
