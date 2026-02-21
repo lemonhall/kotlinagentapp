@@ -2,6 +2,8 @@ package com.lsl.kotlin_agent_app.ui.video_player
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.MimeTypeMap
@@ -9,6 +11,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.ViewModelProvider
 import com.lsl.kotlin_agent_app.smb_media.SmbMediaActions
 import com.lsl.kotlin_agent_app.ui.theme.KotlinAgentAppTheme
@@ -20,6 +25,8 @@ class VideoPlayerActivity : ComponentActivity() {
     private lateinit var vm: VideoPlayerViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         super.onCreate(savedInstanceState)
 
         val uriString = intent?.getStringExtra(EXTRA_URI)?.trim().orEmpty()
@@ -63,9 +70,26 @@ class VideoPlayerActivity : ComponentActivity() {
         setContentView(composeView)
     }
 
+    override fun onResume() {
+        super.onResume()
+        applyFullscreenForOrientation()
+    }
+
     override fun onStop() {
         super.onStop()
         vm.pause()
+    }
+
+    private fun applyFullscreenForOrientation() {
+        val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        if (isLandscape) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     private fun openExternal(
