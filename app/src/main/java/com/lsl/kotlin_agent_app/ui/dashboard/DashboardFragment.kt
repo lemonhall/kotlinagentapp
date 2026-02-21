@@ -75,6 +75,7 @@ import com.lsl.kotlin_agent_app.ui.image_viewer.ImageViewerActivity
 import com.lsl.kotlin_agent_app.ui.pdf_viewer.PdfViewerActivity
 import com.lsl.kotlin_agent_app.ui.env_editor.EnvEditorActivity
 import com.lsl.kotlin_agent_app.ui.ledger.LedgerActivity
+import com.lsl.kotlin_agent_app.ui.irc.IrcActivity
 import com.lsl.kotlin_agent_app.ui.qqmail.QqMailActivity
 
 class DashboardFragment : Fragment() {
@@ -137,6 +138,10 @@ class DashboardFragment : Fragment() {
                     if (entry.type == AgentsDirEntryType.Dir) {
                         if (DashboardLedgerRules.isLedgerDirAtWorkspaceRoot(cwd = cwd, entry = entry)) {
                             startActivity(LedgerActivity.intentOf(requireContext()))
+                            return@FilesEntryAdapter
+                        }
+                        if (DashboardIrcRules.isIrcDirAtWorkspaceRoot(cwd = cwd, entry = entry)) {
+                            startActivity(IrcActivity.intentOf(requireContext()))
                             return@FilesEntryAdapter
                         }
                         if (DashboardQqMailRules.isQqMailDirAtWorkspaceRoot(cwd = cwd, entry = entry)) {
@@ -293,6 +298,48 @@ class DashboardFragment : Fragment() {
                                 when (action) {
                                     "进入目录" -> filesViewModel.goInto(entry)
                                     "打开账本" -> startActivity(LedgerActivity.intentOf(requireContext()))
+                                    "剪切" -> filesViewModel.cutEntry(entry)
+                                    "复制" -> filesViewModel.copyEntry(entry)
+                                    "重命名" -> {
+                                        val input =
+                                            android.widget.EditText(requireContext()).apply {
+                                                setText(entry.name)
+                                                setSelection(entry.name.length)
+                                            }
+                                        MaterialAlertDialogBuilder(requireContext())
+                                            .setTitle("重命名")
+                                            .setView(input)
+                                            .setNegativeButton("取消", null)
+                                            .setPositiveButton("确定") { _, _ ->
+                                                val newName = input.text?.toString().orEmpty().trim()
+                                                filesViewModel.renameEntry(entry, newName)
+                                            }
+                                            .show()
+                                    }
+                                    "复制路径" -> copyTextToClipboard("path", relativePath)
+                                    "删除" ->
+                                        MaterialAlertDialogBuilder(requireContext())
+                                            .setTitle("删除确认")
+                                            .setMessage("确定删除 ${entry.name} 吗？")
+                                            .setNegativeButton("取消", null)
+                                            .setPositiveButton("删除") { _, _ ->
+                                                filesViewModel.deleteEntry(entry, recursive = true)
+                                            }
+                                            .show()
+                                }
+                            }
+                            .show()
+                        return@FilesEntryAdapter
+                    }
+                    if (DashboardIrcRules.isIrcDirAtWorkspaceRoot(cwd = normalizedCwd, entry = entry)) {
+                        val actions = DashboardIrcRules.ircDirLongClickActions()
+                        MaterialAlertDialogBuilder(requireContext())
+                            .setTitle(entry.name)
+                            .setItems(actions) { _, which ->
+                                val action = actions.getOrNull(which) ?: return@setItems
+                                when (action) {
+                                    "进入目录" -> filesViewModel.goInto(entry)
+                                    "打开 IRC" -> startActivity(IrcActivity.intentOf(requireContext()))
                                     "剪切" -> filesViewModel.cutEntry(entry)
                                     "复制" -> filesViewModel.copyEntry(entry)
                                     "重命名" -> {

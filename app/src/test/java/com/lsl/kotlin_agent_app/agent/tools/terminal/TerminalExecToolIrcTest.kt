@@ -41,6 +41,24 @@ class TerminalExecToolIrcTest {
         }
 
     @Test
+    fun irc_disconnect_ok_evenWithoutCredentials() =
+        runTerminalExecToolTest(
+            setup = { ctx ->
+                val prefs = ctx.getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
+                val sid = "sess_irc_" + UUID.randomUUID().toString().replace("-", "")
+                prefs.edit().putString(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID, sid).apply();
+                {
+                    prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
+                    IrcClientTestHooks.clear()
+                    IrcSessionRuntimeStore.clearForTest()
+                }
+            },
+        ) { tool ->
+            val out = tool.exec("irc disconnect")
+            assertEquals(0, out.exitCode)
+        }
+
+    @Test
     fun irc_rejects_nickTooLong() =
         runTerminalExecToolTest(
             setup = { ctx ->
@@ -71,6 +89,53 @@ class TerminalExecToolIrcTest {
             val out = tool.exec("irc status")
             assertTrue(out.exitCode != 0)
             assertEquals("NickTooLong", out.errorCode)
+        }
+
+    @Test
+    fun irc_connect_requestsConnect_and_returnsOk() =
+        runTerminalExecToolTest(
+            setup = { ctx ->
+                val prefs = ctx.getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
+                val sid = "sess_irc_" + UUID.randomUUID().toString().replace("-", "")
+                prefs.edit().putString(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID, sid).apply()
+                CapturingIrcClient.connectCalls = 0
+                CapturingIrcClient.last = null
+                val agentsRoot = File(ctx.filesDir, ".agents")
+                val env = File(agentsRoot, "skills/irc-cli/secrets/.env")
+                env.parentFile?.mkdirs()
+                env.writeText(
+                    """
+                    IRC_SERVER=example.com
+                    IRC_PORT=6697
+                    IRC_TLS=0
+                    IRC_CHANNEL=#default
+                    IRC_NICK=lemonbot
+                    """.trimIndent() + "\n",
+                    Charsets.UTF_8,
+                )
+
+                val fake = CapturingIrcClient()
+                IrcClientTestHooks.install { _: IrcConfig, _: kotlinx.coroutines.CoroutineScope, listener: IrcClientListener ->
+                    fake.listener = listener
+                    fake
+                }
+                ;
+
+                {
+                    prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
+                    IrcClientTestHooks.clear()
+                    IrcSessionRuntimeStore.clearForTest()
+                }
+            },
+        ) { tool ->
+            val out = tool.exec("irc connect --force")
+            assertEquals(0, out.exitCode)
+
+            val deadlineMs = System.currentTimeMillis() + 2_000
+            while (CapturingIrcClient.connectCalls <= 0 && System.currentTimeMillis() < deadlineMs) {
+                Thread.sleep(10)
+            }
+            assertTrue("connect should be requested", CapturingIrcClient.connectCalls >= 1)
         }
 
     @Test

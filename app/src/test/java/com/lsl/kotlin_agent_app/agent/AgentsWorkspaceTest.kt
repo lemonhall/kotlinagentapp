@@ -34,6 +34,16 @@ class AgentsWorkspaceTest {
     }
 
     @Test
+    fun ensureInitialized_createsIrcWorkspaceDir() {
+        val context = RuntimeEnvironment.getApplication()
+        val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
+
+        val ircDir = File(context.filesDir, ".agents/workspace/irc")
+        assertTrue(ircDir.exists() && ircDir.isDirectory)
+    }
+
+    @Test
     fun movePath_movesFileWithinAgents() {
         val context = RuntimeEnvironment.getApplication()
         val ws = AgentsWorkspace(context)

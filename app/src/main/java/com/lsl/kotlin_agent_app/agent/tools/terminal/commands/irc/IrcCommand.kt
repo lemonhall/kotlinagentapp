@@ -49,6 +49,8 @@ internal class IrcCommand(
 
         return try {
             when (argv[1].lowercase()) {
+                "connect" -> handleConnect(argv)
+                "disconnect" -> handleDisconnect()
                 "status" -> handleStatus()
                 "send" -> handleSend(argv, stdin)
                 "pull" -> handlePull(argv)
@@ -103,6 +105,61 @@ internal class IrcCommand(
                 errorMessage = t.message,
             )
         }
+    }
+
+    private suspend fun handleConnect(argv: List<String>): TerminalCommandOutput {
+        val (config, sessionKey) = requireConfigAndSessionKey()
+        val force = hasFlag(argv, "--force")
+        IrcSessionRuntimeStore.requestConnect(
+            agentsRoot = agentsRoot,
+            sessionKey = sessionKey,
+            force = force,
+        )
+
+        val snapshot = IrcSessionRuntimeStore.statusFlow(sessionKey).value
+        val state =
+            when (snapshot.state) {
+                IrcConnectionState.NotInitialized -> "not_initialized"
+                IrcConnectionState.Connecting -> "connecting"
+                IrcConnectionState.Connected -> "connected"
+                IrcConnectionState.Joined -> "joined"
+                IrcConnectionState.Reconnecting -> "reconnecting"
+                IrcConnectionState.Disconnected -> "disconnected"
+                IrcConnectionState.Error -> "error"
+            }
+
+        return TerminalCommandOutput(
+            exitCode = 0,
+            stdout = "irc: connect requested (force=$force)",
+            result =
+                buildJsonObject {
+                    put("ok", JsonPrimitive(true))
+                    put("command", JsonPrimitive("irc connect"))
+                    put("force", JsonPrimitive(force))
+                    put("session_bound", JsonPrimitive(true))
+                    put("state", JsonPrimitive(state))
+                    put("server", JsonPrimitive(config.server))
+                    put("port", JsonPrimitive(config.port))
+                    put("tls", JsonPrimitive(config.tls))
+                    put("nick", JsonPrimitive(config.nick))
+                    put("channel", JsonPrimitive(config.channel))
+                },
+        )
+    }
+
+    private fun handleDisconnect(): TerminalCommandOutput {
+        val sessionKey = requireSessionKey()
+        IrcSessionRuntimeStore.closeSession(sessionKey)
+        return TerminalCommandOutput(
+            exitCode = 0,
+            stdout = "irc: disconnected (session=$sessionKey)",
+            result =
+                buildJsonObject {
+                    put("ok", JsonPrimitive(true))
+                    put("command", JsonPrimitive("irc disconnect"))
+                    put("session_bound", JsonPrimitive(true))
+                },
+        )
     }
 
     private suspend fun handleStatus(): TerminalCommandOutput {
@@ -262,10 +319,14 @@ internal class IrcCommand(
             IrcConfigLoader.loadFromAgentsRoot(agentsRoot)
                 ?: throw IrcMissingCredentials("Missing IRC config in .agents/skills/${IrcConfigLoader.skillName}/secrets/.env")
         if (config.nick.length > 9) throw NickTooLong("IRC_NICK length must be <= 9")
+        val sessionKey = requireSessionKey()
+        return config to sessionKey
+    }
+
+    private fun requireSessionKey(): String {
         val prefs = ctx.getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
         val sid = prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null }
-        val sessionKey = sid ?: "__no_session__"
-        return config to sessionKey
+        return sid ?: "__no_session__"
     }
 
     private fun rejectForbiddenSecretFlags(argv: List<String>) {

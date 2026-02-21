@@ -149,6 +149,8 @@ UI (Chat/Files/Settings)
 
 每次任务执行完毕之后，使用 `apn-pushtool` 技能给手机发送一条简要消息：`xxx任务已完成`（`xxx` 为任务梗概，字数不超过 10 个字）。
 
+任务执行期间如果出现任何需要用户确认/决策的疑问（会导致实现方向不确定或可能返工），立即使用 `apn-pushtool`（apns-tools）发一条提醒消息，简要说明疑问点并等待用户回复后再继续。
+
 ## ADB Debug（导出 sessions/events.jsonl）
 
 > 目标：把 App 内部工作区 `.agents/sessions/<session_id>/events.jsonl` 从真机导出到本机（用于定位例如 `context_length_exceeded` 这类问题）。

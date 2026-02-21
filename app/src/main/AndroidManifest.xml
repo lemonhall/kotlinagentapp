@@ -103,6 +103,11 @@
             android:label="QQMail" />
 
         <activity
+            android:name=".ui.irc.IrcActivity"
+            android:exported="false"
+            android:label="IRC" />
+
+        <activity
             android:name=".recorder.RecorderActivity"
             android:exported="false"
             android:label="录音" />
