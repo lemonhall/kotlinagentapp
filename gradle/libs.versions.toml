@@ -21,6 +21,7 @@ jgit = "5.13.5.202508271544-r"
 okhttp = "4.12.0"
 jsch = "0.2.17"
 media3 = "1.4.1"
+subsamplingScaleImageView = "3.10.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -56,6 +57,7 @@ androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplaye
 androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
+subsampling-scale-image-view-androidx = { group = "com.davemorrissey.labs", name = "subsampling-scale-image-view-androidx", version.ref = "subsamplingScaleImageView" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

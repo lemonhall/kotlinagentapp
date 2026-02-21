@@ -78,6 +78,11 @@
             android:label="视频播放" />
 
         <activity
+            android:name=".ui.image_viewer.ImageViewerActivity"
+            android:exported="false"
+            android:label="图片预览" />
+
+        <activity
             android:name=".recorder.RecorderActivity"
             android:exported="false"
             android:label="录音" />

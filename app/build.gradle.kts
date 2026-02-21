@@ -162,6 +162,7 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
+    implementation(libs.subsampling.scale.image.view.androidx)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     implementation(platform(libs.androidx.compose.bom))

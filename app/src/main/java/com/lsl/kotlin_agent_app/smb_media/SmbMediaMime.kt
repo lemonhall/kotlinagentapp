@@ -13,6 +13,9 @@ object SmbMediaMime {
     const val IMAGE_PNG: String = "image/png"
     const val IMAGE_WEBP: String = "image/webp"
     const val IMAGE_GIF: String = "image/gif"
+    const val IMAGE_BMP: String = "image/bmp"
+    const val IMAGE_HEIC: String = "image/heic"
+    const val IMAGE_HEIF: String = "image/heif"
 
     fun isVideoMime(mime: String): Boolean {
         return mime.trim().lowercase().startsWith("video/")
@@ -35,6 +38,9 @@ object SmbMediaMime {
             "png" -> IMAGE_PNG
             "webp" -> IMAGE_WEBP
             "gif" -> IMAGE_GIF
+            "bmp" -> IMAGE_BMP
+            "heic" -> IMAGE_HEIC
+            "heif" -> IMAGE_HEIF
             else -> null
         }
     }
