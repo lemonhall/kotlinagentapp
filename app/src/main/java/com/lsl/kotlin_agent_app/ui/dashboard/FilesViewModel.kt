@@ -487,7 +487,38 @@ class FilesViewModel(
         cur = decorateRadioEntries(cwd = cwd, entries = cur)
         cur = decorateRadioRecordingEntries(cwd = cwd, entries = cur)
         cur = decorateTopLevelDirEmojis(cwd = cwd, entries = cur)
+        cur = decorateEnvFiles(cwd = cwd, entries = cur)
         return cur
+    }
+
+    private fun decorateEnvFiles(
+        cwd: String,
+        entries: List<AgentsDirEntry>,
+    ): List<AgentsDirEntry> {
+        fun isEnvName(name: String): Boolean {
+            val n = name.trim().lowercase(Locale.ROOT)
+            if (n == ".env") return true
+            if (n.startsWith(".env.")) return true
+            return false
+        }
+        return entries.map { e ->
+            if (e.type != AgentsDirEntryType.File) return@map e
+            if (!isEnvName(e.name)) return@map e
+            val name = e.name.trim()
+            val displayName =
+                if (name.equals(".env", ignoreCase = true)) {
+                    "settings"
+                } else {
+                    val suffix = name.substringAfter(".env.", missingDelimiterValue = "").trim()
+                    if (suffix.isBlank()) "settings" else "settings ($suffix)"
+                }
+            e.copy(
+                displayName = displayName,
+                subtitle = name,
+                iconEmoji = "⚙️",
+                sortKey = Long.MAX_VALUE,
+            )
+        }
     }
 
     private fun decorateTopLevelDirEmojis(
@@ -785,21 +816,73 @@ class FilesViewModel(
         if (isRadiosRoot) {
             val idx = radioRepo.readCountriesIndexOrNull()
             val mapByDir = idx?.countries?.associateBy { it.dir }.orEmpty()
-            return filtered.map { e ->
-                if (e.type != AgentsDirEntryType.Dir) return@map e
-                if (e.name == RadioRepository.FAVORITES_NAME) {
-                    return@map e.copy(displayName = "favorites（收藏）", subtitle = "纯文件系统收藏入口")
+            val decorated =
+                filtered.map { e ->
+                    if (e.type != AgentsDirEntryType.Dir) return@map e
+                    if (e.name == RadioRepository.FAVORITES_NAME) {
+                        return@map e.copy(displayName = "favorites（收藏）", subtitle = "纯文件系统收藏入口")
+                    }
+                    val c = mapByDir[e.name]
+                    val subtitle =
+                        c?.stationCount?.let { "stationCount=$it" }
+                            ?: c?.code?.let { "code=$it" }
+                    e.copy(
+                        displayName = c?.name ?: e.name,
+                        subtitle = subtitle,
+                        iconEmoji = iso3166ToFlagEmoji(c?.code),
+                    )
                 }
-                val c = mapByDir[e.name]
-                val subtitle =
-                    c?.stationCount?.let { "stationCount=$it" }
-                        ?: c?.code?.let { "code=$it" }
-                e.copy(
-                    displayName = c?.name ?: e.name,
-                    subtitle = subtitle,
-                    iconEmoji = iso3166ToFlagEmoji(c?.code),
-                )
+
+            val dirs = decorated.filter { it.type == AgentsDirEntryType.Dir }
+            val files = decorated.filterNot { it.type == AgentsDirEntryType.Dir }
+
+            val fav = dirs.firstOrNull { it.name == RadioRepository.FAVORITES_NAME }
+            val others = dirs.filterNot { it.name == RadioRepository.FAVORITES_NAME }
+
+            val p5 = listOf("CN", "US", "RU", "FR", "GB", "UK")
+            val next = listOf("JP", "IN", "KR", "BR")
+
+            fun codeOf(e: AgentsDirEntry): String? =
+                mapByDir[e.name]?.code?.trim()?.uppercase(Locale.ROOT)?.ifBlank { null }
+
+            fun rankOf(e: AgentsDirEntry): Int {
+                val code = codeOf(e) ?: return 1000
+                val i1 = p5.indexOf(code)
+                if (i1 >= 0) return i1
+                val i2 = next.indexOf(code)
+                if (i2 >= 0) return 100 + i2
+                return 1000
             }
+
+            val priority =
+                others.filter { rankOf(it) < 1000 }
+                    .sortedWith(
+                        compareBy<AgentsDirEntry> { rankOf(it) }
+                            .thenBy { (it.displayName ?: it.name).lowercase(Locale.ROOT) },
+                    )
+
+            val rest =
+                others.filter { rankOf(it) >= 1000 }
+                    .sortedWith(compareBy { (it.displayName ?: it.name).lowercase(Locale.ROOT) })
+
+            val out = mutableListOf<AgentsDirEntry>()
+            if (fav != null) out.add(fav)
+            out.addAll(priority)
+            if (rest.isNotEmpty()) {
+                out.add(
+                    AgentsDirEntry(
+                        name = "__separator_radios__",
+                        type = AgentsDirEntryType.File,
+                        displayName = "其他国家/地区",
+                        subtitle = null,
+                        sortKey = null,
+                        iconEmoji = null,
+                    )
+                )
+                out.addAll(rest)
+            }
+            out.addAll(files.sortedWith(compareBy { it.name.lowercase(Locale.ROOT) }))
+            return out
         }
 
         val isDirectChild = segs.size == 4 && normalized.startsWith(RadioRepository.RADIOS_DIR + "/")

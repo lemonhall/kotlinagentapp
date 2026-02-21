@@ -88,6 +88,11 @@
             android:label="PDF 预览" />
 
         <activity
+            android:name=".ui.env_editor.EnvEditorActivity"
+            android:exported="false"
+            android:label="settings" />
+
+        <activity
             android:name=".recorder.RecorderActivity"
             android:exported="false"
             android:label="录音" />

@@ -73,6 +73,7 @@ import com.lsl.kotlin_agent_app.ui.bilingual_player.BilingualPlayerActivity
 import com.lsl.kotlin_agent_app.ui.video_player.VideoPlayerActivity
 import com.lsl.kotlin_agent_app.ui.image_viewer.ImageViewerActivity
 import com.lsl.kotlin_agent_app.ui.pdf_viewer.PdfViewerActivity
+import com.lsl.kotlin_agent_app.ui.env_editor.EnvEditorActivity
 
 class DashboardFragment : Fragment() {
 
@@ -215,6 +216,15 @@ class DashboardFragment : Fragment() {
                         } else if (isPdfName(entry.name)) {
                             val display = entry.displayName ?: entry.name
                             openAgentsPdfInternal(path, displayName = display)
+                        } else if (isEnvName(entry.name)) {
+                            val display = entry.displayName ?: entry.name
+                            startActivity(
+                                EnvEditorActivity.intentOf(
+                                    context = requireContext(),
+                                    agentsPath = path,
+                                    displayName = display,
+                                )
+                            )
                         } else if (isOggName(entry.name) && isInRadioRecordingsTree(path)) {
                             musicController.playAgentsRecordingOgg(path)
                         } else if (shouldOpenExternalByDefault(entry.name) && isInNasSmbTree(path)) {
@@ -1604,6 +1614,13 @@ class DashboardFragment : Fragment() {
         return p == ".agents/workspace/radios/favorites" || p.startsWith(".agents/workspace/radios/favorites/")
     }
 
+    private fun isEnvName(name: String): Boolean {
+        val n = name.trim().lowercase()
+        if (n == ".env") return true
+        if (n.startsWith(".env.")) return true
+        return false
+    }
+
     private fun addRadioFavorite(agentsRadioPath: String) {
         viewLifecycleOwner.lifecycleScope.launch {
             val appContext = requireContext().applicationContext
@@ -1851,6 +1868,9 @@ class DashboardFragment : Fragment() {
         if (p.endsWith(".json")) {
             val pretty = prettyJsonOrNull(content) ?: content
             return highlightJson(pretty, primary = primary, stringColor = secondary, numberColor = onSurfaceVariant, keywordColor = error)
+        }
+        if (p.endsWith(".jsonl")) {
+            return highlightJson(content, primary = primary, stringColor = secondary, numberColor = onSurfaceVariant, keywordColor = error)
         }
         if (p.endsWith(".py")) {
             return highlightPython(content, keywordColor = primary, stringColor = secondary, commentColor = onSurfaceVariant, numberColor = error)
