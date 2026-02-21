@@ -266,7 +266,7 @@ internal class IrcViewModel(
             val text = obj["text"]?.jsonPrimitive?.content?.trim().orEmpty()
             if (id.isBlank()) return@mapNotNull null
             IrcChatLine(
-                key = "in:$channel:$id",
+                key = "in:$channel:$ts:$id",
                 tsMs = ts,
                 channel = channel,
                 nick = nick,
@@ -316,7 +316,7 @@ internal class IrcViewModel(
                 val direction = obj["direction"]?.jsonPrimitive?.content?.trim().orEmpty()
                 if (id.isBlank() || ch.isBlank() || text.isBlank() || direction.isBlank()) return@mapNotNull null
                 IrcChatLine(
-                    key = "$direction:$ch:$id",
+                    key = "$direction:$ch:$ts:$id",
                     tsMs = ts,
                     channel = ch,
                     nick = nick,

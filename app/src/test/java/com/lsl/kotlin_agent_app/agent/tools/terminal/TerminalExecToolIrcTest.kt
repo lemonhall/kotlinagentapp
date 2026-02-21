@@ -344,6 +344,67 @@ class TerminalExecToolIrcTest {
         }
 
     @Test
+    fun irc_inbound_seq_doesNotReset_afterRestart_whenInboundJsonlExists() =
+        runTerminalExecToolTest(
+            setup = { ctx ->
+                val prefs = ctx.getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
+                val sid = "sess_irc_" + UUID.randomUUID().toString().replace("-", "")
+                prefs.edit().putString(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID, sid).apply()
+
+                CapturingIrcClient.connectCalls = 0
+                CapturingIrcClient.last = null
+                val agentsRoot = File(ctx.filesDir, ".agents")
+                val env = File(agentsRoot, "skills/irc-cli/secrets/.env")
+                env.parentFile?.mkdirs()
+                env.writeText(
+                    """
+                    IRC_SERVER=example.com
+                    IRC_PORT=6697
+                    IRC_TLS=0
+                    IRC_CHANNEL=#default
+                    IRC_NICK=lemonbot
+                    """.trimIndent() + "\n",
+                    Charsets.UTF_8,
+                )
+
+                val safe = sid.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val sessionDir = File(agentsRoot, "workspace/irc/sessions/$safe")
+                sessionDir.mkdirs()
+                File(sessionDir, "inbound.jsonl").writeText(
+                    """
+                    {"id":"1","ts_ms":1,"channel":"#default","nick":"a","text":"x"}
+                    {"id":"2","ts_ms":2,"channel":"#default","nick":"b","text":"y"}
+                    """.trimIndent() + "\n",
+                    Charsets.UTF_8,
+                )
+
+                val fake = CapturingIrcClient()
+                IrcClientTestHooks.install { _: IrcConfig, _: kotlinx.coroutines.CoroutineScope, listener: IrcClientListener ->
+                    fake.listener = listener
+                    fake
+                }
+                ;
+
+                {
+                    prefs.edit().remove(com.lsl.kotlin_agent_app.config.AppPrefsKeys.CHAT_SESSION_ID).apply()
+                    IrcClientTestHooks.clear()
+                    IrcSessionRuntimeStore.clearForTest()
+                }
+            },
+        ) { tool ->
+            assertEquals(0, tool.exec("irc status").exitCode)
+
+            CapturingIrcClient.last!!.emitPrivmsg("#default", "c", "z")
+
+            val pulled = tool.exec("irc pull --from #default --limit 10 --peek")
+            assertEquals(0, pulled.exitCode)
+            val arr = pulled.result!!.jsonObject["messages"]!!.jsonArray
+            assertEquals(1, arr.size)
+            val id = arr[0].jsonObject["id"]!!.jsonPrimitive.content
+            assertEquals("3", id)
+        }
+
+    @Test
     fun irc_pull_truncates_and_audit_doesNotContainSecrets() =
         runTerminalExecToolTest(
             setup = { ctx ->

@@ -15,6 +15,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 internal class IrcSessionRuntime(
     private val agentsRoot: File,
@@ -31,6 +34,7 @@ internal class IrcSessionRuntime(
     private val seqByChannel = ConcurrentHashMap<String, Long>()
     private val cursors: MutableMap<String, String> = IrcCursorStore.loadCursors(agentsRoot, sessionKey)
     private var droppedTotal: Long = 0L
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     @Volatile private var reconnectJob: Job? = null
     private val reconnectBackoffMs = longArrayOf(5_000L, 15_000L, 30_000L)
@@ -47,6 +51,13 @@ internal class IrcSessionRuntime(
             val seq = cursor.toLongOrNull() ?: 0L
             if (seq > 0L) seqByChannel[channel] = seq
         }
+        // NOTE: cursor only tracks "last pulled seq", not "last received seq".
+        // If the app restarts and new messages arrive, seq must continue from the last inbound seq to avoid
+        // duplicates and cursor regressions.
+        loadMaxSeqByChannelFromInboundJsonl().forEach { (channel, maxSeq) ->
+            val current = seqByChannel[channel] ?: 0L
+            if (maxSeq > current) seqByChannel[channel] = maxSeq
+        }
         statusFlow.value =
             IrcStatusSnapshot(
                 state = IrcConnectionState.NotInitialized,
@@ -57,6 +68,42 @@ internal class IrcSessionRuntime(
                 channel = config.channel,
                 autoForwardToAgent = config.autoForwardToAgent,
             )
+    }
+
+    private fun loadMaxSeqByChannelFromInboundJsonl(): Map<String, Long> {
+        val safe = sessionKey.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val f = File(agentsRoot, "workspace/irc/sessions/$safe/inbound.jsonl")
+        if (!f.exists() || !f.isFile) return emptyMap()
+
+        val maxTailLines = 5000
+        val tail = ArrayDeque<String>(maxTailLines + 1)
+        try {
+            f.forEachLine(Charsets.UTF_8) { line ->
+                val s = line.trim()
+                if (s.isBlank()) return@forEachLine
+                if (tail.size >= maxTailLines) tail.removeFirst()
+                tail.addLast(s)
+            }
+        } catch (_: Throwable) {
+            return emptyMap()
+        }
+
+        val maxByChannel = linkedMapOf<String, Long>()
+        for (line in tail) {
+            val obj =
+                try {
+                    json.parseToJsonElement(line).jsonObject
+                } catch (_: Throwable) {
+                    continue
+                }
+            val channel = obj["channel"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val id = obj["id"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val seq = id.toLongOrNull() ?: continue
+            if (channel.isBlank()) continue
+            val prev = maxByChannel[channel] ?: 0L
+            if (seq > prev) maxByChannel[channel] = seq
+        }
+        return maxByChannel
     }
 
     suspend fun ensureConnectedAndJoinedDefault(): Unit =
