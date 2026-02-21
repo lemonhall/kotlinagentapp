@@ -261,7 +261,7 @@ class MusicPlayerController(
         withContext(Dispatchers.Main.immediate) {
             val p = normalizeAgentsPathInput(agentsPathInput)
             if (!isInMusicsTree(p)) {
-                _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 musics/ 目录下的 mp3") }
+                _state.update { it.copy(playbackState = MusicPlaybackState.Error, errorMessage = "仅允许播放 musics/ 目录下的音频文件") }
                 throw IllegalArgumentException("path not allowed: $agentsPathInput")
             }
 
@@ -650,10 +650,11 @@ class MusicPlayerController(
 
     private fun buildDeterministicQueue(currentAgentsPath: String): Pair<List<String>, Int> {
         val musicsDir = File(appContext.filesDir, ".agents/workspace/musics")
+        val exts = setOf("mp3", "m4a", "aac", "flac", "wav", "ogg", "opus")
         val candidates =
             musicsDir
                 .walkTopDown()
-                .filter { it.isFile && it.name.lowercase().endsWith(".mp3") }
+                .filter { it.isFile && it.extension.lowercase() in exts }
                 .map { f ->
                     val rel = f.relativeTo(musicsDir).path.replace('\\', '/')
                     ".agents/workspace/musics/" + rel

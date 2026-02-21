@@ -2,6 +2,12 @@ package com.lsl.kotlin_agent_app.smb_media
 
 object SmbMediaMime {
     const val AUDIO_MPEG: String = "audio/mpeg"
+    const val AUDIO_AAC: String = "audio/aac"
+    const val AUDIO_MP4: String = "audio/mp4"
+    const val AUDIO_FLAC: String = "audio/flac"
+    const val AUDIO_WAV: String = "audio/wav"
+    const val AUDIO_OGG: String = "audio/ogg"
+    const val AUDIO_OPUS: String = "audio/opus"
     const val VIDEO_MP4: String = "video/mp4"
     const val VIDEO_MATROSKA: String = "video/x-matroska"
     const val VIDEO_WEBM: String = "video/webm"
@@ -21,12 +27,22 @@ object SmbMediaMime {
         return mime.trim().lowercase().startsWith("video/")
     }
 
+    fun isAudioMime(mime: String): Boolean {
+        return mime.trim().lowercase().startsWith("audio/")
+    }
+
     fun fromFileNameOrNull(name: String): String? {
         val n = name.trim()
         if (n.isBlank()) return null
         val ext = n.substringAfterLast('.', missingDelimiterValue = "").lowercase()
         return when (ext) {
             "mp3" -> AUDIO_MPEG
+            "aac" -> AUDIO_AAC
+            "m4a" -> AUDIO_MP4
+            "flac" -> AUDIO_FLAC
+            "wav" -> AUDIO_WAV
+            "ogg" -> AUDIO_OGG
+            "opus" -> AUDIO_OPUS
             "mp4", "m4v" -> VIDEO_MP4
             "mkv" -> VIDEO_MATROSKA
             "webm" -> VIDEO_WEBM

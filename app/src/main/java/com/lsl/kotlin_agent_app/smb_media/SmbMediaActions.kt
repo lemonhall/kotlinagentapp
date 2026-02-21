@@ -22,13 +22,30 @@ object SmbMediaActions {
         displayName: String,
         musicController: MusicPlayerController,
     ) {
+        playNasSmbAudio(
+            context = context,
+            agentsPath = agentsPath,
+            displayName = displayName,
+            musicController = musicController,
+        )
+    }
+
+    fun playNasSmbAudio(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+        musicController: MusicPlayerController,
+    ) {
         if (Build.VERSION.SDK_INT < 26) {
             Toast.makeText(context, "系统版本过低：SMB 音频串流需要 Android 8.0+（API 26）", Toast.LENGTH_LONG).show()
             return
         }
 
         val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return
-        val mime = SmbMediaMime.AUDIO_MPEG
+        val mime =
+            SmbMediaMime.fromFileNameOrNull(displayName)
+                ?.takeIf { SmbMediaMime.isAudioMime(it) }
+                ?: "audio/*"
 
         val ticket =
             SmbMediaRuntime.ticketStore(context).issue(

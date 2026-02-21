@@ -141,11 +141,11 @@ class DashboardFragment : Fragment() {
                         val path = joinAgentsPath(cwd, entry.name)
                         if (isRadioName(entry.name) && isInRadiosTree(path)) {
                             musicController.playAgentsRadio(path)
-                        } else if (isMp3Name(entry.name) && isInMusicsTree(path)) {
+                        } else if (isAudioName(entry.name) && isInMusicsTree(path)) {
                             musicController.playAgentsMp3(path)
-                        } else if (isMp3Name(entry.name) && isInNasSmbTree(path)) {
+                        } else if (isAudioName(entry.name) && isInNasSmbTree(path)) {
                             val display = entry.displayName ?: entry.name
-                            SmbMediaActions.playNasSmbMp3(
+                            SmbMediaActions.playNasSmbAudio(
                                 context = requireContext(),
                                 agentsPath = path,
                                 displayName = display,
@@ -207,7 +207,7 @@ class DashboardFragment : Fragment() {
                         isDir &&
                             (normalizedCwd == RecordingRoots.RADIO_ROOT_DIR || normalizedCwd == RecordingRoots.MICROPHONE_ROOT_DIR) &&
                             entry.name.trim().startsWith("rec_")
-                    val isMp3InMusics = (!isDir && isMp3Name(entry.name) && isInMusicsTree(relativePath))
+                    val isAudioInMusics = (!isDir && isAudioName(entry.name) && isInMusicsTree(relativePath))
                     val isRadioInRadios = (!isDir && isRadioName(entry.name) && isInRadiosTree(relativePath))
                     val isOggInRadioRecordings = (!isDir && isOggName(entry.name) && isInRadioRecordingsTree(relativePath))
                     val isRadioInFavorites = isRadioInRadios && isInRadioFavorites(relativePath)
@@ -233,19 +233,19 @@ class DashboardFragment : Fragment() {
                     val actions =
                         if (isRadioInRadios) {
                             if (isRadioInFavorites) {
-                                arrayOf("播放", "播放/暂停", "停止", "移出收藏", "分享", "剪切", "删除", "复制路径")
+                                arrayOf("播放", "播放/暂停", "停止", "移出收藏", "分享", "剪切", "重命名", "删除", "复制路径")
                             } else {
-                                arrayOf("播放", "播放/暂停", "停止", "收藏", "分享", "剪切", "删除", "复制路径")
+                                arrayOf("播放", "播放/暂停", "停止", "收藏", "分享", "剪切", "重命名", "删除", "复制路径")
                             }
-                        } else if (isMp3InMusics) {
-                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "删除", "复制路径")
+                        } else if (isAudioInMusics) {
+                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "重命名", "删除", "复制路径")
                         } else if (isOggInRadioRecordings) {
-                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "删除", "复制路径")
+                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "重命名", "删除", "复制路径")
                         } else if (isDir) {
                             val isSessionDir = (cwd == ".agents/sessions" && sidRx.matches(entry.name))
-                            if (isSessionDir) arrayOf("进入目录", "剪切", "删除", "复制路径") else arrayOf("剪切", "删除", "复制路径")
+                            if (isSessionDir) arrayOf("进入目录", "剪切", "重命名", "删除", "复制路径") else arrayOf("剪切", "重命名", "删除", "复制路径")
                         } else {
-                            arrayOf("分享", "剪切", "删除", "复制路径")
+                            arrayOf("打开", "分享", "剪切", "重命名", "删除", "复制路径")
                         }
 
                     MaterialAlertDialogBuilder(requireContext())
@@ -254,10 +254,63 @@ class DashboardFragment : Fragment() {
                             val action = actions.getOrNull(which) ?: return@setItems
                             when (action) {
                                 "进入目录" -> filesViewModel.goInto(entry)
+                                "打开" -> {
+                                    val path = relativePath
+                                    val display = entry.displayName ?: entry.name
+                                    when {
+                                        isRadioName(entry.name) && isInRadiosTree(path) -> musicController.playAgentsRadio(path)
+                                        isAudioName(entry.name) && isInMusicsTree(path) -> musicController.playAgentsMp3(path)
+                                        isAudioName(entry.name) && isInNasSmbTree(path) ->
+                                            SmbMediaActions.playNasSmbAudio(
+                                                context = requireContext(),
+                                                agentsPath = path,
+                                                displayName = display,
+                                                musicController = musicController,
+                                            )
+                                        isVideoName(entry.name) && isInNasSmbTree(path) -> {
+                                            val ref =
+                                                SmbMediaActions.createNasSmbVideoContent(
+                                                    context = requireContext(),
+                                                    agentsPath = path,
+                                                    displayName = display,
+                                                ) ?: return@setItems
+                                            startActivity(
+                                                VideoPlayerActivity.intentOf(
+                                                    context = requireContext(),
+                                                    uri = ref.uri,
+                                                    displayName = display,
+                                                    mime = ref.mime,
+                                                    agentsPath = path,
+                                                )
+                                            )
+                                        }
+                                        isVideoName(entry.name) -> openAgentsVideoInternal(path, displayName = display)
+                                        isImageName(entry.name) && isInNasSmbTree(path) -> {
+                                            val ref =
+                                                SmbMediaActions.createNasSmbImageContent(
+                                                    context = requireContext(),
+                                                    agentsPath = path,
+                                                    displayName = display,
+                                                ) ?: return@setItems
+                                            startActivity(
+                                                ImageViewerActivity.intentOf(
+                                                    context = requireContext(),
+                                                    uri = ref.uri,
+                                                    displayName = display,
+                                                    mime = ref.mime,
+                                                    agentsPath = path,
+                                                )
+                                            )
+                                        }
+                                        isImageName(entry.name) -> openAgentsImageInternal(path, displayName = display)
+                                        isOggName(entry.name) && isInRadioRecordingsTree(path) -> musicController.playAgentsRecordingOgg(path)
+                                        else -> filesViewModel.openFile(entry)
+                                    }
+                                }
                                 "播放" ->
                                     when {
                                         isRadioName(entry.name) && isInRadiosTree(relativePath) -> musicController.playAgentsRadio(relativePath)
-                                        isMp3Name(entry.name) && isInMusicsTree(relativePath) -> musicController.playAgentsMp3(relativePath)
+                                        isAudioName(entry.name) && isInMusicsTree(relativePath) -> musicController.playAgentsMp3(relativePath)
                                         isOggName(entry.name) && isInRadioRecordingsTree(relativePath) -> musicController.playAgentsRecordingOgg(relativePath)
                                         else -> Unit
                                     }
@@ -269,6 +322,22 @@ class DashboardFragment : Fragment() {
                                 "剪切" -> {
                                     filesViewModel.cutEntry(entry)
                                     Toast.makeText(requireContext(), "已剪切：${entry.name}（到目标目录点“粘贴”）", Toast.LENGTH_SHORT).show()
+                                }
+                                "重命名" -> {
+                                    val input =
+                                        android.widget.EditText(requireContext()).apply {
+                                            setText(entry.name)
+                                            setSelection(entry.name.length)
+                                        }
+                                    MaterialAlertDialogBuilder(requireContext())
+                                        .setTitle("重命名")
+                                        .setView(input)
+                                        .setNegativeButton("取消", null)
+                                        .setPositiveButton("确定") { _, _ ->
+                                            val newName = input.text?.toString().orEmpty().trim()
+                                            filesViewModel.renameEntry(entry, newName)
+                                        }
+                                        .show()
                                 }
                                 "复制路径" -> copyTextToClipboard("path", relativePath)
                                 "删除" ->
@@ -1322,8 +1391,15 @@ class DashboardFragment : Fragment() {
         return ans
     }
 
-    private fun isMp3Name(name: String): Boolean {
-        return name.trim().lowercase().endsWith(".mp3")
+    private fun isAudioName(name: String): Boolean {
+        val n = name.trim().lowercase()
+        return n.endsWith(".mp3") ||
+            n.endsWith(".m4a") ||
+            n.endsWith(".aac") ||
+            n.endsWith(".flac") ||
+            n.endsWith(".wav") ||
+            n.endsWith(".ogg") ||
+            n.endsWith(".opus")
     }
 
     private fun isVideoName(name: String): Boolean {

@@ -246,6 +246,46 @@ class FilesViewModel(
             )
     }
 
+    fun renameEntry(
+        entry: AgentsDirEntry,
+        newNameInput: String,
+    ) {
+        val prev = _state.value ?: FilesUiState()
+        val fromPath = workspace.joinPath(prev.cwd, entry.name)
+        val newName = newNameInput.trim()
+        if (newName.isBlank()) {
+            _state.value = prev.copy(errorMessage = "文件名不能为空")
+            return
+        }
+        if (newName == "." || newName == "..") {
+            _state.value = prev.copy(errorMessage = "非法文件名")
+            return
+        }
+        if (newName.contains('/') || newName.contains('\\')) {
+            _state.value = prev.copy(errorMessage = "文件名不能包含路径分隔符")
+            return
+        }
+
+        val parent = workspace.parentDir(fromPath) ?: ".agents"
+        val toPath = workspace.joinPath(parent, newName)
+        if (toPath == fromPath) return
+
+        _state.value = prev.copy(isLoading = true, errorMessage = null)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    workspace.ensureInitialized()
+                    if (workspace.exists(toPath)) error("目标已存在：$newName")
+                    workspace.movePath(from = fromPath, to = toPath, overwrite = false)
+                }
+                refresh()
+            } catch (t: Throwable) {
+                val now = _state.value ?: prev
+                _state.value = now.copy(isLoading = false, errorMessage = t.message ?: "Rename failed")
+            }
+        }
+    }
+
     fun clearClipboard() {
         val prev = _state.value ?: FilesUiState()
         _state.value = prev.copy(clipboardCutPath = null, clipboardCutIsDir = false)

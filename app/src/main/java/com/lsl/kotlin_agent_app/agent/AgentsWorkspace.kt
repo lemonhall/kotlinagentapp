@@ -464,8 +464,28 @@ class AgentsWorkspace(
         to: String,
         overwrite: Boolean,
     ) {
-        val src = resolveAgentsPath(from)
-        val dst = resolveAgentsPath(to)
+        val fromNormalized = normalizeAgentsPath(from)
+        val toNormalized = normalizeAgentsPath(to)
+        val fromNas = resolveNasSmbAnyPathOrNull(fromNormalized)
+        val toNas = resolveNasSmbAnyPathOrNull(toNormalized)
+        if (fromNas != null || toNas != null) {
+            if (fromNas == null || toNas == null) {
+                error("Refusing to move between local and NAS SMB: $from -> $to")
+            }
+            if (fromNas.mountName != toNas.mountName) {
+                error("Refusing to move between different NAS SMB mounts: ${fromNas.mountName} -> ${toNas.mountName}")
+            }
+            nasSmbVfs.move(
+                mountName = fromNas.mountName,
+                fromRelPath = fromNas.relPath,
+                toRelPath = toNas.relPath,
+                overwrite = overwrite,
+            )
+            return
+        }
+
+        val src = resolveAgentsPath(fromNormalized)
+        val dst = resolveAgentsPath(toNormalized)
         if (!src.exists()) error("Not found: $from")
 
         if (dst.exists()) {
