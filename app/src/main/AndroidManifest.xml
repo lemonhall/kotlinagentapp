@@ -83,6 +83,11 @@
             android:label="图片预览" />
 
         <activity
+            android:name=".ui.pdf_viewer.PdfViewerActivity"
+            android:exported="false"
+            android:label="PDF 预览" />
+
+        <activity
             android:name=".recorder.RecorderActivity"
             android:exported="false"
             android:label="录音" />

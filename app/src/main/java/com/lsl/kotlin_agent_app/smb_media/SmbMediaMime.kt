@@ -8,6 +8,7 @@ object SmbMediaMime {
     const val AUDIO_WAV: String = "audio/wav"
     const val AUDIO_OGG: String = "audio/ogg"
     const val AUDIO_OPUS: String = "audio/opus"
+    const val APPLICATION_PDF: String = "application/pdf"
     const val VIDEO_MP4: String = "video/mp4"
     const val VIDEO_MATROSKA: String = "video/x-matroska"
     const val VIDEO_WEBM: String = "video/webm"
@@ -43,6 +44,7 @@ object SmbMediaMime {
             "wav" -> AUDIO_WAV
             "ogg" -> AUDIO_OGG
             "opus" -> AUDIO_OPUS
+            "pdf" -> APPLICATION_PDF
             "mp4", "m4v" -> VIDEO_MP4
             "mkv" -> VIDEO_MATROSKA
             "webm" -> VIDEO_WEBM

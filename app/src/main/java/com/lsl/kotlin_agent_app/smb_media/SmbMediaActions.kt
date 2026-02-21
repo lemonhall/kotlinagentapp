@@ -213,6 +213,32 @@ object SmbMediaActions {
         return ContentRef(uri = uri, mime = mime)
     }
 
+    fun createNasSmbPdfContent(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+    ): ContentRef? {
+        if (Build.VERSION.SDK_INT < 26) {
+            Toast.makeText(context, "系统版本过低：SMB PDF 预览需要 Android 8.0+（API 26）", Toast.LENGTH_LONG).show()
+            return null
+        }
+
+        val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return null
+        val mime = SmbMediaMime.APPLICATION_PDF
+
+        val ticket =
+            SmbMediaRuntime.ticketStore(context).issue(
+                SmbMediaTicketSpec(
+                    mountName = ref.mountName,
+                    remotePath = ref.relPath,
+                    mime = mime,
+                    sizeBytes = -1L,
+                )
+            )
+        val uri = Uri.parse(SmbMediaUri.build(token = ticket.token, displayName = displayName))
+        return ContentRef(uri = uri, mime = mime)
+    }
+
     fun openContentExternal(
         context: Context,
         uri: Uri,

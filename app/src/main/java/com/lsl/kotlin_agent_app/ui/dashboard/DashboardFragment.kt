@@ -68,6 +68,7 @@ import com.lsl.kotlin_agent_app.recordings.RecordingSessionRef
 import com.lsl.kotlin_agent_app.ui.bilingual_player.BilingualPlayerActivity
 import com.lsl.kotlin_agent_app.ui.video_player.VideoPlayerActivity
 import com.lsl.kotlin_agent_app.ui.image_viewer.ImageViewerActivity
+import com.lsl.kotlin_agent_app.ui.pdf_viewer.PdfViewerActivity
 
 class DashboardFragment : Fragment() {
 
@@ -188,9 +189,28 @@ class DashboardFragment : Fragment() {
                                     agentsPath = path,
                                 )
                             )
+                        } else if (isPdfName(entry.name) && isInNasSmbTree(path)) {
+                            val display = entry.displayName ?: entry.name
+                            val ref =
+                                SmbMediaActions.createNasSmbPdfContent(
+                                    context = requireContext(),
+                                    agentsPath = path,
+                                    displayName = display,
+                                ) ?: return@FilesEntryAdapter
+                            startActivity(
+                                PdfViewerActivity.intentOf(
+                                    context = requireContext(),
+                                    uri = ref.uri,
+                                    displayName = display,
+                                    agentsPath = path,
+                                )
+                            )
                         } else if (isImageName(entry.name)) {
                             val display = entry.displayName ?: entry.name
                             openAgentsImageInternal(path, displayName = display)
+                        } else if (isPdfName(entry.name)) {
+                            val display = entry.displayName ?: entry.name
+                            openAgentsPdfInternal(path, displayName = display)
                         } else if (isOggName(entry.name) && isInRadioRecordingsTree(path)) {
                             musicController.playAgentsRecordingOgg(path)
                         } else {
@@ -303,6 +323,23 @@ class DashboardFragment : Fragment() {
                                             )
                                         }
                                         isImageName(entry.name) -> openAgentsImageInternal(path, displayName = display)
+                                        isPdfName(entry.name) && isInNasSmbTree(path) -> {
+                                            val ref =
+                                                SmbMediaActions.createNasSmbPdfContent(
+                                                    context = requireContext(),
+                                                    agentsPath = path,
+                                                    displayName = display,
+                                                ) ?: return@setItems
+                                            startActivity(
+                                                PdfViewerActivity.intentOf(
+                                                    context = requireContext(),
+                                                    uri = ref.uri,
+                                                    displayName = display,
+                                                    agentsPath = path,
+                                                )
+                                            )
+                                        }
+                                        isPdfName(entry.name) -> openAgentsPdfInternal(path, displayName = display)
                                         isOggName(entry.name) && isInRadioRecordingsTree(path) -> musicController.playAgentsRecordingOgg(path)
                                         else -> filesViewModel.openFile(entry)
                                     }
@@ -1418,6 +1455,10 @@ class DashboardFragment : Fragment() {
             n.endsWith(".mpeg")
     }
 
+    private fun isPdfName(name: String): Boolean {
+        return name.trim().lowercase().endsWith(".pdf")
+    }
+
     private fun isImageName(name: String): Boolean {
         val n = name.trim().lowercase()
         return n.endsWith(".jpg") ||
@@ -1887,6 +1928,36 @@ class DashboardFragment : Fragment() {
                 uri = uri,
                 displayName = displayName,
                 mime = mime,
+                agentsPath = agentsPath,
+            )
+        )
+    }
+
+    private fun openAgentsPdfInternal(
+        agentsPath: String,
+        displayName: String,
+    ) {
+        val rel = agentsPath.replace('\\', '/').trim()
+        if (!rel.startsWith(".agents/")) return
+
+        val file = File(requireContext().filesDir, rel)
+        if (!file.exists() || !file.isFile) {
+            Toast.makeText(requireContext(), "文件不存在：$displayName", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val uri =
+            FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file,
+            )
+
+        startActivity(
+            PdfViewerActivity.intentOf(
+                context = requireContext(),
+                uri = uri,
+                displayName = displayName,
                 agentsPath = agentsPath,
             )
         )
