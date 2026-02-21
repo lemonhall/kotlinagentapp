@@ -14,6 +14,16 @@ import org.robolectric.annotation.Config
 class AgentsWorkspaceTest {
 
     @Test
+    fun ensureInitialized_createsLedgerWorkspaceDir() {
+        val context = RuntimeEnvironment.getApplication()
+        val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
+
+        val ledgerDir = File(context.filesDir, ".agents/workspace/ledger")
+        assertTrue(ledgerDir.exists() && ledgerDir.isDirectory)
+    }
+
+    @Test
     fun movePath_movesFileWithinAgents() {
         val context = RuntimeEnvironment.getApplication()
         val ws = AgentsWorkspace(context)

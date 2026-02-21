@@ -93,6 +93,11 @@
             android:label="settings" />
 
         <activity
+            android:name=".ui.ledger.LedgerActivity"
+            android:exported="false"
+            android:label="账本" />
+
+        <activity
             android:name=".recorder.RecorderActivity"
             android:exported="false"
             android:label="录音" />
