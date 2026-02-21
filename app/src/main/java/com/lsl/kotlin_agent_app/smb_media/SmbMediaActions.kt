@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import com.lsl.kotlin_agent_app.media.MusicPlayerController
+import com.lsl.kotlin_agent_app.ui.common.ExternalOpenBottomSheet
 
 object SmbMediaActions {
 
@@ -288,10 +289,20 @@ object SmbMediaActions {
                 clipData = ClipData.newRawUri("media", uri)
             }
 
-        grantToAllCandidates(context, intent, uri)
+        val activity = context as? android.app.Activity
+        if (activity != null && !activity.isFinishing) {
+            grantToAllCandidates(context, intent, uri)
+            ExternalOpenBottomSheet.show(
+                activity = activity,
+                baseIntent = intent,
+                title = chooserTitle,
+            )
+            return
+        }
 
+        grantToAllCandidates(context, intent, uri)
         try {
-            context.startActivity(Intent.createChooser(intent, chooserTitle))
+            context.startActivity(Intent.createChooser(intent, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (t: Throwable) {
             Toast.makeText(context, t.message ?: "无法打开", Toast.LENGTH_LONG).show()
         }

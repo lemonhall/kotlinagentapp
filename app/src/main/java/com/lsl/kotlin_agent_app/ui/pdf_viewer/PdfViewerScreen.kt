@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,13 +27,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.onSizeChanged
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -135,6 +142,9 @@ private fun PdfPageItem(
 ) {
     var bmp by remember(pageIndex, targetWidthPx) { mutableStateOf<android.graphics.Bitmap?>(null) }
     var error by remember(pageIndex, targetWidthPx) { mutableStateOf<String?>(null) }
+    var scale by remember(pageIndex) { mutableStateOf(1f) }
+    var offset by remember(pageIndex) { mutableStateOf(Offset.Zero) }
+    var baseSize by remember(pageIndex) { mutableStateOf(IntSize.Zero) }
 
     LaunchedEffect(pageIndex, targetWidthPx) {
         error = null
@@ -157,8 +167,43 @@ private fun PdfPageItem(
         val b = bmp
         when {
             b != null -> {
+                val minScale = 1f
+                val maxScale = 5f
                 Image(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { baseSize = it }
+                            .clipToBounds()
+                            .pointerInput(pageIndex) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val prevScale = scale
+                                    val nextScale = (scale * zoom).coerceIn(minScale, maxScale)
+                                    scale = nextScale
+
+                                    if (nextScale <= minScale + 0.001f) {
+                                        offset = Offset.Zero
+                                        return@detectTransformGestures
+                                    }
+
+                                    val nextOffset = offset + pan * (nextScale / prevScale)
+                                    val maxX =
+                                        ((baseSize.width.toFloat() * (nextScale - 1f)) / 2f).coerceAtLeast(0f)
+                                    val maxY =
+                                        ((baseSize.height.toFloat() * (nextScale - 1f)) / 2f).coerceAtLeast(0f)
+                                    offset =
+                                        Offset(
+                                            x = nextOffset.x.coerceIn(-maxX, maxX),
+                                            y = nextOffset.y.coerceIn(-maxY, maxY),
+                                        )
+                                }
+                            }
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offset.x
+                                translationY = offset.y
+                            },
                     bitmap = b.asImageBitmap(),
                     contentDescription = "page_${pageIndex + 1}",
                     contentScale = ContentScale.FillWidth,

@@ -529,7 +529,7 @@ class DashboardFragment : Fragment() {
                         isTranslationChunk(openPath, openText) -> EditorDialogKind.TranslationPreview
                         isMarkdownPath(openPath) -> EditorDialogKind.MarkdownPreview
                         isJsonPath(openPath) -> EditorDialogKind.PlainPreview
-                        else -> EditorDialogKind.PlainEditor
+                        else -> EditorDialogKind.PlainPreview
                     }
                 val shouldShow =
                     (editorDialog?.isShowing != true) ||
@@ -778,7 +778,7 @@ class DashboardFragment : Fragment() {
         val st = ctrl.state.value
         val agentsPath = st.agentsPath?.trim()?.ifBlank { null }
         val isRadio = st.isLive && agentsPath != null && agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(agentsPath)
-        if (!isRadio || agentsPath == null) {
+        if (!isRadio) {
             Toast.makeText(requireContext(), "仅在播放电台时可录制", Toast.LENGTH_SHORT).show()
             return
         }
@@ -871,7 +871,7 @@ class DashboardFragment : Fragment() {
     private fun updateRecordingButtons(st: com.lsl.kotlin_agent_app.media.MusicNowPlayingState) {
         val agentsPath = st.agentsPath?.trim()?.ifBlank { null }
         val isRadio = st.isLive && agentsPath != null && agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(agentsPath)
-        val isRecordingCurrent = isRadio && agentsPath != null && recordingByAgentsPath.containsKey(agentsPath)
+        val isRecordingCurrent = isRadio && recordingByAgentsPath.containsKey(agentsPath!!)
 
         binding.buttonMusicRecord.visibility = if (isRadio) View.VISIBLE else View.GONE
         binding.buttonMusicRecord.setImageResource(
