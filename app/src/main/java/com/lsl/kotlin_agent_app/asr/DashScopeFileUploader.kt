@@ -2,12 +2,14 @@ package com.lsl.kotlin_agent_app.asr
 
 import java.io.File
 import java.io.IOException
+import java.net.Proxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.MultipartBody
 import okhttp3.Request
@@ -18,8 +20,20 @@ import okhttp3.MediaType.Companion.toMediaType
 internal class DashScopeFileUploader(
     private val baseUrl: String,
     private val apiKey: String,
-    private val httpClient: OkHttpClient = OkHttpClient(),
+    private val httpClient: OkHttpClient = defaultClientForBaseUrl(baseUrl),
 ) {
+    companion object {
+        private fun defaultClientForBaseUrl(baseUrl: String): OkHttpClient {
+            val host = baseUrl.trim().toHttpUrlOrNull()?.host?.lowercase().orEmpty()
+            val isLoopback = (host == "127.0.0.1" || host == "localhost" || host == "::1")
+            return if (isLoopback) {
+                OkHttpClient.Builder().proxy(Proxy.NO_PROXY).build()
+            } else {
+                OkHttpClient()
+            }
+        }
+    }
+
     suspend fun uploadFileAndGetOssUrl(
         modelName: String,
         file: File,
