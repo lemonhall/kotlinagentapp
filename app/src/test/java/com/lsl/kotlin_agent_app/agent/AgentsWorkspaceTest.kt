@@ -24,6 +24,16 @@ class AgentsWorkspaceTest {
     }
 
     @Test
+    fun ensureInitialized_createsQqMailWorkspaceDir() {
+        val context = RuntimeEnvironment.getApplication()
+        val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
+
+        val qqmailDir = File(context.filesDir, ".agents/workspace/qqmail")
+        assertTrue(qqmailDir.exists() && qqmailDir.isDirectory)
+    }
+
+    @Test
     fun movePath_movesFileWithinAgents() {
         val context = RuntimeEnvironment.getApplication()
         val ws = AgentsWorkspace(context)

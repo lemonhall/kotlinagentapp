@@ -98,6 +98,11 @@
             android:label="账本" />
 
         <activity
+            android:name=".ui.qqmail.QqMailActivity"
+            android:exported="false"
+            android:label="QQMail" />
+
+        <activity
             android:name=".recorder.RecorderActivity"
             android:exported="false"
             android:label="录音" />

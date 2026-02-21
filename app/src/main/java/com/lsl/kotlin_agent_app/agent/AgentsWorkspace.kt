@@ -60,6 +60,9 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents/workspace/radio_recordings")
         mkdirsIfMissing(".agents/workspace/recordings")
         mkdirsIfMissing(".agents/workspace/ledger")
+        mkdirsIfMissing(".agents/workspace/qqmail")
+        mkdirsIfMissing(".agents/workspace/qqmail/inbox")
+        mkdirsIfMissing(".agents/workspace/qqmail/sent")
 
         // PRD-0034: root placeholders (Everything is FileSystem).
         ensureTextFileIfMissing(
