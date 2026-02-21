@@ -40,5 +40,11 @@ interface NasSmbClient {
         toRemotePath: String,
         overwrite: Boolean,
     )
-}
 
+    fun copy(
+        mount: NasSmbMountConfig,
+        fromRemotePath: String,
+        toRemotePath: String,
+        overwrite: Boolean,
+    )
+}

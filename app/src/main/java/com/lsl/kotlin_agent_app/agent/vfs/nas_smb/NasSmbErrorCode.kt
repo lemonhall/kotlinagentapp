@@ -7,7 +7,8 @@ enum class NasSmbErrorCode {
     PermissionDenied,
     HostUnreachable,
 
+    FileNotFound,
+
     InvalidConfig,
     MissingCredentials,
 }
-

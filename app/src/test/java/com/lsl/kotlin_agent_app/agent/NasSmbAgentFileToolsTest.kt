@@ -193,5 +193,30 @@ class NasSmbAgentFileToolsTest {
             toParent.children[to.last()] = node
             fromParent.children.remove(from.last())
         }
+
+        override fun copy(
+            mount: NasSmbMountConfig,
+            fromRemotePath: String,
+            toRemotePath: String,
+            overwrite: Boolean,
+        ) {
+            val from = split(fromRemotePath)
+            val to = split(toRemotePath)
+            require(from.isNotEmpty() && to.isNotEmpty())
+            val root = rootFor(mount)
+            val fromParent = ensureDir(root, from.dropLast(1))
+            val node = fromParent.children[from.last()] ?: throw IllegalStateException("Missing src")
+            val toParent = ensureDir(root, to.dropLast(1))
+            if (!overwrite && toParent.children.containsKey(to.last())) throw IllegalStateException("Target exists")
+
+            fun deepCopy(n: Node): Node {
+                return when (n) {
+                    is Node.Dir -> Node.Dir(children = n.children.mapValues { (_, v) -> deepCopy(v) }.toMutableMap())
+                    is Node.File -> Node.File(bytes = n.bytes.copyOf())
+                }
+            }
+
+            toParent.children[to.last()] = deepCopy(node)
+        }
     }
 }

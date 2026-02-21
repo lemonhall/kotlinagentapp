@@ -205,6 +205,69 @@ class SmbjNasSmbClient(
         }
     }
 
+    override fun copy(
+        mount: NasSmbMountConfig,
+        fromRemotePath: String,
+        toRemotePath: String,
+        overwrite: Boolean,
+    ) {
+        require(fromRemotePath.isNotBlank() && toRemotePath.isNotBlank()) { "remotePath is empty" }
+        withDiskShare(mount) { share ->
+            val from = toSharePath(fromRemotePath)
+            val to = toSharePath(toRemotePath)
+
+            if (share.folderExists(from)) {
+                throw NasSmbVfsException(NasSmbErrorCode.PermissionDenied, "Refusing to copy a directory as a file: $fromRemotePath")
+            }
+            if (!share.fileExists(from)) {
+                throw NasSmbVfsException(NasSmbErrorCode.FileNotFound, "Not found: $fromRemotePath")
+            }
+
+            if (!overwrite && (share.fileExists(to) || share.folderExists(to))) {
+                throw NasSmbVfsException(NasSmbErrorCode.PermissionDenied, "Target exists: $toRemotePath")
+            }
+
+            if (overwrite && (share.fileExists(to) || share.folderExists(to))) {
+                delete(mount, toRemotePath, recursive = true)
+            }
+
+            val parentDir = toRemotePath.substringBeforeLast('/', missingDelimiterValue = "")
+            if (parentDir.isNotBlank()) mkdirs(mount, parentDir)
+
+            val src =
+                share.openFile(
+                    from,
+                    EnumSet.of(AccessMask.GENERIC_READ),
+                    EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
+                    SHARE_ACCESS_ALL,
+                    SMB2CreateDisposition.FILE_OPEN,
+                    EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE),
+                )
+            src.use { sf ->
+                val dst =
+                    share.openFile(
+                        to,
+                        EnumSet.of(AccessMask.GENERIC_WRITE),
+                        EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
+                        SHARE_ACCESS_ALL,
+                        SMB2CreateDisposition.FILE_OVERWRITE_IF,
+                        EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE),
+                    )
+                dst.use { df ->
+                    val input = sf.inputStream
+                    val output = df.outputStream
+                    val buf = ByteArray(256 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        output.write(buf, 0, n)
+                    }
+                    output.flush()
+                }
+            }
+        }
+    }
+
     private fun deleteDirRecursive(
         share: DiskShare,
         path: String,

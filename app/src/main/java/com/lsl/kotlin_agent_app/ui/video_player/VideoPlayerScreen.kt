@@ -46,8 +46,11 @@ fun VideoPlayerScreen(
     val title by vm.displayName.collectAsState()
     val isBuffering by vm.isBuffering.collectAsState()
     val errorMessage by vm.errorMessage.collectAsState()
+    val currentIndex by vm.currentIndex.collectAsState()
+    val playlistSize by vm.playlistSize.collectAsState()
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val hasNext = playlistSize > 1 && currentIndex >= 0 && currentIndex < playlistSize - 1
 
     var controlsVisible by remember { mutableStateOf(true) }
 
@@ -98,6 +101,14 @@ fun VideoPlayerScreen(
                             color = Color.White,
                             style = MaterialTheme.typography.bodyMedium,
                         )
+                        if (hasNext) {
+                            TextButton(
+                                onClick = { vm.playNext() },
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                            ) {
+                                Text("下一个")
+                            }
+                        }
                         TextButton(
                             onClick = onOpenExternal,
                             colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
@@ -159,6 +170,9 @@ fun VideoPlayerScreen(
                         TextButton(onClick = onBack) { Text("返回") }
                     },
                     actions = {
+                        if (hasNext) {
+                            TextButton(onClick = { vm.playNext() }) { Text("下一个") }
+                        }
                         TextButton(onClick = onOpenExternal) { Text("其他应用") }
                     },
                 )

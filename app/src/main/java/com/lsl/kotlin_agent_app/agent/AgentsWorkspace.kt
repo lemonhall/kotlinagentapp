@@ -517,6 +517,87 @@ class AgentsWorkspace(
         error("Move failed: $from -> $to")
     }
 
+    fun copyPath(
+        from: String,
+        to: String,
+        overwrite: Boolean,
+    ) {
+        val fromNormalized = normalizeAgentsPath(from)
+        val toNormalized = normalizeAgentsPath(to)
+        if (fromNormalized == toNormalized) return
+
+        val fromNas = resolveNasSmbAnyPathOrNull(fromNormalized)
+        val toNas = resolveNasSmbAnyPathOrNull(toNormalized)
+        if ((fromNas != null) != (toNas != null)) {
+            error("Refusing to copy between NAS SMB and local workspace")
+        }
+
+        if (fromNas != null && toNas != null) {
+            if (fromNas.mountName != toNas.mountName) error("Refusing to copy between different mounts")
+            val meta = nasSmbVfs.metadataOrNull(fromNas.mountName, fromNas.relPath) ?: error("Not found: $from")
+            if (!overwrite) {
+                val existing = nasSmbVfs.metadataOrNull(toNas.mountName, toNas.relPath)
+                if (existing != null) error("Target exists: $to")
+            } else {
+                val existing = nasSmbVfs.metadataOrNull(toNas.mountName, toNas.relPath)
+                if (existing != null) {
+                    nasSmbVfs.delete(toNas.mountName, toNas.relPath, recursive = existing.isDirectory)
+                }
+            }
+
+            if (meta.isDirectory) {
+                copyNasDirRecursive(
+                    mountName = fromNas.mountName,
+                    fromRelDir = fromNas.relPath,
+                    toRelDir = toNas.relPath,
+                    overwrite = overwrite,
+                )
+            } else {
+                nasSmbVfs.copyFile(
+                    mountName = fromNas.mountName,
+                    fromRelPath = fromNas.relPath,
+                    toRelPath = toNas.relPath,
+                    overwrite = overwrite,
+                )
+            }
+            return
+        }
+
+        val src = resolveAgentsPath(fromNormalized)
+        val dst = resolveAgentsPath(toNormalized)
+        if (!src.exists()) error("Not found: $from")
+
+        if (dst.exists()) {
+            if (!overwrite) error("Target exists: $to")
+            deletePath(to, recursive = dst.isDirectory)
+        }
+
+        if (src.isDirectory) {
+            val srcPath = src.canonicalFile.path.trimEnd(File.separatorChar) + File.separator
+            val dstPath = dst.canonicalFile.path
+            if (dstPath.startsWith(srcPath)) error("Refusing to copy directory into itself: $to")
+        }
+
+        val parent = dst.parentFile ?: error("Invalid target path: $to")
+        if (!parent.exists()) parent.mkdirs()
+
+        if (src.isFile) {
+            FileInputStream(src).use { input ->
+                FileOutputStream(dst).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            return
+        }
+
+        if (src.isDirectory) {
+            copyLocalDirRecursive(src, dst)
+            return
+        }
+
+        error("Copy failed: $from -> $to")
+    }
+
     fun parentDir(path: String): String? {
         val normalized = normalizeAgentsPath(path)
         if (normalized == ".agents") return null
@@ -529,6 +610,52 @@ class AgentsWorkspace(
         val n = name.replace('\\', '/').trim().trim('/')
         if (n.isEmpty()) return d
         return if (d == ".agents") "$d/$n" else "$d/$n"
+    }
+
+    private fun copyLocalDirRecursive(
+        srcDir: File,
+        dstDir: File,
+    ) {
+        if (!dstDir.exists()) dstDir.mkdirs()
+        val children = srcDir.listFiles().orEmpty()
+        for (child in children) {
+            val target = File(dstDir, child.name)
+            if (child.isDirectory) {
+                copyLocalDirRecursive(child, target)
+            } else {
+                val parent = target.parentFile
+                if (parent != null && !parent.exists()) parent.mkdirs()
+                FileInputStream(child).use { input ->
+                    FileOutputStream(target).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun copyNasDirRecursive(
+        mountName: String,
+        fromRelDir: String,
+        toRelDir: String,
+        overwrite: Boolean,
+    ) {
+        nasSmbVfs.mkdirs(mountName, toRelDir)
+        val entries = nasSmbVfs.listDir(mountName, fromRelDir)
+        for (e in entries) {
+            val fromChild = if (fromRelDir.isBlank()) e.name else "$fromRelDir/${e.name}"
+            val toChild = if (toRelDir.isBlank()) e.name else "$toRelDir/${e.name}"
+            if (e.isDirectory) {
+                copyNasDirRecursive(mountName, fromChild, toChild, overwrite = overwrite)
+            } else {
+                val existing = nasSmbVfs.metadataOrNull(mountName, toChild)
+                if (existing != null) {
+                    if (!overwrite) error("Target exists: .agents/nas_smb/$mountName/$toChild")
+                    nasSmbVfs.delete(mountName, toChild, recursive = existing.isDirectory)
+                }
+                nasSmbVfs.copyFile(mountName, fromChild, toChild, overwrite = overwrite)
+            }
+        }
     }
 
     private fun mkdirsIfMissing(path: String) {

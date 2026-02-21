@@ -14,12 +14,15 @@ import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.ViewModelProvider
 import com.lsl.kotlin_agent_app.smb_media.SmbMediaActions
 import com.lsl.kotlin_agent_app.ui.theme.KotlinAgentAppTheme
 import java.io.File
 import java.net.URLConnection
 
 class ImageViewerActivity : ComponentActivity() {
+
+    private lateinit var vm: ImageViewerViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
@@ -39,18 +42,27 @@ class ImageViewerActivity : ComponentActivity() {
             return
         }
 
+        vm =
+            ViewModelProvider(
+                this,
+                ImageViewerViewModel.Factory(applicationContext),
+            )[ImageViewerViewModel::class.java]
+
+        vm.load(uri = uri, displayName = displayName, mime = mime, agentsPath = agentsPath)
+
         val composeView =
             ComposeView(this).apply {
                 setContent {
                     KotlinAgentAppTheme {
                         ImageViewerScreen(
-                            uri = uri,
-                            displayName = displayName,
+                            vm = vm,
                             onBack = { finish() },
                             onOpenExternal = {
+                                val p = vm.currentAgentsPath.value ?: agentsPath
+                                val dn = vm.currentDisplayName.value.ifBlank { displayName }
                                 openExternal(
-                                    agentsPath = agentsPath,
-                                    displayName = displayName,
+                                    agentsPath = p,
+                                    displayName = dn,
                                 )
                             },
                         )
@@ -175,4 +187,3 @@ class ImageViewerActivity : ComponentActivity() {
         }
     }
 }
-

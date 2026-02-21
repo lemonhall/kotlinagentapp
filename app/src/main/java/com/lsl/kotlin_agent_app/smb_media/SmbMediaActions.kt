@@ -187,6 +187,42 @@ object SmbMediaActions {
         )
     }
 
+    fun openNasSmbFileExternal(
+        context: Context,
+        agentsPath: String,
+        displayName: String,
+        chooserTitle: String = "打开文件",
+    ) {
+        if (Build.VERSION.SDK_INT < 26) {
+            Toast.makeText(context, "系统版本过低：SMB 外部打开需要 Android 8.0+（API 26）", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val ref = SmbMediaAgentsPath.parseNasSmbFile(agentsPath) ?: return
+        val mime =
+            SmbMediaMime.fromFileNameOrNull(displayName)
+                ?: guessMimeFromName(displayName)
+                ?: "application/octet-stream"
+
+        val ticket =
+            SmbMediaRuntime.ticketStore(context).issue(
+                SmbMediaTicketSpec(
+                    mountName = ref.mountName,
+                    remotePath = ref.relPath,
+                    mime = mime,
+                    sizeBytes = -1L,
+                )
+            )
+        val uri = Uri.parse(SmbMediaUri.build(token = ticket.token, displayName = displayName))
+
+        openContentExternal(
+            context = context,
+            uri = uri,
+            mime = mime,
+            chooserTitle = chooserTitle,
+        )
+    }
+
     fun createNasSmbImageContent(
         context: Context,
         agentsPath: String,
@@ -258,6 +294,26 @@ object SmbMediaActions {
             context.startActivity(Intent.createChooser(intent, chooserTitle))
         } catch (t: Throwable) {
             Toast.makeText(context, t.message ?: "无法打开", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun guessMimeFromName(name: String): String? {
+        val ext = name.trim().substringAfterLast('.', missingDelimiterValue = "").lowercase().trim()
+        if (ext.isBlank()) return null
+        return when (ext) {
+            "doc" -> "application/msword"
+            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "xls" -> "application/vnd.ms-excel"
+            "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "ppt" -> "application/vnd.ms-powerpoint"
+            "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "zip" -> "application/zip"
+            "tar" -> "application/x-tar"
+            "gz" -> "application/gzip"
+            "tgz" -> "application/gzip"
+            "7z" -> "application/x-7z-compressed"
+            "rar" -> "application/vnd.rar"
+            else -> null
         }
     }
 

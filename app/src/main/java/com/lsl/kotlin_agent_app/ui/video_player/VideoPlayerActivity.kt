@@ -48,7 +48,7 @@ class VideoPlayerActivity : ComponentActivity() {
                 VideoPlayerViewModel.Factory(applicationContext),
             )[VideoPlayerViewModel::class.java]
 
-        vm.load(uri = uri, mime = mime, displayName = displayName)
+        vm.load(uri = uri, mime = mime, displayName = displayName, agentsPath = agentsPath)
 
         val composeView =
             ComposeView(this).apply {
@@ -58,9 +58,11 @@ class VideoPlayerActivity : ComponentActivity() {
                             vm = vm,
                             onBack = { finish() },
                             onOpenExternal = {
+                                val p = vm.currentAgentsPath.value ?: agentsPath
+                                val dn = vm.displayName.value.ifBlank { displayName }
                                 openExternal(
-                                    agentsPath = agentsPath,
-                                    displayName = displayName,
+                                    agentsPath = p,
+                                    displayName = dn,
                                 )
                             },
                         )

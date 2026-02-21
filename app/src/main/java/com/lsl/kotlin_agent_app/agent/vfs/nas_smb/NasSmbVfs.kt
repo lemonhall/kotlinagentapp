@@ -80,6 +80,19 @@ class NasSmbVfs(
         client.move(mount, fromRemotePath = fromRemote, toRemotePath = toRemote, overwrite = overwrite)
     }
 
+    fun copyFile(
+        mountName: String,
+        fromRelPath: String,
+        toRelPath: String,
+        overwrite: Boolean,
+    ) {
+        val mount = resolveMount(mountName)
+        if (mount.readOnly) throw NasSmbVfsException(NasSmbErrorCode.PermissionDenied, "Mount is read-only: ${mount.mountName}")
+        val fromRemote = toRemotePath(mount, fromRelPath, expectDir = false)
+        val toRemote = toRemotePath(mount, toRelPath, expectDir = false)
+        client.copy(mount, fromRemotePath = fromRemote, toRemotePath = toRemote, overwrite = overwrite)
+    }
+
     private fun resolveMount(mountName: String): NasSmbMountConfig {
         val key = mountName.trim().lowercase()
         val mount = mountsProvider.mountsByName()[key]
@@ -117,4 +130,3 @@ class NasSmbVfs(
         return segs.joinToString("/")
     }
 }
-

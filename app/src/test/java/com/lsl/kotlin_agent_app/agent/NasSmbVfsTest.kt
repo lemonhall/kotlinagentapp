@@ -244,5 +244,30 @@ class NasSmbVfsTest {
             toParent.children[to.last()] = node
             fromParent.children.remove(from.last())
         }
+
+        override fun copy(
+            mount: NasSmbMountConfig,
+            fromRemotePath: String,
+            toRemotePath: String,
+            overwrite: Boolean,
+        ) {
+            val root = rootFor(mount)
+            val from = split(fromRemotePath)
+            val to = split(toRemotePath)
+            require(from.isNotEmpty() && to.isNotEmpty()) { "Invalid copy" }
+            val fromParent = getNode(root, from.dropLast(1), createDirs = false) as? Node.Dir ?: throw IllegalStateException("Missing src dir")
+            val node = fromParent.children[from.last()] ?: throw IllegalStateException("Missing src")
+            val toParent = getDir(mount, to.dropLast(1).joinToString("/"), create = true)
+            if (!overwrite && toParent.children.containsKey(to.last())) throw IllegalStateException("Target exists")
+
+            fun deepCopy(n: Node): Node {
+                return when (n) {
+                    is Node.Dir -> Node.Dir(children = n.children.mapValues { (_, v) -> deepCopy(v) }.toMutableMap())
+                    is Node.File -> Node.File(bytes = n.bytes.copyOf(), mtime = System.currentTimeMillis())
+                }
+            }
+
+            toParent.children[to.last()] = deepCopy(node)
+        }
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,9 +42,13 @@ fun PdfViewerScreen(
     onBack: () -> Unit,
     onOpenExternal: () -> Unit,
 ) {
+    val isLoading by vm.isLoading.collectAsState()
+    val errorMessage by vm.errorMessage.collectAsState()
+    val pageCount by vm.pageCount.collectAsState()
+
     val pages =
-        remember(vm.pageCount) {
-            (0 until vm.pageCount).toList()
+        remember(pageCount) {
+            (0 until pageCount).toList()
         }
 
     Scaffold(
@@ -59,7 +64,31 @@ fun PdfViewerScreen(
             )
         },
     ) { padding ->
-        if (vm.pageCount <= 0) {
+        if (isLoading) {
+            Surface(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                color = Color.Transparent,
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(48.dp))
+                }
+            }
+            return@Scaffold
+        }
+
+        if (!errorMessage.isNullOrBlank()) {
+            Surface(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                color = Color.Transparent,
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("无法预览：${errorMessage.orEmpty()}", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            return@Scaffold
+        }
+
+        if (pageCount <= 0) {
             Surface(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 color = Color.Transparent,

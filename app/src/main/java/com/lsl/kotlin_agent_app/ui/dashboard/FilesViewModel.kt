@@ -205,6 +205,9 @@ class FilesViewModel(
                 if (now.clipboardCutPath == path) {
                     _state.postValue(now.copy(clipboardCutPath = null, clipboardCutIsDir = false))
                 }
+                if (now.clipboardCopyPath == path) {
+                    _state.postValue(now.copy(clipboardCopyPath = null, clipboardCopyIsDir = false))
+                }
                 refresh()
             } catch (t: Throwable) {
                 val now = _state.value ?: prev
@@ -227,6 +230,9 @@ class FilesViewModel(
                 if (now.clipboardCutPath == p) {
                     _state.postValue(now.copy(clipboardCutPath = null, clipboardCutIsDir = false))
                 }
+                if (now.clipboardCopyPath == p) {
+                    _state.postValue(now.copy(clipboardCopyPath = null, clipboardCopyIsDir = false))
+                }
                 refresh()
             } catch (t: Throwable) {
                 val now = _state.value ?: prev
@@ -242,6 +248,21 @@ class FilesViewModel(
             prev.copy(
                 clipboardCutPath = path,
                 clipboardCutIsDir = (entry.type == AgentsDirEntryType.Dir),
+                clipboardCopyPath = null,
+                clipboardCopyIsDir = false,
+                errorMessage = null,
+            )
+    }
+
+    fun copyEntry(entry: AgentsDirEntry) {
+        val prev = _state.value ?: FilesUiState()
+        val path = workspace.joinPath(prev.cwd, entry.name)
+        _state.value =
+            prev.copy(
+                clipboardCopyPath = path,
+                clipboardCopyIsDir = (entry.type == AgentsDirEntryType.Dir),
+                clipboardCutPath = null,
+                clipboardCutIsDir = false,
                 errorMessage = null,
             )
     }
@@ -288,13 +309,25 @@ class FilesViewModel(
 
     fun clearClipboard() {
         val prev = _state.value ?: FilesUiState()
-        _state.value = prev.copy(clipboardCutPath = null, clipboardCutIsDir = false)
+        _state.value =
+            prev.copy(
+                clipboardCutPath = null,
+                clipboardCutIsDir = false,
+                clipboardCopyPath = null,
+                clipboardCopyIsDir = false,
+            )
     }
 
     fun pasteCutIntoCwd() {
+        pasteClipboardIntoCwd()
+    }
+
+    fun pasteClipboardIntoCwd() {
         val prev = _state.value ?: FilesUiState()
-        val src = prev.clipboardCutPath ?: run {
-            _state.value = prev.copy(errorMessage = "剪切板为空")
+        val srcCut = prev.clipboardCutPath?.trim().takeIf { !it.isNullOrBlank() }
+        val srcCopy = prev.clipboardCopyPath?.trim().takeIf { !it.isNullOrBlank() }
+        val src = srcCut ?: srcCopy ?: run {
+            _state.value = prev.copy(errorMessage = "剪切/复制板为空")
             return
         }
         val cwd = prev.cwd
@@ -319,10 +352,19 @@ class FilesViewModel(
                         destPath = workspace.joinPath(cwd, destName)
                     }
 
-                    workspace.movePath(from = src, to = destPath, overwrite = false)
+                    if (!srcCut.isNullOrBlank()) {
+                        workspace.movePath(from = src, to = destPath, overwrite = false)
+                    } else {
+                        workspace.copyPath(from = src, to = destPath, overwrite = false)
+                    }
                 }
                 val now = _state.value ?: prev
-                _state.value = now.copy(clipboardCutPath = null, clipboardCutIsDir = false, isLoading = false)
+                _state.value =
+                    if (!srcCut.isNullOrBlank()) {
+                        now.copy(clipboardCutPath = null, clipboardCutIsDir = false, isLoading = false)
+                    } else {
+                        now.copy(isLoading = false)
+                    }
                 refresh()
             } catch (t: Throwable) {
                 val now = _state.value ?: prev

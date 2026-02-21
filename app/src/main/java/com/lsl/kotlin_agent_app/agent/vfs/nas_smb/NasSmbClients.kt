@@ -54,6 +54,14 @@ object NasSmbClients {
             ) {
                 throw NasSmbVfsException(NasSmbErrorCode.HostUnreachable, "SMB client is disabled in this build")
             }
+
+            override fun copy(
+                mount: NasSmbMountConfig,
+                fromRemotePath: String,
+                toRemotePath: String,
+                overwrite: Boolean,
+            ) {
+                throw NasSmbVfsException(NasSmbErrorCode.HostUnreachable, "SMB client is disabled in this build")
+            }
         }
 }
-

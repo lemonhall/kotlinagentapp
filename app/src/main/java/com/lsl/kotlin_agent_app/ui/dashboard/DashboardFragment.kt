@@ -213,6 +213,17 @@ class DashboardFragment : Fragment() {
                             openAgentsPdfInternal(path, displayName = display)
                         } else if (isOggName(entry.name) && isInRadioRecordingsTree(path)) {
                             musicController.playAgentsRecordingOgg(path)
+                        } else if (shouldOpenExternalByDefault(entry.name) && isInNasSmbTree(path)) {
+                            val display = entry.displayName ?: entry.name
+                            SmbMediaActions.openNasSmbFileExternal(
+                                context = requireContext(),
+                                agentsPath = path,
+                                displayName = display,
+                                chooserTitle = "打开文件",
+                            )
+                        } else if (shouldOpenExternalByDefault(entry.name)) {
+                            val display = entry.displayName ?: entry.name
+                            openAgentsFileExternal(path, displayName = display, chooserTitle = "打开文件")
                         } else {
                             filesViewModel.openFile(entry)
                         }
@@ -253,19 +264,19 @@ class DashboardFragment : Fragment() {
                     val actions =
                         if (isRadioInRadios) {
                             if (isRadioInFavorites) {
-                                arrayOf("播放", "播放/暂停", "停止", "移出收藏", "分享", "剪切", "重命名", "删除", "复制路径")
+                                arrayOf("播放", "播放/暂停", "停止", "移出收藏", "分享", "剪切", "复制", "重命名", "删除", "复制路径")
                             } else {
-                                arrayOf("播放", "播放/暂停", "停止", "收藏", "分享", "剪切", "重命名", "删除", "复制路径")
+                                arrayOf("播放", "播放/暂停", "停止", "收藏", "分享", "剪切", "复制", "重命名", "删除", "复制路径")
                             }
                         } else if (isAudioInMusics) {
-                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "重命名", "删除", "复制路径")
+                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "复制", "重命名", "删除", "复制路径")
                         } else if (isOggInRadioRecordings) {
-                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "重命名", "删除", "复制路径")
+                            arrayOf("播放", "播放/暂停", "停止", "分享", "剪切", "复制", "重命名", "删除", "复制路径")
                         } else if (isDir) {
                             val isSessionDir = (cwd == ".agents/sessions" && sidRx.matches(entry.name))
-                            if (isSessionDir) arrayOf("进入目录", "剪切", "重命名", "删除", "复制路径") else arrayOf("剪切", "重命名", "删除", "复制路径")
+                            if (isSessionDir) arrayOf("进入目录", "剪切", "复制", "重命名", "删除", "复制路径") else arrayOf("剪切", "复制", "重命名", "删除", "复制路径")
                         } else {
-                            arrayOf("打开", "分享", "剪切", "重命名", "删除", "复制路径")
+                            arrayOf("打开", "分享", "剪切", "复制", "重命名", "删除", "复制路径")
                         }
 
                     MaterialAlertDialogBuilder(requireContext())
@@ -341,6 +352,14 @@ class DashboardFragment : Fragment() {
                                         }
                                         isPdfName(entry.name) -> openAgentsPdfInternal(path, displayName = display)
                                         isOggName(entry.name) && isInRadioRecordingsTree(path) -> musicController.playAgentsRecordingOgg(path)
+                                        shouldOpenExternalByDefault(entry.name) && isInNasSmbTree(path) ->
+                                            SmbMediaActions.openNasSmbFileExternal(
+                                                context = requireContext(),
+                                                agentsPath = path,
+                                                displayName = display,
+                                                chooserTitle = "打开文件",
+                                            )
+                                        shouldOpenExternalByDefault(entry.name) -> openAgentsFileExternal(path, displayName = display, chooserTitle = "打开文件")
                                         else -> filesViewModel.openFile(entry)
                                     }
                                 }
@@ -359,6 +378,10 @@ class DashboardFragment : Fragment() {
                                 "剪切" -> {
                                     filesViewModel.cutEntry(entry)
                                     Toast.makeText(requireContext(), "已剪切：${entry.name}（到目标目录点“粘贴”）", Toast.LENGTH_SHORT).show()
+                                }
+                                "复制" -> {
+                                    filesViewModel.copyEntry(entry)
+                                    Toast.makeText(requireContext(), "已复制：${entry.name}（到目标目录点“粘贴”）", Toast.LENGTH_SHORT).show()
                                 }
                                 "重命名" -> {
                                     val input =
@@ -396,10 +419,10 @@ class DashboardFragment : Fragment() {
         binding.recyclerEntries.adapter = adapter
         binding.recyclerEntries.setOnLongClickListener {
             val st = filesViewModel.state.value
-            if (st?.clipboardCutPath.isNullOrBlank()) {
-                Toast.makeText(requireContext(), "剪切板为空", Toast.LENGTH_SHORT).show()
+            if (st?.clipboardCutPath.isNullOrBlank() && st?.clipboardCopyPath.isNullOrBlank()) {
+                Toast.makeText(requireContext(), "剪切/复制板为空", Toast.LENGTH_SHORT).show()
             } else {
-                filesViewModel.pasteCutIntoCwd()
+                filesViewModel.pasteClipboardIntoCwd()
             }
             true
         }
@@ -417,10 +440,10 @@ class DashboardFragment : Fragment() {
         }
         binding.buttonPaste.setOnClickListener {
             val st = filesViewModel.state.value
-            if (st?.clipboardCutPath.isNullOrBlank()) {
-                Toast.makeText(requireContext(), "剪切板为空", Toast.LENGTH_SHORT).show()
+            if (st?.clipboardCutPath.isNullOrBlank() && st?.clipboardCopyPath.isNullOrBlank()) {
+                Toast.makeText(requireContext(), "剪切/复制板为空", Toast.LENGTH_SHORT).show()
             } else {
-                filesViewModel.pasteCutIntoCwd()
+                filesViewModel.pasteClipboardIntoCwd()
             }
         }
         binding.buttonClearSessions.setOnClickListener {
@@ -482,7 +505,12 @@ class DashboardFragment : Fragment() {
              binding.textError.text = st.errorMessage.orEmpty()
              adapter.submitList(st.entries)
              binding.buttonClearSessions.visibility = if (st.cwd == ".agents/sessions") View.VISIBLE else View.GONE
-             binding.buttonPaste.visibility = if (!st.clipboardCutPath.isNullOrBlank()) View.VISIBLE else View.GONE
+             binding.buttonPaste.visibility =
+                 if (!st.clipboardCutPath.isNullOrBlank() || !st.clipboardCopyPath.isNullOrBlank()) {
+                     View.VISIBLE
+                 } else {
+                     View.GONE
+                 }
              val inMusics = isInMusicsTree(st.cwd)
              val inRadios = isInRadiosTree(st.cwd)
              binding.buttonMusicHelp.visibility = if (inMusics) View.VISIBLE else View.GONE
@@ -1471,6 +1499,68 @@ class DashboardFragment : Fragment() {
             n.endsWith(".heif")
     }
 
+    private fun isOfficeName(name: String): Boolean {
+        val n = name.trim().lowercase()
+        return n.endsWith(".doc") ||
+            n.endsWith(".docx") ||
+            n.endsWith(".xls") ||
+            n.endsWith(".xlsx") ||
+            n.endsWith(".ppt") ||
+            n.endsWith(".pptx")
+    }
+
+    private fun isArchiveName(name: String): Boolean {
+        val n = name.trim().lowercase()
+        return n.endsWith(".zip") ||
+            n.endsWith(".tar") ||
+            n.endsWith(".gz") ||
+            n.endsWith(".tgz") ||
+            n.endsWith(".7z") ||
+            n.endsWith(".rar")
+    }
+
+    private fun isTextLikeName(name: String): Boolean {
+        val n = name.trim().lowercase()
+        return n.endsWith(".txt") ||
+            n.endsWith(".md") ||
+            n.endsWith(".markdown") ||
+            n.endsWith(".json") ||
+            n.endsWith(".yaml") ||
+            n.endsWith(".yml") ||
+            n.endsWith(".xml") ||
+            n.endsWith(".ini") ||
+            n.endsWith(".conf") ||
+            n.endsWith(".properties") ||
+            n.endsWith(".env") ||
+            n.endsWith(".log") ||
+            n.endsWith(".csv") ||
+            n.endsWith(".tsv") ||
+            n.endsWith(".kt") ||
+            n.endsWith(".kts") ||
+            n.endsWith(".java") ||
+            n.endsWith(".py") ||
+            n.endsWith(".js") ||
+            n.endsWith(".ts") ||
+            n.endsWith(".css") ||
+            n.endsWith(".html") ||
+            n.endsWith(".htm") ||
+            n.endsWith(".sql") ||
+            n.endsWith(".sh") ||
+            n.endsWith(".bash") ||
+            n.endsWith(".ps1") ||
+            n.endsWith(".gradle") ||
+            n.endsWith(".gitignore")
+    }
+
+    private fun shouldOpenExternalByDefault(name: String): Boolean {
+        if (isOfficeName(name) || isArchiveName(name)) return true
+        if (isAudioName(name) || isVideoName(name) || isImageName(name) || isPdfName(name) || isRadioName(name)) return false
+        if (isTextLikeName(name)) return false
+        val ext = name.trim().substringAfterLast('.', missingDelimiterValue = "").lowercase().trim()
+        if (ext.isBlank()) return false
+        return true
+    }
+
     private fun isInNasSmbTree(agentsPath: String): Boolean {
         val p = agentsPath.replace('\\', '/').trim().trimStart('/').trimEnd('/')
         if (p == ".agents/nas_smb") return true
@@ -1870,6 +1960,64 @@ class DashboardFragment : Fragment() {
             startActivity(Intent.createChooser(intent, "打开图片"))
         } catch (t: Throwable) {
             Toast.makeText(requireContext(), t.message ?: "无法打开预览", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openAgentsFileExternal(
+        agentsPath: String,
+        displayName: String,
+        chooserTitle: String,
+    ) {
+        val rel = agentsPath.replace('\\', '/').trim()
+        if (!rel.startsWith(".agents/")) return
+
+        val file = File(requireContext().filesDir, rel)
+        if (!file.exists() || !file.isFile) {
+            Toast.makeText(requireContext(), "文件不存在：$displayName", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val uri =
+            FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file,
+            )
+
+        val ext = file.extension.lowercase().takeIf { it.isNotBlank() }
+        val mimeFromMap =
+            ext?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+        val mime =
+            mimeFromMap
+                ?: guessMimeFromName(file.name)
+                ?: URLConnection.guessContentTypeFromName(file.name)
+                ?: "application/octet-stream"
+
+        SmbMediaActions.openContentExternal(
+            context = requireContext(),
+            uri = uri,
+            mime = mime,
+            chooserTitle = chooserTitle,
+        )
+    }
+
+    private fun guessMimeFromName(name: String): String? {
+        val ext = name.trim().substringAfterLast('.', missingDelimiterValue = "").lowercase().trim()
+        if (ext.isBlank()) return null
+        return when (ext) {
+            "doc" -> "application/msword"
+            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "xls" -> "application/vnd.ms-excel"
+            "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "ppt" -> "application/vnd.ms-powerpoint"
+            "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "zip" -> "application/zip"
+            "tar" -> "application/x-tar"
+            "gz" -> "application/gzip"
+            "tgz" -> "application/gzip"
+            "7z" -> "application/x-7z-compressed"
+            "rar" -> "application/vnd.rar"
+            else -> null
         }
     }
 
