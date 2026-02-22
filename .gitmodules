@@ -4,3 +4,6 @@
 [submodule "external/agent-browser-kotlin"]
 	path = external/agent-browser-kotlin
 	url = https://github.com/lemonhall/agent-browser-kotlin
+[submodule "external/jediterm-android"]
+	path = external/jediterm-android
+	url = https://github.com/lemonhall/jediterm-android

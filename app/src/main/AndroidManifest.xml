@@ -108,6 +108,11 @@
             android:label="IRC" />
 
         <activity
+            android:name=".ui.ssh.SshActivity"
+            android:exported="false"
+            android:label="SSH" />
+
+        <activity
             android:name=".recorder.RecorderActivity"
             android:exported="false"
             android:label="录音" />
