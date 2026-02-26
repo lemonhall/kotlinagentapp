@@ -42,7 +42,7 @@ class TerminalExecTool(
                     "command",
                     buildJsonObject {
                         put("type", JsonPrimitive("string"))
-                        put("description", JsonPrimitive("Single-line pseudo-terminal command. Example: hello"))
+                        put("description", JsonPrimitive("Single-line pseudo-terminal command. Available commands: hello, cal, git, qqmail, ledger, zip, tar, stock, exchange_rate, rss, ssh, irc, music, radio, tts, vm. Example: vm status"))
                     },
                 )
                 put(

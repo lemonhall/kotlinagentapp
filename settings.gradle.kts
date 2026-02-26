@@ -33,6 +33,7 @@ includeBuild("external/agent-browser-kotlin")
 includeBuild("external/jediterm-android") {
     dependencySubstitution {
         substitute(module("com.lemonhall.jediterm.android:lib")).using(project(":lib"))
+        substitute(module("com.lemonhall.jediterm:tinyemu")).using(project(":tinyemu"))
     }
 }
  

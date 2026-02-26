@@ -134,6 +134,7 @@ dependencies {
     implementation("me.lemonhall.openagentic:openagentic-sdk-kotlin:0.1.0-SNAPSHOT")
     implementation("com.lsl:agent-browser-kotlin:0.1.0")
     implementation("com.lemonhall.jediterm.android:lib:0.1.0")
+    implementation("com.lemonhall.jediterm:tinyemu:0.1.0")
 
     coreLibraryDesugaring(libs.android.desugar.jdk.libs)
 

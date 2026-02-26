@@ -15,6 +15,7 @@ import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.ssh.SshCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.stock.StockCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.tar.TarCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.tts.TtsCommand
+import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.vm.VmCommand
 import com.lsl.kotlin_agent_app.agent.tools.terminal.commands.zip.ZipCommand
 
 internal object TerminalCommands {
@@ -36,6 +37,7 @@ internal object TerminalCommands {
                 MusicCommand(appContext),
                 RadioCommand(appContext),
                 TtsCommand(appContext),
+                VmCommand(appContext),
             ),
         )
     }
