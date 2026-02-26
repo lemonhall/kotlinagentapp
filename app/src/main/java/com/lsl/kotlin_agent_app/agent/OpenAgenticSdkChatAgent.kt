@@ -32,7 +32,10 @@ import me.lemonhall.openagentic.sdk.events.RuntimeError
 import me.lemonhall.openagentic.sdk.hooks.HookDecision
 import me.lemonhall.openagentic.sdk.hooks.HookEngine
 import me.lemonhall.openagentic.sdk.hooks.HookMatcher
+import me.lemonhall.openagentic.sdk.providers.AnthropicMessagesHttpProvider
+import me.lemonhall.openagentic.sdk.providers.OpenAIChatCompletionsHttpProvider
 import me.lemonhall.openagentic.sdk.providers.OpenAIResponsesHttpProvider
+import me.lemonhall.openagentic.sdk.providers.Provider
 import me.lemonhall.openagentic.sdk.compaction.CompactionOptions
 import me.lemonhall.openagentic.sdk.runtime.OpenAgenticOptions
 import me.lemonhall.openagentic.sdk.runtime.OpenAgenticSdk
@@ -82,13 +85,7 @@ class OpenAgenticSdkChatAgent(
         workspace.ensureInitialized()
 
         val config = configRepository.get()
-        val baseUrl = config.baseUrl.trim()
-        val apiKey = config.apiKey.trim()
-        val model = config.model.trim()
-
-        require(baseUrl.isNotEmpty()) { "base_url 未配置" }
-        require(apiKey.isNotEmpty()) { "api_key 未配置" }
-        require(model.isNotEmpty()) { "model 未配置" }
+        val (provider, apiKey, model) = resolveProvider(config)
 
         val agentsRoot = File(appContext.filesDir, ".agents")
         val rootPath = agentsRoot.absolutePath.replace('\\', '/').toPath()
@@ -126,7 +123,6 @@ class OpenAgenticSdkChatAgent(
         val sessionStore = FileSessionStore(fileSystem = fileSystem, rootDir = rootPath)
         val sessionId = prefs.getString(AppPrefsKeys.CHAT_SESSION_ID, null)?.trim()?.ifEmpty { null }
 
-        val provider = OpenAIResponsesHttpProvider(baseUrl = baseUrl)
         val progressEvents = MutableSharedFlow<Event>(extraBufferCapacity = 256)
         fun emitProgress(text: String) {
             val msg = text.trim().takeIf { it.isNotBlank() } ?: return
@@ -472,7 +468,7 @@ class OpenAgenticSdkChatAgent(
         parentContext: TaskContext,
         rootPath: Path,
         fileSystem: FileSystem,
-        provider: OpenAIResponsesHttpProvider,
+        provider: Provider,
         apiKey: String,
         model: String,
         tavilyUrl: String,
@@ -975,6 +971,43 @@ class OpenAgenticSdkChatAgent(
         val headLen = remaining / 2
         val tailLen = remaining - headLen
         return text.take(headLen) + marker + text.takeLast(tailLen)
+    }
+
+    private fun resolveProvider(
+        config: com.lsl.kotlin_agent_app.config.LlmConfig,
+        providerOverride: String? = null,
+    ): Triple<Provider, String, String> {
+        val which = providerOverride?.trim()?.lowercase()
+            ?: config.provider.trim().lowercase().ifBlank { "openai" }
+        return when (which) {
+            "anthropic" -> {
+                val baseUrl = config.anthropicBaseUrl.trim()
+                val apiKey = config.anthropicApiKey.trim()
+                val model = config.anthropicModel.trim()
+                require(baseUrl.isNotEmpty()) { "anthropic_base_url 未配置" }
+                require(apiKey.isNotEmpty()) { "anthropic_api_key 未配置" }
+                require(model.isNotEmpty()) { "anthropic_model 未配置" }
+                Triple(AnthropicMessagesHttpProvider(baseUrl = baseUrl), apiKey, model)
+            }
+            "deepseek" -> {
+                val baseUrl = config.deepseekBaseUrl.trim()
+                val apiKey = config.deepseekApiKey.trim()
+                val model = config.deepseekModel.trim()
+                require(baseUrl.isNotEmpty()) { "deepseek_base_url 未配置" }
+                require(apiKey.isNotEmpty()) { "deepseek_api_key 未配置" }
+                require(model.isNotEmpty()) { "deepseek_model 未配置" }
+                Triple(OpenAIChatCompletionsHttpProvider(name = "deepseek", baseUrl = baseUrl), apiKey, model)
+            }
+            else -> {
+                val baseUrl = config.baseUrl.trim()
+                val apiKey = config.apiKey.trim()
+                val model = config.model.trim()
+                require(baseUrl.isNotEmpty()) { "base_url 未配置" }
+                require(apiKey.isNotEmpty()) { "api_key 未配置" }
+                require(model.isNotEmpty()) { "model 未配置" }
+                Triple(OpenAIResponsesHttpProvider(baseUrl = baseUrl), apiKey, model)
+            }
+        }
     }
 
     private companion object {

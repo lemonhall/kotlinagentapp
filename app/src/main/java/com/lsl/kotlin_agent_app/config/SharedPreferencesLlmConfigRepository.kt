@@ -9,9 +9,16 @@ class SharedPreferencesLlmConfigRepository(
     override fun get(): LlmConfig {
         val stored =
             LlmConfig(
+                provider = prefs.getString(KEY_PROVIDER, "") ?: "",
                 baseUrl = prefs.getString(KEY_BASE_URL, "") ?: "",
                 apiKey = prefs.getString(KEY_API_KEY, "") ?: "",
                 model = prefs.getString(KEY_MODEL, "") ?: "",
+                anthropicBaseUrl = prefs.getString(KEY_ANTHROPIC_BASE_URL, "") ?: "",
+                anthropicApiKey = prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "",
+                anthropicModel = prefs.getString(KEY_ANTHROPIC_MODEL, "") ?: "",
+                deepseekBaseUrl = prefs.getString(KEY_DEEPSEEK_BASE_URL, "") ?: "",
+                deepseekApiKey = prefs.getString(KEY_DEEPSEEK_API_KEY, "") ?: "",
+                deepseekModel = prefs.getString(KEY_DEEPSEEK_MODEL, "") ?: "",
                 tavilyUrl = prefs.getString(KEY_TAVILY_URL, "") ?: "",
                 tavilyApiKey = prefs.getString(KEY_TAVILY_API_KEY, "") ?: "",
             )
@@ -19,9 +26,16 @@ class SharedPreferencesLlmConfigRepository(
         if (BuildConfig.DEBUG) {
             val seeded =
                 stored.copy(
+                    provider = stored.provider.ifBlank { BuildConfig.DEFAULT_PROVIDER },
                     baseUrl = stored.baseUrl.ifBlank { BuildConfig.DEFAULT_OPENAI_BASE_URL },
                     apiKey = stored.apiKey.ifBlank { BuildConfig.DEFAULT_OPENAI_API_KEY },
                     model = stored.model.ifBlank { BuildConfig.DEFAULT_MODEL },
+                    anthropicBaseUrl = stored.anthropicBaseUrl.ifBlank { BuildConfig.DEFAULT_ANTHROPIC_BASE_URL },
+                    anthropicApiKey = stored.anthropicApiKey.ifBlank { BuildConfig.DEFAULT_ANTHROPIC_API_KEY },
+                    anthropicModel = stored.anthropicModel.ifBlank { BuildConfig.DEFAULT_ANTHROPIC_MODEL },
+                    deepseekBaseUrl = stored.deepseekBaseUrl.ifBlank { BuildConfig.DEFAULT_DEEPSEEK_BASE_URL },
+                    deepseekApiKey = stored.deepseekApiKey.ifBlank { BuildConfig.DEFAULT_DEEPSEEK_API_KEY },
+                    deepseekModel = stored.deepseekModel.ifBlank { BuildConfig.DEFAULT_DEEPSEEK_MODEL },
                     tavilyUrl = stored.tavilyUrl.ifBlank { BuildConfig.DEFAULT_TAVILY_URL },
                     tavilyApiKey = stored.tavilyApiKey.ifBlank { BuildConfig.DEFAULT_TAVILY_API_KEY },
                 )
@@ -36,9 +50,16 @@ class SharedPreferencesLlmConfigRepository(
 
     override fun set(config: LlmConfig) {
         prefs.edit()
+            .putString(KEY_PROVIDER, config.provider)
             .putString(KEY_BASE_URL, config.baseUrl)
             .putString(KEY_API_KEY, config.apiKey)
             .putString(KEY_MODEL, config.model)
+            .putString(KEY_ANTHROPIC_BASE_URL, config.anthropicBaseUrl)
+            .putString(KEY_ANTHROPIC_API_KEY, config.anthropicApiKey)
+            .putString(KEY_ANTHROPIC_MODEL, config.anthropicModel)
+            .putString(KEY_DEEPSEEK_BASE_URL, config.deepseekBaseUrl)
+            .putString(KEY_DEEPSEEK_API_KEY, config.deepseekApiKey)
+            .putString(KEY_DEEPSEEK_MODEL, config.deepseekModel)
             .putString(KEY_TAVILY_URL, config.tavilyUrl)
             .putString(KEY_TAVILY_API_KEY, config.tavilyApiKey)
             .apply()
@@ -53,9 +74,16 @@ class SharedPreferencesLlmConfigRepository(
     }
 
     private companion object {
+        private const val KEY_PROVIDER = "llm.provider"
         private const val KEY_BASE_URL = "llm.base_url"
         private const val KEY_API_KEY = "llm.api_key"
         private const val KEY_MODEL = "llm.model"
+        private const val KEY_ANTHROPIC_BASE_URL = "llm.anthropic_base_url"
+        private const val KEY_ANTHROPIC_API_KEY = "llm.anthropic_api_key"
+        private const val KEY_ANTHROPIC_MODEL = "llm.anthropic_model"
+        private const val KEY_DEEPSEEK_BASE_URL = "llm.deepseek_base_url"
+        private const val KEY_DEEPSEEK_API_KEY = "llm.deepseek_api_key"
+        private const val KEY_DEEPSEEK_MODEL = "llm.deepseek_model"
         private const val KEY_TAVILY_URL = "tools.tavily_url"
         private const val KEY_TAVILY_API_KEY = "tools.tavily_api_key"
 

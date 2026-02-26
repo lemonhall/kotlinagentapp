@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -39,11 +40,31 @@ class SettingsFragment : Fragment() {
         val listeningHistory = ListeningHistoryStore(requireContext().applicationContext)
 
         val current = repo.get()
+
+        // Provider dropdown
+        val providerOptions = listOf("openai", "anthropic", "deepseek")
+        val providerAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, providerOptions)
+        binding.inputProvider.setAdapter(providerAdapter)
+        val currentProvider = current.provider.trim().lowercase().ifBlank { "openai" }
+        binding.inputProvider.setText(currentProvider, false)
+
+        // OpenAI fields
         binding.inputBaseUrl.setText(current.baseUrl)
         binding.inputApiKey.setText(current.apiKey)
         binding.inputModel.setText(current.model)
         binding.inputTavilyUrl.setText(current.tavilyUrl)
         binding.inputTavilyApiKey.setText(current.tavilyApiKey)
+
+        // Anthropic fields
+        binding.inputAnthropicBaseUrl.setText(current.anthropicBaseUrl)
+        binding.inputAnthropicApiKey.setText(current.anthropicApiKey)
+        binding.inputAnthropicModel.setText(current.anthropicModel)
+
+        // DeepSeek fields
+        binding.inputDeepseekBaseUrl.setText(current.deepseekBaseUrl)
+        binding.inputDeepseekApiKey.setText(current.deepseekApiKey)
+        binding.inputDeepseekModel.setText(current.deepseekModel)
+
         binding.switchWebPreview.isChecked = prefs.getBoolean(AppPrefsKeys.WEB_PREVIEW_ENABLED, false)
 
         val proxyCurrent = proxyRepo.get()
@@ -112,9 +133,16 @@ class SettingsFragment : Fragment() {
         binding.buttonSave.setOnClickListener {
             repo.set(
                 LlmConfig(
+                    provider = binding.inputProvider.text?.toString().orEmpty().trim().lowercase().ifBlank { "openai" },
                     baseUrl = binding.inputBaseUrl.text?.toString().orEmpty(),
                     apiKey = binding.inputApiKey.text?.toString().orEmpty(),
                     model = binding.inputModel.text?.toString().orEmpty(),
+                    anthropicBaseUrl = binding.inputAnthropicBaseUrl.text?.toString().orEmpty(),
+                    anthropicApiKey = binding.inputAnthropicApiKey.text?.toString().orEmpty(),
+                    anthropicModel = binding.inputAnthropicModel.text?.toString().orEmpty(),
+                    deepseekBaseUrl = binding.inputDeepseekBaseUrl.text?.toString().orEmpty(),
+                    deepseekApiKey = binding.inputDeepseekApiKey.text?.toString().orEmpty(),
+                    deepseekModel = binding.inputDeepseekModel.text?.toString().orEmpty(),
                     tavilyUrl = binding.inputTavilyUrl.text?.toString().orEmpty(),
                     tavilyApiKey = binding.inputTavilyApiKey.text?.toString().orEmpty(),
                 ),
