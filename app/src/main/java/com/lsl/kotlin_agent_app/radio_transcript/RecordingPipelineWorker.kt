@@ -39,10 +39,11 @@ internal class RecordingPipelineWorker(
         ): com.lsl.kotlin_agent_app.translation.TranslationClient {
             val prefs = appContext.getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
             val llm = SharedPreferencesLlmConfigRepository(prefs).get()
+            val active = llm.activeProvider
             return OpenAgenticTranslationClient(
-                baseUrl = llm.baseUrl,
-                apiKey = llm.apiKey,
-                model = llm.model,
+                baseUrl = active?.baseUrl.orEmpty(),
+                apiKey = active?.apiKey.orEmpty(),
+                model = active?.selectedModel.orEmpty(),
             )
         }
 

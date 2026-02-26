@@ -303,9 +303,10 @@ internal object IrcSessionRuntimeStore {
     ): List<IrcHumanQuestion> {
         val prefs = appContext.getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
         val llm = SharedPreferencesLlmConfigRepository(prefs).get()
-        val baseUrl = llm.baseUrl.trim()
-        val apiKey = llm.apiKey.trim()
-        val model = llm.model.trim()
+        val active = llm.activeProvider
+        val baseUrl = active?.baseUrl?.trim().orEmpty()
+        val apiKey = active?.apiKey?.trim().orEmpty()
+        val model = active?.selectedModel?.trim().orEmpty()
         if (baseUrl.isBlank() || apiKey.isBlank() || model.isBlank()) {
             appendLog(entry, "auto_forward skipped: llm config incomplete")
             return emptyList()

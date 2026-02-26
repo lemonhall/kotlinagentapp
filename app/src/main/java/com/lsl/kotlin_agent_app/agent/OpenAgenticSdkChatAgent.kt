@@ -975,39 +975,24 @@ class OpenAgenticSdkChatAgent(
 
     private fun resolveProvider(
         config: com.lsl.kotlin_agent_app.config.LlmConfig,
-        providerOverride: String? = null,
     ): Triple<Provider, String, String> {
-        val which = providerOverride?.trim()?.lowercase()
-            ?: config.provider.trim().lowercase().ifBlank { "openai" }
-        return when (which) {
-            "anthropic" -> {
-                val baseUrl = config.anthropicBaseUrl.trim()
-                val apiKey = config.anthropicApiKey.trim()
-                val model = config.anthropicModel.trim()
-                require(baseUrl.isNotEmpty()) { "anthropic_base_url 未配置" }
-                require(apiKey.isNotEmpty()) { "anthropic_api_key 未配置" }
-                require(model.isNotEmpty()) { "anthropic_model 未配置" }
-                Triple(AnthropicMessagesHttpProvider(baseUrl = baseUrl), apiKey, model)
-            }
-            "deepseek" -> {
-                val baseUrl = config.deepseekBaseUrl.trim()
-                val apiKey = config.deepseekApiKey.trim()
-                val model = config.deepseekModel.trim()
-                require(baseUrl.isNotEmpty()) { "deepseek_base_url 未配置" }
-                require(apiKey.isNotEmpty()) { "deepseek_api_key 未配置" }
-                require(model.isNotEmpty()) { "deepseek_model 未配置" }
-                Triple(OpenAIChatCompletionsHttpProvider(name = "deepseek", baseUrl = baseUrl), apiKey, model)
-            }
-            else -> {
-                val baseUrl = config.baseUrl.trim()
-                val apiKey = config.apiKey.trim()
-                val model = config.model.trim()
-                require(baseUrl.isNotEmpty()) { "base_url 未配置" }
-                require(apiKey.isNotEmpty()) { "api_key 未配置" }
-                require(model.isNotEmpty()) { "model 未配置" }
-                Triple(OpenAIResponsesHttpProvider(baseUrl = baseUrl), apiKey, model)
-            }
+        val entry = config.activeProvider
+            ?: throw IllegalStateException("未配置 Provider，请到 Settings 添加")
+        val baseUrl = entry.baseUrl.trim()
+        val apiKey = entry.apiKey.trim()
+        val model = entry.selectedModel.trim()
+        require(baseUrl.isNotEmpty()) { "${entry.displayName} base_url 未配置" }
+        require(apiKey.isNotEmpty()) { "${entry.displayName} api_key 未配置" }
+        require(model.isNotEmpty()) { "${entry.displayName} model 未配置" }
+        val provider = when (entry.type) {
+            com.lsl.kotlin_agent_app.config.ProviderType.OPENAI_RESPONSES ->
+                OpenAIResponsesHttpProvider(baseUrl = baseUrl)
+            com.lsl.kotlin_agent_app.config.ProviderType.OPENAI_CHATCOMPLETIONS ->
+                OpenAIChatCompletionsHttpProvider(name = entry.displayName.lowercase(), baseUrl = baseUrl)
+            com.lsl.kotlin_agent_app.config.ProviderType.ANTHROPIC_MESSAGES ->
+                AnthropicMessagesHttpProvider(baseUrl = baseUrl)
         }
+        return Triple(provider, apiKey, model)
     }
 
     private companion object {

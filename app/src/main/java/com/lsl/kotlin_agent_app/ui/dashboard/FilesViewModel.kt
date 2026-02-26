@@ -1171,9 +1171,9 @@ class FilesViewModel(
             } catch (_: Throwable) {
                 null
             }
-        val baseUrl = cfg?.baseUrl?.trim().orEmpty()
-        val apiKey = cfg?.apiKey?.trim().orEmpty()
-        val model = cfg?.model?.trim().orEmpty()
+        val baseUrl = cfg?.activeProvider?.baseUrl?.trim().orEmpty()
+        val apiKey = cfg?.activeProvider?.apiKey?.trim().orEmpty()
+        val model = cfg?.activeProvider?.selectedModel?.trim().orEmpty()
 
         val title =
             if (baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()) {
