@@ -19,6 +19,7 @@ class ProviderCardAdapter(
     private val activeProviderId: () -> String,
     private val onDelete: (ProviderEntry) -> Unit,
     private val onChanged: (ProviderEntry) -> Unit,
+    private val onSave: () -> Unit,
 ) : ListAdapter<ProviderEntry, ProviderCardAdapter.VH>(Diff) {
 
     private val expandedIds = mutableSetOf<String>()
@@ -65,6 +66,16 @@ class ProviderCardAdapter(
         )
         b.inputModel.setAdapter(modelAdapter)
         b.inputModel.setText(entry.selectedModel, false)
+        // Prevent filtering so all models always show in dropdown
+        b.inputModel.threshold = Int.MAX_VALUE
+        b.inputModel.setOnClickListener { b.inputModel.showDropDown() }
+        // Auto-save on model selection
+        b.inputModel.setOnItemClickListener { _, _, pos, _ ->
+            val selected = modelAdapter.getItem(pos) ?: return@setOnItemClickListener
+            val updated = entry.copy(selectedModel = selected)
+            onChanged(updated)
+            onSave()
+        }
 
         // Show fetch button only for supported types
         b.btnFetchModels.visibility =

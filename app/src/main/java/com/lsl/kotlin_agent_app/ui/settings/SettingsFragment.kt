@@ -32,6 +32,7 @@ class SettingsFragment : Fragment() {
     private val providers = mutableListOf<ProviderEntry>()
     private var activeProviderId = ""
     private lateinit var cardAdapter: ProviderCardAdapter
+    private lateinit var repo: SharedPreferencesLlmConfigRepository
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -42,7 +43,7 @@ class SettingsFragment : Fragment() {
         val prefs = requireContext().getSharedPreferences(
             "kotlin-agent-app", android.content.Context.MODE_PRIVATE,
         )
-        val repo = SharedPreferencesLlmConfigRepository(prefs)
+        repo = SharedPreferencesLlmConfigRepository(prefs)
         val proxyRepo = SharedPreferencesProxyConfigRepository(prefs)
         val listeningHistory = ListeningHistoryStore(requireContext().applicationContext)
 
@@ -64,6 +65,8 @@ class SettingsFragment : Fragment() {
                             activeProviderId = providers.firstOrNull()?.id.orEmpty()
                         }
                         refreshProviderList()
+                        refreshActiveProviderDropdown()
+                        saveProviders(repo)
                     }
                     .setNegativeButton("Cancel", null)
                     .show()
@@ -72,6 +75,7 @@ class SettingsFragment : Fragment() {
                 val idx = providers.indexOfFirst { it.id == updated.id }
                 if (idx >= 0) providers[idx] = updated
             },
+            onSave = { saveProviders(repo) },
         )
         binding.recyclerProviders.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerProviders.adapter = cardAdapter
@@ -202,17 +206,32 @@ class SettingsFragment : Fragment() {
         cardAdapter.submitList(providers.toList())
     }
 
+    private fun saveProviders(repo: SharedPreferencesLlmConfigRepository) {
+        repo.set(
+            LlmConfig(
+                activeProviderId = activeProviderId,
+                providers = providers.toList(),
+                tavilyUrl = _binding?.inputTavilyUrl?.text?.toString().orEmpty(),
+                tavilyApiKey = _binding?.inputTavilyApiKey?.text?.toString().orEmpty(),
+            ),
+        )
+    }
+
     private fun refreshActiveProviderDropdown() {
         val labels = providers.map { "${it.displayName} (${it.selectedModel})" }
         val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, labels)
         binding.inputActiveProvider.setAdapter(adapter)
+        // Prevent text filtering so all providers always show
+        binding.inputActiveProvider.threshold = Int.MAX_VALUE
         val activeIdx = providers.indexOfFirst { it.id == activeProviderId }
         if (activeIdx >= 0) {
             binding.inputActiveProvider.setText(labels[activeIdx], false)
         }
+        binding.inputActiveProvider.setOnClickListener { binding.inputActiveProvider.showDropDown() }
         binding.inputActiveProvider.setOnItemClickListener { _, _, position, _ ->
             activeProviderId = providers.getOrNull(position)?.id.orEmpty()
             cardAdapter.notifyDataSetChanged()
+            saveProviders(repo)
         }
     }
 
