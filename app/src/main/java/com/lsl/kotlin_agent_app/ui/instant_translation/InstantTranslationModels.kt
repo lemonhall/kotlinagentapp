@@ -7,6 +7,7 @@ data class InstantTranslationTurn(
     val targetLanguageLabel: String,
     val translatedText: String = "",
     val isPending: Boolean = true,
+    val archiveSessionRelativePath: String? = null,
 )
 
 data class InstantTranslationUiState(

@@ -66,43 +66,68 @@ internal class InstantTranslationArchiveManager(
 
     @Synchronized
     fun writeTurns(turns: List<InstantTranslationTurn>) {
-        val dir = sessionDir ?: return
-        val turnsFile = File(dir, "turns.json")
-        val transcriptFile = File(dir, "transcript.md")
-
-        val obj =
-            buildJsonObject {
-                put("kind", JsonPrimitive("instant_translation_turns"))
-                put("turns", buildJsonArray {
-                    for (turn in turns) {
-                        add(
-                            buildJsonObject {
-                                put("id", JsonPrimitive(turn.id))
-                                put("sourceText", JsonPrimitive(turn.sourceText))
-                                put("targetLanguageCode", JsonPrimitive(turn.targetLanguageCode))
-                                put("targetLanguageLabel", JsonPrimitive(turn.targetLanguageLabel))
-                                put("translatedText", JsonPrimitive(turn.translatedText))
-                                put("isPending", JsonPrimitive(turn.isPending))
-                            },
-                        )
-                    }
-                })
+        val currentRelPath = sessionRelPath
+        if (turns.isEmpty()) {
+            currentRelPath?.let { relPath ->
+                resolveSessionDir(relPath)?.let { dir ->
+                    writeTurnsForSession(
+                        dir = dir,
+                        sessionRelativePath = relPath,
+                        turns = emptyList(),
+                    )
+                }
             }
-        turnsFile.writeText(json.encodeToString(JsonObject.serializer(), obj) + "\n", Charsets.UTF_8)
+            writeMeta(status = if (active) "recording" else "stopped", errorMessage = null)
+            return
+        }
 
-        transcriptFile.writeText(renderTranscriptMarkdown(turns), Charsets.UTF_8)
+        val turnsBySession =
+            turns.groupBy { turn ->
+                turn.archiveSessionRelativePath?.trim()?.ifBlank { currentRelPath } ?: currentRelPath
+            }
+
+        turnsBySession.forEach { (relPath, sessionTurns) ->
+            if (relPath == null) return@forEach
+            val dir = resolveSessionDir(relPath) ?: return@forEach
+            writeTurnsForSession(
+                dir = dir,
+                sessionRelativePath = relPath,
+                turns = sessionTurns.sortedBy { it.id },
+            )
+        }
+
+        if (currentRelPath != null && turnsBySession[currentRelPath] == null) {
+            resolveSessionDir(currentRelPath)?.let { dir ->
+                writeTurnsForSession(
+                    dir = dir,
+                    sessionRelativePath = currentRelPath,
+                    turns = emptyList(),
+                )
+            }
+        }
+
         writeMeta(status = if (active) "recording" else "stopped", errorMessage = null)
     }
 
     @Synchronized
-    fun prepareTtsOutputFile(turn: InstantTranslationTurn): File? {
-        val dir = sessionDir ?: return null
+    fun prepareTtsOutputFiles(
+        turn: InstantTranslationTurn,
+        audioExtension: String = "wav",
+    ): InstantTranslationTtsArchiveFiles? {
+        val dir = resolveSessionDir(turn.archiveSessionRelativePath ?: sessionRelPath) ?: return null
         val ttsDir = File(dir, "tts")
         if (!ttsDir.exists()) ttsDir.mkdirs()
 
         val baseName = "turn-${turn.id.toString().padStart(4, '0')}"
-        File(ttsDir, "$baseName.txt").writeText(turn.translatedText.trim() + "\n", Charsets.UTF_8)
-        return File(ttsDir, "$baseName.wav")
+        val textFile = File(ttsDir, "$baseName.txt")
+        val audioFile = File(ttsDir, "$baseName.$audioExtension")
+        textFile.writeText(turn.translatedText.trim() + "\n", Charsets.UTF_8)
+        return InstantTranslationTtsArchiveFiles(
+            textFile = textFile,
+            audioFile = audioFile,
+            textRelativePath = "tts/${textFile.name}",
+            audioRelativePath = "tts/${audioFile.name}",
+        )
     }
 
     @Synchronized
@@ -119,6 +144,48 @@ internal class InstantTranslationArchiveManager(
     @Synchronized
     fun currentSessionRelativePath(): String? = sessionRelPath
 
+    private fun writeTurnsForSession(
+        dir: File,
+        sessionRelativePath: String,
+        turns: List<InstantTranslationTurn>,
+    ) {
+        val turnsFile = File(dir, "turns.json")
+        val transcriptFile = File(dir, "transcript.md")
+        val obj =
+            buildJsonObject {
+                put("kind", JsonPrimitive("instant_translation_turns"))
+                put("turns", buildJsonArray {
+                    for (turn in turns) {
+                        add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(turn.id))
+                                put("sourceText", JsonPrimitive(turn.sourceText))
+                                put("targetLanguageCode", JsonPrimitive(turn.targetLanguageCode))
+                                put("targetLanguageLabel", JsonPrimitive(turn.targetLanguageLabel))
+                                put("translatedText", JsonPrimitive(turn.translatedText))
+                                put("isPending", JsonPrimitive(turn.isPending))
+                                put("archiveSessionRelativePath", JsonPrimitive(turn.archiveSessionRelativePath ?: sessionRelativePath))
+                                val ttsArtifacts = resolveExistingTtsArtifacts(dir = dir, turnId = turn.id)
+                                if (ttsArtifacts?.textFile?.exists() == true) {
+                                    put("ttsTextFile", JsonPrimitive(ttsArtifacts.textRelativePath))
+                                }
+                                if (ttsArtifacts?.audioFile?.exists() == true) {
+                                    put("ttsAudioFile", JsonPrimitive(ttsArtifacts.audioRelativePath))
+                                }
+                            },
+                        )
+                    }
+                })
+            }
+        turnsFile.writeText(json.encodeToString(JsonObject.serializer(), obj) + "\n", Charsets.UTF_8)
+        transcriptFile.writeText(renderTranscriptMarkdown(dir = dir, turns = turns), Charsets.UTF_8)
+    }
+
+    private fun resolveSessionDir(relativePath: String?): File? {
+        val rel = relativePath?.replace('\\', '/')?.trim()?.trimStart('/')?.ifBlank { null } ?: return null
+        return File(filesDir, rel)
+    }
+
     private fun uniqueArchiveDir(baseName: String): File {
         var index = 1
         var candidate = File(archiveRoot, baseName)
@@ -129,27 +196,58 @@ internal class InstantTranslationArchiveManager(
         return candidate
     }
 
-    private fun renderTranscriptMarkdown(turns: List<InstantTranslationTurn>): String {
+    private fun renderTranscriptMarkdown(
+        dir: File,
+        turns: List<InstantTranslationTurn>,
+    ): String {
+        val sessionLanguageCode = turns.firstOrNull()?.targetLanguageCode ?: targetLanguageCode
+        val sessionLanguageLabel = turns.firstOrNull()?.targetLanguageLabel ?: targetLanguageLabel
         return buildString {
             appendLine("# 即时翻译记录")
             appendLine()
-            appendLine("- 目标语言：$targetLanguageLabel ($targetLanguageCode)")
+            appendLine("- 目标语言：$sessionLanguageLabel ($sessionLanguageCode)")
             appendLine("- 采样率：${sampleRateHz}Hz")
             appendLine()
             if (turns.isEmpty()) {
                 appendLine("暂无翻译片段。")
             } else {
                 for (turn in turns) {
+                    val ttsArtifacts = resolveExistingTtsArtifacts(dir = dir, turnId = turn.id)
                     appendLine("## 片段 ${turn.id}")
                     appendLine()
                     appendLine("- 原文：${turn.sourceText}")
                     appendLine("- 译文：${turn.translatedText.ifBlank { "（空）" }}")
                     appendLine("- 目标语言：${turn.targetLanguageLabel} (${turn.targetLanguageCode})")
                     appendLine("- 状态：${if (turn.isPending) "pending" else "done"}")
+                    if (ttsArtifacts?.audioFile?.exists() == true) {
+                        appendLine("- TTS 音频：${ttsArtifacts.audioRelativePath}")
+                    }
                     appendLine()
                 }
             }
         }
+    }
+
+    private fun resolveExistingTtsArtifacts(
+        dir: File,
+        turnId: Long,
+    ): InstantTranslationTtsArchiveFiles? {
+        val ttsDir = File(dir, "tts")
+        if (!ttsDir.exists()) return null
+        val baseName = "turn-${turnId.toString().padStart(4, '0')}"
+        val textFile = File(ttsDir, "$baseName.txt")
+        val audioFile =
+            listOf("wav", "pcm", "mp3", "opus")
+                .asSequence()
+                .map { ext -> File(ttsDir, "$baseName.$ext") }
+                .firstOrNull { it.exists() }
+                ?: File(ttsDir, "$baseName.wav")
+        return InstantTranslationTtsArchiveFiles(
+            textFile = textFile,
+            audioFile = audioFile,
+            textRelativePath = "tts/${textFile.name}",
+            audioRelativePath = "tts/${audioFile.name}",
+        )
     }
 
     private fun writeMeta(
@@ -176,6 +274,13 @@ internal class InstantTranslationArchiveManager(
         File(dir, "meta.json").writeText(json.encodeToString(JsonObject.serializer(), obj) + "\n", Charsets.UTF_8)
     }
 }
+
+internal data class InstantTranslationTtsArchiveFiles(
+    val textFile: File,
+    val audioFile: File,
+    val textRelativePath: String,
+    val audioRelativePath: String,
+)
 
 internal fun formatSessionDirName(at: ZonedDateTime): String {
     val partOfDay =

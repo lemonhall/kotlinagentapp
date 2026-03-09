@@ -67,4 +67,42 @@ class InstantTranslationArchiveManagerTest {
         assertTrue(turnsJson.contains("\"turns\": ["))
         assertTrue(turnsJson.contains("\"targetLanguageCode\": \"ja\""))
     }
+
+    @Test
+    fun writeTurns_includesArchiveAndTtsFileRefsWhenArtifactsExist() {
+        val context = RuntimeEnvironment.getApplication()
+        File(context.filesDir, ".agents/workspace/instant_translation").deleteRecursively()
+        val manager =
+            InstantTranslationArchiveManager(
+                appContext = context,
+                nowProvider = {
+                    ZonedDateTime.of(2026, 3, 9, 22, 1, 0, 0, ZoneId.of("Asia/Shanghai"))
+                },
+            )
+
+        val rel = manager.startNewSession(targetLanguageCode = "fr", targetLanguageLabel = "法语", sampleRateHz = 16_000)
+        val dir = File(context.filesDir, rel)
+        File(dir, "tts").mkdirs()
+        File(dir, "tts/turn-0001.txt").writeText("bonjour\n", Charsets.UTF_8)
+        File(dir, "tts/turn-0001.wav").writeBytes(byteArrayOf(1, 2, 3, 4))
+
+        manager.writeTurns(
+            listOf(
+                InstantTranslationTurn(
+                    id = 1L,
+                    sourceText = "你好",
+                    targetLanguageCode = "fr",
+                    targetLanguageLabel = "法语",
+                    translatedText = "bonjour",
+                    isPending = false,
+                    archiveSessionRelativePath = rel,
+                ),
+            ),
+        )
+
+        val turnsJson = File(dir, "turns.json").readText(Charsets.UTF_8)
+        assertTrue(turnsJson.contains("\"archiveSessionRelativePath\": \"$rel\""))
+        assertTrue(turnsJson.contains("\"ttsTextFile\": \"tts/turn-0001.txt\""))
+        assertTrue(turnsJson.contains("\"ttsAudioFile\": \"tts/turn-0001.wav\""))
+    }
 }

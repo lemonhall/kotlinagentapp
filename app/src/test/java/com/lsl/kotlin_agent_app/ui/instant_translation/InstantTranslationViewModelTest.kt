@@ -41,6 +41,22 @@ class InstantTranslationViewModelTest {
     }
 
     @Test
+    fun finalTranscript_recordsArchiveSessionPathOnTurn() = runTest {
+        val vm = InstantTranslationViewModel(translator = FakeInstantTranslator(), speaker = NoopSpeaker(), ioDispatcher = Dispatchers.Main)
+
+        vm.onFinalTranscript(
+            text = "你好",
+            archiveSessionRelativePath = ".agents/workspace/instant_translation/2026年03月09日 晚22点01分",
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            ".agents/workspace/instant_translation/2026年03月09日 晚22点01分",
+            vm.uiState.value.turns[0].archiveSessionRelativePath,
+        )
+    }
+
+    @Test
     fun finalTranscript_whenTranslatorFails_setsError() = runTest {
         val vm =
             InstantTranslationViewModel(

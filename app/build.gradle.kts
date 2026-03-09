@@ -171,7 +171,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.jgit)
     implementation(libs.okhttp)
-    implementation("com.alibaba:dashscope-sdk-java:2.20.6")
+    implementation("com.alibaba:dashscope-sdk-java:2.22.7")
     implementation(libs.jsch)
     implementation("org.apache.commons:commons-compress:1.26.2")
     implementation("org.tukaani:xz:1.10")

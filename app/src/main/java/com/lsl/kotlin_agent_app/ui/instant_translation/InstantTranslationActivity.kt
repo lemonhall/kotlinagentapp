@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.launch
@@ -25,7 +26,6 @@ class InstantTranslationActivity : ComponentActivity() {
     private lateinit var voiceInputConfigRepo: SharedPreferencesVoiceInputConfigRepository
     private lateinit var archiveManager: InstantTranslationArchiveManager
     private lateinit var vm: InstantTranslationViewModel
-    private var archiveTurnOffset: Int = 0
 
     private val microphonePermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -57,14 +57,30 @@ class InstantTranslationActivity : ComponentActivity() {
                 this,
                 InstantTranslationViewModel.Factory(
                     appContext = applicationContext,
-                    speaker = AndroidInstantTranslationSpeaker(applicationContext, archiveManager = archiveManager),
+                    speaker =
+                        QwenRealtimeInstantTranslationSpeaker(
+                            apiKeyProvider = { voiceInputConfigRepo.get().apiKey },
+                            archiveManager = archiveManager,
+                            playbackHooks =
+                                InstantTranslationPlaybackInterlock(
+                                    voiceStateProvider = { voiceInputController.state.value },
+                                    stopListening = { voiceInputController.stop() },
+                                    finishArchiveSession = { archiveManager.finishSession() },
+                                    resumeListening = { startVoiceInput() },
+                                    canResume = {
+                                        !isFinishing &&
+                                            !isDestroyed &&
+                                            lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                                    },
+                                ),
+                        ),
                 ),
             )[InstantTranslationViewModel::class.java]
 
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 vm.uiState.collect { state ->
-                    archiveManager.writeTurns(state.turns.drop(archiveTurnOffset))
+                    archiveManager.writeTurns(state.turns)
                 }
             }
         }
@@ -112,7 +128,6 @@ class InstantTranslationActivity : ComponentActivity() {
             vm.setError("\u8bf7\u5148\u5728 Settings \u7684 Voice Input \u4e2d\u586b\u5199 DASHSCOPE_API_KEY")
             return
         }
-        archiveTurnOffset = vm.uiState.value.turns.size
         archiveManager.startNewSession(
             targetLanguageCode = vm.uiState.value.targetLanguageCode,
             targetLanguageLabel = vm.uiState.value.targetLanguageLabel,
@@ -123,7 +138,7 @@ class InstantTranslationActivity : ComponentActivity() {
             onDraftChanged = {},
             onAudioFrame = archiveManager::appendAudioFrame,
             onPartialTranscript = vm::onPartialTranscript,
-            onFinalTranscript = vm::onFinalTranscript,
+            onFinalTranscript = { text -> vm.onFinalTranscript(text, archiveManager.currentSessionRelativePath()) },
         )
     }
 

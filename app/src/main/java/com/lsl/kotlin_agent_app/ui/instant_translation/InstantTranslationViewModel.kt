@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
+import com.lsl.kotlin_agent_app.voiceinput.SharedPreferencesVoiceInputConfigRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +34,10 @@ class InstantTranslationViewModel(
         }
     }
 
-    fun onFinalTranscript(text: String) {
+    fun onFinalTranscript(
+        text: String,
+        archiveSessionRelativePath: String? = null,
+    ) {
         val sourceText = text.trim()
         if (sourceText.isBlank()) return
 
@@ -51,6 +55,7 @@ class InstantTranslationViewModel(
                             sourceText = sourceText,
                             targetLanguageCode = targetLanguage,
                             targetLanguageLabel = targetLanguageLabel,
+                            archiveSessionRelativePath = archiveSessionRelativePath,
                         ),
             )
         }
@@ -153,7 +158,13 @@ class InstantTranslationViewModel(
 
     internal class Factory(
         private val appContext: Context,
-        private val speaker: InstantTranslationSpeaker = AndroidInstantTranslationSpeaker(appContext = appContext),
+        private val speaker: InstantTranslationSpeaker =
+            QwenRealtimeInstantTranslationSpeaker(
+                apiKeyProvider = {
+                    val prefs = appContext.getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
+                    SharedPreferencesVoiceInputConfigRepository(prefs).get().apiKey
+                },
+            ),
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(InstantTranslationViewModel::class.java)) {
