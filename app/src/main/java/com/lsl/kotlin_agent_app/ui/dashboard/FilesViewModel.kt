@@ -516,6 +516,7 @@ class FilesViewModel(
         cur = decorateRadioEntries(cwd = cwd, entries = cur)
         cur = decorateRadioRecordingEntries(cwd = cwd, entries = cur)
         cur = decorateInstantTranslationEntries(cwd = cwd, entries = cur)
+        cur = decorateSimultaneousInterpretationEntries(cwd = cwd, entries = cur)
         cur = decorateTopLevelDirEmojis(cwd = cwd, entries = cur)
         cur = decorateEnvFiles(cwd = cwd, entries = cur)
         return cur
@@ -577,6 +578,7 @@ class FilesViewModel(
                         "qqmail" to "📧",
                         "ssh" to "💻",
                         "instant_translation" to "🌐",
+                        "simultaneous_interpretation" to "🎧",
                     )
                 RadioRepository.RADIOS_DIR ->
                     mapOf(
@@ -763,6 +765,24 @@ class FilesViewModel(
         }
     }
 
+    private fun decorateSimultaneousInterpretationEntries(
+        cwd: String,
+        entries: List<AgentsDirEntry>,
+    ): List<AgentsDirEntry> {
+        val normalized = cwd.replace('\\', '/').trim().trimEnd('/')
+        if (normalized != ".agents/workspace") return entries
+        return entries.map { e ->
+            if (e.type == AgentsDirEntryType.Dir && e.name == "simultaneous_interpretation") {
+                e.copy(
+                    displayName = "simultaneous_interpretation\uff08\u540c\u58f0\u4f20\u8bd1\uff09",
+                    subtitle = "\u8033\u673a\u573a\u666f\u4f4e\u5ef6\u8fdf\u8fde\u7eed\u540c\u4f20",
+                    iconEmoji = "\uD83C\uDFA7",
+                )
+            } else {
+                e
+            }
+        }
+    }
     private fun decorateMusicEntries(
         cwd: String,
         entries: List<AgentsDirEntry>,

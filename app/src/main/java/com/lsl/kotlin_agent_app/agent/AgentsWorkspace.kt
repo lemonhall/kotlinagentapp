@@ -66,6 +66,7 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents/workspace/irc")
         mkdirsIfMissing(".agents/workspace/ssh")
         mkdirsIfMissing(".agents/workspace/instant_translation")
+        mkdirsIfMissing(".agents/workspace/simultaneous_interpretation")
         runCatching { deletePath(".agents/workspace/vm", recursive = true) }
 
         // PRD-0034: root placeholders (Everything is FileSystem).
@@ -107,6 +108,19 @@ class AgentsWorkspace(
                     appendLine("- note: ready")
                     appendLine()
                     appendLine("提示：这里用于旅行、对话等场景的即时翻译。")
+                },
+        )
+        ensureTextFileIfMissing(
+            path = ".agents/workspace/simultaneous_interpretation/_STATUS.md",
+            content =
+                buildString {
+                    appendLine("# simultaneous_interpretation 状态")
+                    appendLine()
+                    appendLine("- ok: true")
+                    appendLine("- at: ${(System.currentTimeMillis() / 1000L).coerceAtLeast(0L)}")
+                    appendLine("- note: ready")
+                    appendLine()
+                    appendLine("提示：这里用于耳机场景下的连续同声传译。")
                 },
         )
         ensureTextFileIfMissing(

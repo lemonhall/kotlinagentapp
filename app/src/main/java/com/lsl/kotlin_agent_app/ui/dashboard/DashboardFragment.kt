@@ -79,6 +79,7 @@ import com.lsl.kotlin_agent_app.ui.irc.IrcActivity
 import com.lsl.kotlin_agent_app.ui.qqmail.QqMailActivity
 import com.lsl.kotlin_agent_app.ui.ssh.SshActivity
 import com.lsl.kotlin_agent_app.ui.instant_translation.InstantTranslationActivity
+import com.lsl.kotlin_agent_app.ui.simultaneous_interpretation.SimultaneousInterpretationActivity
 
 class DashboardFragment : Fragment() {
 
@@ -156,6 +157,10 @@ class DashboardFragment : Fragment() {
                         }
                         if (DashboardInstantTranslationRules.isInstantTranslationDirAtWorkspaceRoot(cwd = cwd, entry = entry)) {
                             startActivity(InstantTranslationActivity.intentOf(requireContext()))
+                            return@FilesEntryAdapter
+                        }
+                        if (DashboardSimultaneousInterpretationRules.isSimultaneousInterpretationDirAtWorkspaceRoot(cwd = cwd, entry = entry)) {
+                            startActivity(SimultaneousInterpretationActivity.intentOf(requireContext()))
                             return@FilesEntryAdapter
                         }
                         if (cwd == ".agents/sessions" && sidRx.matches(entry.name)) {
@@ -475,6 +480,47 @@ class DashboardFragment : Fragment() {
                                 when (actions.getOrNull(which) ?: return@setItems) {
                                     "进入目录", "打开回溯目录" -> filesViewModel.goInto(entry)
                                     "打开即时翻译" -> startActivity(InstantTranslationActivity.intentOf(requireContext()))
+                                    "剪切" -> filesViewModel.cutEntry(entry)
+                                    "复制" -> filesViewModel.copyEntry(entry)
+                                    "重命名" -> {
+                                        val input =
+                                            android.widget.EditText(requireContext()).apply {
+                                                setText(entry.name)
+                                                setSelection(entry.name.length)
+                                            }
+                                        MaterialAlertDialogBuilder(requireContext())
+                                            .setTitle("重命名")
+                                            .setView(input)
+                                            .setNegativeButton("取消", null)
+                                            .setPositiveButton("确定") { _, _ ->
+                                                val newName = input.text?.toString().orEmpty().trim()
+                                                filesViewModel.renameEntry(entry, newName)
+                                            }
+                                            .show()
+                                    }
+                                    "复制路径" -> copyTextToClipboard("path", relativePath)
+                                    "删除" ->
+                                        MaterialAlertDialogBuilder(requireContext())
+                                            .setTitle("删除确认")
+                                            .setMessage("确定删除 ${entry.name} 吗？")
+                                            .setNegativeButton("取消", null)
+                                            .setPositiveButton("删除") { _, _ ->
+                                                filesViewModel.deleteEntry(entry, recursive = true)
+                                            }
+                                            .show()
+                                }
+                            }
+                            .show()
+                        return@FilesEntryAdapter
+                    }
+                    if (DashboardSimultaneousInterpretationRules.isSimultaneousInterpretationDirAtWorkspaceRoot(cwd = normalizedCwd, entry = entry)) {
+                        val actions = DashboardSimultaneousInterpretationRules.simultaneousInterpretationDirLongClickActions()
+                        MaterialAlertDialogBuilder(requireContext())
+                            .setTitle(entry.name)
+                            .setItems(actions) { _, which ->
+                                when (actions.getOrNull(which) ?: return@setItems) {
+                                    "进入目录", "打开回溯目录" -> filesViewModel.goInto(entry)
+                                    "打开同声传译" -> startActivity(SimultaneousInterpretationActivity.intentOf(requireContext()))
                                     "剪切" -> filesViewModel.cutEntry(entry)
                                     "复制" -> filesViewModel.copyEntry(entry)
                                     "重命名" -> {
