@@ -20,6 +20,7 @@ import com.lsl.kotlin_agent_app.databinding.FragmentSettingsBinding
 import com.lsl.kotlin_agent_app.listening_history.ListeningHistoryPaths
 import com.lsl.kotlin_agent_app.listening_history.ListeningHistoryStore
 import com.lsl.kotlin_agent_app.net.ProxyManager
+import com.lsl.kotlin_agent_app.voiceinput.SharedPreferencesVoiceInputConfigRepository
 import com.lsl.kotlin_agent_app.web.WebViewDataCleaner
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
@@ -45,6 +46,7 @@ class SettingsFragment : Fragment() {
         )
         repo = SharedPreferencesLlmConfigRepository(prefs)
         val proxyRepo = SharedPreferencesProxyConfigRepository(prefs)
+        val voiceInputRepo = SharedPreferencesVoiceInputConfigRepository(prefs)
         val listeningHistory = ListeningHistoryStore(requireContext().applicationContext)
 
         val current = repo.get()
@@ -117,6 +119,7 @@ class SettingsFragment : Fragment() {
         binding.switchUseProxy.isChecked = proxyCurrent.enabled
         binding.inputHttpProxy.setText(proxyCurrent.httpProxy)
         binding.inputHttpsProxy.setText(proxyCurrent.httpsProxy)
+        binding.inputVoiceInputApiKey.setText(voiceInputRepo.getEditableApiKey())
 
         // ── Switches ──
         binding.switchWebPreview.isChecked = prefs.getBoolean(AppPrefsKeys.WEB_PREVIEW_ENABLED, false)
@@ -195,6 +198,7 @@ class SettingsFragment : Fragment() {
             )
             proxyRepo.set(newProxy)
             ProxyManager.apply(requireContext().applicationContext, newProxy)
+            voiceInputRepo.saveApiKey(binding.inputVoiceInputApiKey.text?.toString().orEmpty())
 
             Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
         }

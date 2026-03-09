@@ -103,15 +103,43 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <TextView
-            android:id="@+id/text_asr_config_hint"
+            android:id="@+id/text_voice_input_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="ASR 配置已迁移：请在 Files 中编辑 workspace/radio_recordings/.env"
-            android:textSize="12sp"
+            android:text="Voice Input"
+            android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/layout_tavily_api_key" />
+
+        <TextView
+            android:id="@+id/text_voice_input_hint"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="实时语音输入使用阿里云百炼 Fun-ASR Realtime；默认会回退到根目录 .env 中的 DASHSCOPE_API_KEY。"
+            android:textSize="12sp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/text_voice_input_title" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_voice_input_api_key"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="DASHSCOPE_API_KEY"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/text_voice_input_hint">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/input_voice_input_api_key"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword" />
+        </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/switch_use_proxy"
@@ -121,7 +149,7 @@
             android:text="Use Proxy (HTTP/HTTPS)"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/text_asr_config_hint" />
+            app:layout_constraintTop_toBottomOf="@id/layout_voice_input_api_key" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/layout_http_proxy"

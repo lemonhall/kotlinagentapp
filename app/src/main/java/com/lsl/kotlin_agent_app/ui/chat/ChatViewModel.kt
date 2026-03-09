@@ -62,6 +62,18 @@ class ChatViewModel(
     private var lastWebviewTaskAnswer: String? = null
     private var lastDeepResearchReportLink: ReportLink? = null
 
+    fun setDraftText(text: String) {
+        if (_uiState.value.draftText == text) return
+        _uiState.value = _uiState.value.copy(draftText = text)
+    }
+
+    fun sendDraftMessage() {
+        val text = _uiState.value.draftText
+        if (text.isBlank()) return
+        _uiState.value = _uiState.value.copy(draftText = "")
+        sendUserMessage(text)
+    }
+
     fun syncSessionHistoryIfNeeded(force: Boolean = false) {
         val sid = getActiveSessionId.invoke()?.trim()?.ifEmpty { null }
         val sending = (activeSendJob?.isActive == true)

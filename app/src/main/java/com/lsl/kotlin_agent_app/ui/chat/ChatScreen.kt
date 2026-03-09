@@ -74,15 +74,19 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
+import com.lsl.kotlin_agent_app.voiceinput.VoiceInputUiState
 import java.io.File
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun ChatScreen(
     uiState: ChatUiState,
-    onSend: (String) -> Unit,
+    onDraftChange: (String) -> Unit,
+    onSendDraft: () -> Unit,
     onClear: () -> Unit,
     onStop: () -> Unit,
+    voiceInputState: VoiceInputUiState = VoiceInputUiState(),
+    onToggleVoiceInput: () -> Unit = {},
     onOpenReport: (String) -> Unit = {},
     onCloseReport: () -> Unit = {},
     webPreviewVisible: Boolean = false,
@@ -92,7 +96,6 @@ fun ChatScreen(
     onOpenWeb: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     var lastMessageCount by remember { mutableStateOf(0) }
     val focusManager = LocalFocusManager.current
@@ -216,18 +219,31 @@ fun ChatScreen(
         ) {
             OutlinedTextField(
                 modifier = Modifier.weight(1f),
-                value = inputText,
-                onValueChange = { inputText = it },
+                value = uiState.draftText,
+                onValueChange = onDraftChange,
+                enabled = !voiceInputState.isRecording && !voiceInputState.isStarting,
                 singleLine = true,
                 label = { Text("Message") },
+                trailingIcon = {
+                    IconButton(onClick = onToggleVoiceInput) {
+                        Icon(
+                            painter = painterResource(id = if (voiceInputState.isRecording || voiceInputState.isStarting) R.drawable.ic_stop else R.drawable.ic_record_24),
+                            contentDescription = if (voiceInputState.isRecording || voiceInputState.isStarting) "Stop voice input" else "Start voice input",
+                            tint =
+                                when {
+                                    voiceInputState.errorMessage != null -> MaterialTheme.colorScheme.error
+                                    voiceInputState.isRecording || voiceInputState.isStarting -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.primary
+                                },
+                        )
+                    }
+                },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions =
                     KeyboardActions(
                         onSend = {
-                            val toSend = inputText
-                            if (toSend.isBlank()) return@KeyboardActions
-                            inputText = ""
-                            onSend(toSend)
+                            if (uiState.draftText.isBlank()) return@KeyboardActions
+                            onSendDraft()
                             focusManager.clearFocus(force = true)
                             keyboardController?.hide()
                         },
@@ -248,12 +264,10 @@ fun ChatScreen(
                 }
             } else {
                 Button(
-                    enabled = inputText.isNotBlank(),
+                    enabled = uiState.draftText.isNotBlank() && !voiceInputState.isRecording && !voiceInputState.isStarting,
                     onClick = {
-                        val toSend = inputText
-                        if (toSend.isNotBlank()) {
-                            inputText = ""
-                            onSend(toSend)
+                        if (uiState.draftText.isNotBlank()) {
+                            onSendDraft()
                             focusManager.clearFocus(force = true)
                             keyboardController?.hide()
                         }
@@ -269,6 +283,20 @@ fun ChatScreen(
                     )
                 }
             }
+        }
+        val voiceStatusText =
+            when {
+                voiceInputState.errorMessage != null -> "语音输入：${voiceInputState.errorMessage}"
+                voiceInputState.isStarting -> "语音输入：准备中…"
+                voiceInputState.isRecording -> "语音输入：识别中…"
+                else -> null
+            }
+        if (voiceStatusText != null) {
+            Text(
+                text = voiceStatusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (voiceInputState.errorMessage != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }

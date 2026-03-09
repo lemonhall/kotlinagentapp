@@ -34,6 +34,7 @@ data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val toolTraces: List<ToolTraceEvent> = emptyList(),
     val reportLinksByMessageId: Map<String, ReportLink> = emptyMap(),
+    val draftText: String = "",
     val reportViewerPath: String? = null,
     val reportViewerText: String? = null,
     val reportViewerError: String? = null,

@@ -1,9 +1,12 @@
 package com.lsl.kotlin_agent_app.ui.chat
 
+import android.Manifest
 import android.os.Bundle
+import android.content.pm.PackageManager
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -13,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
@@ -24,11 +28,26 @@ import com.lsl.kotlin_agent_app.agent.tools.irc.IrcSessionRuntimeStore
 import com.lsl.kotlin_agent_app.config.AppPrefsKeys
 import com.lsl.kotlin_agent_app.config.SharedPreferencesLlmConfigRepository
 import com.lsl.kotlin_agent_app.ui.theme.KotlinAgentAppTheme
+import com.lsl.kotlin_agent_app.voiceinput.FunAsrRealtimeVoiceInputEngine
+import com.lsl.kotlin_agent_app.voiceinput.SharedPreferencesVoiceInputConfigRepository
+import com.lsl.kotlin_agent_app.voiceinput.VoiceInputController
 import com.lsl.kotlin_agent_app.web.WebPreviewCoordinator
 import com.lsl.kotlin_agent_app.web.WebViewControllerProvider
 import java.io.File
 
 class ChatFragment : Fragment() {
+    private lateinit var voiceInputController: VoiceInputController
+    private lateinit var voiceInputConfigRepo: SharedPreferencesVoiceInputConfigRepository
+
+    private val microphonePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startVoiceInput()
+            } else {
+                voiceInputController.setError("未授予麦克风权限")
+            }
+        }
+
     private val viewModel: ChatViewModel by viewModels {
         val prefs = requireContext().getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
         val repo = SharedPreferencesLlmConfigRepository(prefs)
@@ -52,6 +71,21 @@ class ChatFragment : Fragment() {
         }
     }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val prefs = requireContext().getSharedPreferences("kotlin-agent-app", android.content.Context.MODE_PRIVATE)
+        voiceInputConfigRepo = SharedPreferencesVoiceInputConfigRepository(prefs)
+        voiceInputController =
+            VoiceInputController(
+                engineFactory = {
+                    FunAsrRealtimeVoiceInputEngine(
+                        context = requireContext().applicationContext,
+                        config = voiceInputConfigRepo.get(),
+                    )
+                },
+            )
+    }
+
     override fun onResume() {
         super.onResume()
         viewModel.syncSessionHistoryIfNeeded()
@@ -68,6 +102,11 @@ class ChatFragment : Fragment() {
             sessionKey = sessionKey,
             force = false,
         )
+    }
+
+    override fun onStop() {
+        voiceInputController.stop()
+        super.onStop()
     }
 
     override fun onCreateView(
@@ -90,13 +129,17 @@ class ChatFragment : Fragment() {
                 }
 
                 val uiState by viewModel.uiState.collectAsState()
+                val voiceInputState by voiceInputController.state.collectAsState()
                 val frame by coordinator.frame.collectAsState()
                 KotlinAgentAppTheme {
                     ChatScreen(
                         uiState = uiState,
-                        onSend = viewModel::sendUserMessage,
+                        onDraftChange = viewModel::setDraftText,
+                        onSendDraft = viewModel::sendDraftMessage,
                         onClear = viewModel::clearConversation,
                         onStop = viewModel::stopSending,
+                        voiceInputState = voiceInputState,
+                        onToggleVoiceInput = ::toggleVoiceInput,
                         onOpenReport = viewModel::openReportViewer,
                         onCloseReport = viewModel::closeReportViewer,
                         webPreviewVisible = webPreviewVisible,
@@ -115,5 +158,32 @@ class ChatFragment : Fragment() {
                 }
             }
         }
+    }
+
+    private fun toggleVoiceInput() {
+        val state = voiceInputController.state.value
+        if (state.isRecording || state.isStarting) {
+            voiceInputController.stop()
+            return
+        }
+
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startVoiceInput()
+        } else {
+            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun startVoiceInput() {
+        val config = voiceInputConfigRepo.get()
+        if (config.apiKey.isBlank()) {
+            voiceInputController.setError("请先在 Settings 的 Voice Input 中填写 DASHSCOPE_API_KEY")
+            return
+        }
+
+        voiceInputController.start(
+            initialDraft = viewModel.uiState.value.draftText,
+            onDraftChanged = viewModel::setDraftText,
+        )
     }
 }

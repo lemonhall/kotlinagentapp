@@ -129,6 +129,36 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun sendDraftMessage_usesDraftAndClearsInput() = runTest {
+        val agent =
+            object : ChatAgent {
+                override fun streamReply(prompt: String): Flow<Event> =
+                    flow {
+                        emit(AssistantMessage(text = "ok"))
+                        emit(Result(finalText = "ok", sessionId = "s"))
+                    }
+
+                override fun clearSession() = Unit
+            }
+
+        val vm =
+            ChatViewModel(
+                agent = agent,
+                files = files,
+                getActiveSessionId = { null },
+                storeRootDir = storeRootDir,
+                agentDispatcher = Dispatchers.Main,
+            )
+
+        vm.setDraftText("你好")
+        vm.sendDraftMessage()
+
+        assertEquals("", vm.uiState.value.draftText)
+        assertEquals(ChatRole.User, vm.uiState.value.messages.first().role)
+        assertEquals("你好", vm.uiState.value.messages.first().content)
+    }
+
+    @Test
     fun clearConversation_clearsUiStateAndResetsSession() = runTest {
         var cleared = false
         val agent =
