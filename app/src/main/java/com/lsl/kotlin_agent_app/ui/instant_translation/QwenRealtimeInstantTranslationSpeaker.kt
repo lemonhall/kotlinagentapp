@@ -19,9 +19,7 @@ import java.util.Base64
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal object QwenRealtimeTtsDefaults {
@@ -29,8 +27,11 @@ internal object QwenRealtimeTtsDefaults {
     const val WEBSOCKET_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
     const val VOICE = "Cherry"
     const val SAMPLE_RATE_HZ = 24_000
-    const val AUDIO_TIMEOUT_MS = 20_000L
+    const val IDLE_TIMEOUT_MS = 20_000L
+    const val MAX_TOTAL_TIMEOUT_MS = 180_000L
     const val CLOSE_TIMEOUT_MS = 3_000L
+    const val PLAYBACK_DRAIN_SLACK_MS = 5_000L
+    const val PLAYBACK_POLL_MS = 16L
 }
 
 internal data class QwenRealtimeTtsRequest(
@@ -40,7 +41,8 @@ internal data class QwenRealtimeTtsRequest(
     val model: String = QwenRealtimeTtsDefaults.MODEL,
     val websocketUrl: String = QwenRealtimeTtsDefaults.WEBSOCKET_URL,
     val voice: String = QwenRealtimeTtsDefaults.VOICE,
-    val timeoutMs: Long = QwenRealtimeTtsDefaults.AUDIO_TIMEOUT_MS,
+    val idleTimeoutMs: Long = QwenRealtimeTtsDefaults.IDLE_TIMEOUT_MS,
+    val maxTotalTimeoutMs: Long = QwenRealtimeTtsDefaults.MAX_TOTAL_TIMEOUT_MS,
 )
 
 internal interface QwenRealtimeTtsClient {
@@ -60,6 +62,7 @@ internal class DashScopeQwenRealtimeTtsClient(
         withContext(ioDispatcher) {
             val responseDone = CompletableDeferred<Unit>()
             val sessionClosed = CompletableDeferred<Unit>()
+            val activityTimeout = QwenRealtimeTtsActivityTimeout()
             val param =
                 QwenTtsRealtimeParam.builder()
                     .model(request.model)
@@ -70,8 +73,13 @@ internal class DashScopeQwenRealtimeTtsClient(
                 QwenTtsRealtime(
                     param,
                     object : QwenTtsRealtimeCallback() {
+                        override fun onOpen() {
+                            activityTimeout.markActivity()
+                        }
+
                         override fun onEvent(message: JsonObject) {
                             try {
+                                activityTimeout.markActivity()
                                 when (message.get("type")?.asString.orEmpty()) {
                                     "response.audio.delta" -> {
                                         val audioBase64 = message.get("delta")?.asString.orEmpty()
@@ -99,6 +107,7 @@ internal class DashScopeQwenRealtimeTtsClient(
                             code: Int,
                             reason: String,
                         ) {
+                            activityTimeout.markActivity()
                             if (!sessionClosed.isCompleted) sessionClosed.complete(Unit)
                             if (!responseDone.isCompleted) responseDone.complete(Unit)
                         }
@@ -116,11 +125,11 @@ internal class DashScopeQwenRealtimeTtsClient(
                 )
                 realtime.appendText(request.text)
                 realtime.commit()
-                withTimeout(request.timeoutMs) {
-                    responseDone.await()
-                }
-            } catch (t: TimeoutCancellationException) {
-                throw IllegalStateException("Qwen realtime TTS timed out", t)
+                activityTimeout.awaitDone(
+                    done = responseDone,
+                    idleTimeoutMs = request.idleTimeoutMs,
+                    maxTotalMs = request.maxTotalTimeoutMs,
+                )
             } finally {
                 runCatching { realtime.finish() }
                 withTimeoutOrNull(QwenRealtimeTtsDefaults.CLOSE_TIMEOUT_MS) {
@@ -193,10 +202,13 @@ internal class AudioTrackInstantTranslationAudioPlayer(
 
     override fun awaitPlaybackComplete() {
         if (!started || totalFramesWritten <= 0L) return
-        val deadline = SystemClock.elapsedRealtime() + QwenRealtimeTtsDefaults.AUDIO_TIMEOUT_MS
+        val playedFrames = audioTrack.playbackHeadPosition.toLong().coerceAtLeast(0L)
+        val remainingFrames = (totalFramesWritten - playedFrames).coerceAtLeast(0L)
+        val remainingMs = (remainingFrames * 1000L) / sampleRateHz
+        val deadline = SystemClock.elapsedRealtime() + remainingMs + QwenRealtimeTtsDefaults.PLAYBACK_DRAIN_SLACK_MS
         while (SystemClock.elapsedRealtime() < deadline) {
             if (audioTrack.playbackHeadPosition.toLong() >= totalFramesWritten) break
-            Thread.sleep(16L)
+            Thread.sleep(QwenRealtimeTtsDefaults.PLAYBACK_POLL_MS)
         }
         runCatching { audioTrack.stop() }
     }
