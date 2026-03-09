@@ -65,6 +65,8 @@ class AgentsWorkspace(
         mkdirsIfMissing(".agents/workspace/qqmail/sent")
         mkdirsIfMissing(".agents/workspace/irc")
         mkdirsIfMissing(".agents/workspace/ssh")
+        mkdirsIfMissing(".agents/workspace/instant_translation")
+        runCatching { deletePath(".agents/workspace/vm", recursive = true) }
 
         // PRD-0034: root placeholders (Everything is FileSystem).
         ensureTextFileIfMissing(
@@ -92,6 +94,19 @@ class AgentsWorkspace(
                     appendLine("- note: ready")
                     appendLine()
                     appendLine("提示：录音产物按会话目录落盘。")
+                },
+        )
+        ensureTextFileIfMissing(
+            path = ".agents/workspace/instant_translation/_STATUS.md",
+            content =
+                buildString {
+                    appendLine("# instant_translation 状态")
+                    appendLine()
+                    appendLine("- ok: true")
+                    appendLine("- at: ${(System.currentTimeMillis() / 1000L).coerceAtLeast(0L)}")
+                    appendLine("- note: ready")
+                    appendLine()
+                    appendLine("提示：这里用于旅行、对话等场景的即时翻译。")
                 },
         )
         ensureTextFileIfMissing(

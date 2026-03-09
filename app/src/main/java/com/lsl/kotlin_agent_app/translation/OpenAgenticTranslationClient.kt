@@ -15,6 +15,7 @@ import me.lemonhall.openagentic.sdk.providers.ProviderInvalidResponseException
 import me.lemonhall.openagentic.sdk.providers.ProviderRateLimitException
 import me.lemonhall.openagentic.sdk.providers.ProviderTimeoutException
 import me.lemonhall.openagentic.sdk.providers.ResponsesRequest
+import me.lemonhall.openagentic.sdk.providers.StreamingResponsesProvider
 import me.lemonhall.openagentic.sdk.runtime.ProviderStreamEvent
 
 internal class OpenAgenticTranslationClient(
@@ -22,13 +23,12 @@ internal class OpenAgenticTranslationClient(
     private val apiKey: String,
     private val model: String,
     private val maxBatchChars: Int = 8_000,
-) : TranslationClient {
-    private val provider =
+    private val provider: StreamingResponsesProvider =
         OpenAIResponsesHttpProvider(
             baseUrl = baseUrl.trim().ifBlank { "https://api.openai.com/v1" },
             defaultStore = false,
-        )
-
+        ),
+) : TranslationClient {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
     override suspend fun translateBatch(

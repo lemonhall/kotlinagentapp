@@ -515,6 +515,7 @@ class FilesViewModel(
         cur = decorateMusicEntries(cwd = cwd, entries = cur)
         cur = decorateRadioEntries(cwd = cwd, entries = cur)
         cur = decorateRadioRecordingEntries(cwd = cwd, entries = cur)
+        cur = decorateInstantTranslationEntries(cwd = cwd, entries = cur)
         cur = decorateTopLevelDirEmojis(cwd = cwd, entries = cur)
         cur = decorateEnvFiles(cwd = cwd, entries = cur)
         return cur
@@ -575,6 +576,7 @@ class FilesViewModel(
                         "ledger" to "📒",
                         "qqmail" to "📧",
                         "ssh" to "💻",
+                        "instant_translation" to "🌐",
                     )
                 RadioRepository.RADIOS_DIR ->
                     mapOf(
@@ -739,6 +741,25 @@ class FilesViewModel(
                 }
 
             e.copy(displayName = displayName, subtitle = subtitle)
+        }
+    }
+
+    private fun decorateInstantTranslationEntries(
+        cwd: String,
+        entries: List<AgentsDirEntry>,
+    ): List<AgentsDirEntry> {
+        val normalized = cwd.replace('\\', '/').trim().trimEnd('/')
+        if (normalized != ".agents/workspace") return entries
+        return entries.map { e ->
+            if (e.type == AgentsDirEntryType.Dir && e.name == "instant_translation") {
+                e.copy(
+                    displayName = "instant_translation（即时翻译）",
+                    subtitle = "旅行场景实时语音翻译",
+                    iconEmoji = "🌐",
+                )
+            } else {
+                e
+            }
         }
     }
 

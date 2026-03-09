@@ -44,6 +44,29 @@ class AgentsWorkspaceTest {
     }
 
     @Test
+    fun ensureInitialized_createsInstantTranslationWorkspaceDir() {
+        val context = RuntimeEnvironment.getApplication()
+        val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
+
+        val dir = File(context.filesDir, ".agents/workspace/instant_translation")
+        assertTrue(dir.exists() && dir.isDirectory)
+    }
+
+    @Test
+    fun ensureInitialized_removesLegacyVmWorkspaceDir() {
+        val context = RuntimeEnvironment.getApplication()
+        val legacyDir = File(context.filesDir, ".agents/workspace/vm")
+        legacyDir.mkdirs()
+        File(legacyDir, "keep.txt").writeText("legacy", Charsets.UTF_8)
+
+        val ws = AgentsWorkspace(context)
+        ws.ensureInitialized()
+
+        assertTrue(!legacyDir.exists())
+    }
+
+    @Test
     fun movePath_movesFileWithinAgents() {
         val context = RuntimeEnvironment.getApplication()
         val ws = AgentsWorkspace(context)
