@@ -18,7 +18,7 @@ class InstantTranslationViewModelTest {
 
     @Test
     fun partialTranscript_updatesListeningPreview() {
-        val vm = InstantTranslationViewModel(translator = FakeInstantTranslator(), ioDispatcher = Dispatchers.Main)
+        val vm = InstantTranslationViewModel(translator = FakeInstantTranslator(), speaker = NoopSpeaker(), ioDispatcher = Dispatchers.Main)
 
         vm.onPartialTranscript("你好")
 
@@ -27,13 +27,14 @@ class InstantTranslationViewModelTest {
 
     @Test
     fun finalTranscript_translatesAndAppendsTurn() = runTest {
-        val vm = InstantTranslationViewModel(translator = FakeInstantTranslator(), ioDispatcher = Dispatchers.Main)
+        val vm = InstantTranslationViewModel(translator = FakeInstantTranslator(), speaker = NoopSpeaker(), ioDispatcher = Dispatchers.Main)
 
         vm.onFinalTranscript("你好")
         advanceUntilIdle()
 
         assertEquals(1, vm.uiState.value.turns.size)
         assertEquals("你好", vm.uiState.value.turns[0].sourceText)
+        assertEquals("en", vm.uiState.value.turns[0].targetLanguageCode)
         assertEquals("Hello", vm.uiState.value.turns[0].translatedText)
         assertFalse(vm.uiState.value.turns[0].isPending)
         assertEquals("", vm.uiState.value.listeningPreview)
@@ -48,6 +49,7 @@ class InstantTranslationViewModelTest {
                         error("provider missing")
                     }
                 },
+                speaker = NoopSpeaker(),
                 ioDispatcher = Dispatchers.Main,
             )
 
@@ -61,7 +63,7 @@ class InstantTranslationViewModelTest {
 
     @Test
     fun setTargetLanguage_updatesSelection() {
-        val vm = InstantTranslationViewModel(translator = FakeInstantTranslator(), ioDispatcher = Dispatchers.Main)
+        val vm = InstantTranslationViewModel(translator = FakeInstantTranslator(), speaker = NoopSpeaker(), ioDispatcher = Dispatchers.Main)
 
         vm.setTargetLanguage(code = "ja", label = "日本语")
 
@@ -76,5 +78,9 @@ class InstantTranslationViewModelTest {
                 else -> "[$targetLanguage] $text"
             }
         }
+    }
+
+    private class NoopSpeaker : InstantTranslationSpeaker {
+        override suspend fun speak(text: String, languageCode: String) = Unit
     }
 }

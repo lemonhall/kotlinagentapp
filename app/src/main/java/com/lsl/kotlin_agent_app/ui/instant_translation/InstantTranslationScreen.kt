@@ -149,7 +149,11 @@ fun InstantTranslationScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(state.turns, key = { it.id }) { turn ->
-                        InstantTranslationTurnCard(turn = turn)
+                        InstantTranslationTurnCard(
+                            turn = turn,
+                            isPlaying = state.playingTurnId == turn.id,
+                            onPlay = { vm.playTurn(turn.id) },
+                        )
                     }
                 }
             }
@@ -158,7 +162,11 @@ fun InstantTranslationScreen(
 }
 
 @Composable
-private fun InstantTranslationTurnCard(turn: InstantTranslationTurn) {
+private fun InstantTranslationTurnCard(
+    turn: InstantTranslationTurn,
+    isPlaying: Boolean,
+    onPlay: () -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
@@ -184,6 +192,14 @@ private fun InstantTranslationTurnCard(turn: InstantTranslationTurn) {
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
+                if (turn.translatedText.isNotBlank()) {
+                    TextButton(
+                        onClick = onPlay,
+                        enabled = !isPlaying,
+                    ) {
+                        Text(if (isPlaying) "\u64ad\u653e\u4e2d\u2026" else "\u64ad\u653e")
+                    }
+                }
             }
         }
     }

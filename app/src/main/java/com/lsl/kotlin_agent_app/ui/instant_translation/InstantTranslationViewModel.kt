@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 
 class InstantTranslationViewModel(
     private val translator: InstantTranslator,
+    private val speaker: InstantTranslationSpeaker,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(InstantTranslationUiState())
@@ -38,11 +39,19 @@ class InstantTranslationViewModel(
 
         val turnId = nextTurnId++
         val targetLanguage = _uiState.value.targetLanguageCode
+        val targetLanguageLabel = _uiState.value.targetLanguageLabel
         _uiState.update {
             it.copy(
                 listeningPreview = "",
                 errorMessage = null,
-                turns = it.turns + InstantTranslationTurn(id = turnId, sourceText = sourceText),
+                turns =
+                    it.turns +
+                        InstantTranslationTurn(
+                            id = turnId,
+                            sourceText = sourceText,
+                            targetLanguageCode = targetLanguage,
+                            targetLanguageLabel = targetLanguageLabel,
+                        ),
             )
         }
 
@@ -103,8 +112,41 @@ class InstantTranslationViewModel(
             it.copy(
                 listeningPreview = "",
                 turns = emptyList(),
+                playingTurnId = null,
                 errorMessage = null,
             )
+        }
+    }
+
+    fun playTurn(turnId: Long) {
+        val turn =
+            _uiState.value.turns.firstOrNull { it.id == turnId }
+                ?: return
+        val translated = turn.translatedText.trim()
+        if (turn.isPending || translated.isBlank()) return
+
+        _uiState.update {
+            it.copy(
+                playingTurnId = turnId,
+                errorMessage = null,
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                speaker.speak(
+                    text = translated,
+                    languageCode = turn.targetLanguageCode,
+                )
+            } catch (t: Throwable) {
+                _uiState.update {
+                    it.copy(errorMessage = t.message ?: "\u64ad\u653e TTS \u5931\u8d25")
+                }
+            } finally {
+                _uiState.update { state ->
+                    state.copy(playingTurnId = if (state.playingTurnId == turnId) null else state.playingTurnId)
+                }
+            }
         }
     }
 
@@ -122,6 +164,7 @@ class InstantTranslationViewModel(
                 @Suppress("UNCHECKED_CAST")
                 return InstantTranslationViewModel(
                     translator = OpenAgenticInstantTranslator(llmConfigRepository = llmConfigRepository),
+                    speaker = AndroidInstantTranslationSpeaker(appContext = appContext),
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: $modelClass")
