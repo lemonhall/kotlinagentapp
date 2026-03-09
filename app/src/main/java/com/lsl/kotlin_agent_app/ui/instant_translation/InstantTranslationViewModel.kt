@@ -134,10 +134,7 @@ class InstantTranslationViewModel(
 
         viewModelScope.launch {
             try {
-                speaker.speak(
-                    text = translated,
-                    languageCode = turn.targetLanguageCode,
-                )
+                speaker.speak(turn)
             } catch (t: Throwable) {
                 _uiState.update {
                     it.copy(errorMessage = t.message ?: "\u64ad\u653e TTS \u5931\u8d25")
@@ -156,6 +153,7 @@ class InstantTranslationViewModel(
 
     internal class Factory(
         private val appContext: Context,
+        private val speaker: InstantTranslationSpeaker = AndroidInstantTranslationSpeaker(appContext = appContext),
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(InstantTranslationViewModel::class.java)) {
@@ -164,7 +162,7 @@ class InstantTranslationViewModel(
                 @Suppress("UNCHECKED_CAST")
                 return InstantTranslationViewModel(
                     translator = OpenAgenticInstantTranslator(llmConfigRepository = llmConfigRepository),
-                    speaker = AndroidInstantTranslationSpeaker(appContext = appContext),
+                    speaker = speaker,
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: $modelClass")

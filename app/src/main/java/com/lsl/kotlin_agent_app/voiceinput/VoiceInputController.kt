@@ -13,6 +13,8 @@ data class VoiceInputUiState(
 interface VoiceInputListener {
     fun onListening()
 
+    fun onAudioFrame(bytes: ByteArray) = Unit
+
     fun onPartialTranscript(text: String)
 
     fun onFinalTranscript(text: String)
@@ -37,12 +39,14 @@ class VoiceInputController(
     private var activeEngine: VoiceInputEngine? = null
     private var draftComposer: VoiceInputDraftComposer? = null
     private var onDraftChanged: ((String) -> Unit)? = null
+    private var onAudioFrame: ((ByteArray) -> Unit)? = null
     private var onPartialTranscript: ((String) -> Unit)? = null
     private var onFinalTranscript: ((String) -> Unit)? = null
 
     fun start(
         initialDraft: String,
         onDraftChanged: (String) -> Unit = {},
+        onAudioFrame: ((ByteArray) -> Unit)? = null,
         onPartialTranscript: ((String) -> Unit)? = null,
         onFinalTranscript: ((String) -> Unit)? = null,
     ) {
@@ -50,6 +54,7 @@ class VoiceInputController(
 
         draftComposer = VoiceInputDraftComposer(initialText = initialDraft)
         this.onDraftChanged = onDraftChanged
+        this.onAudioFrame = onAudioFrame
         this.onPartialTranscript = onPartialTranscript
         this.onFinalTranscript = onFinalTranscript
         _state.value = VoiceInputUiState(isStarting = true)
@@ -61,6 +66,10 @@ class VoiceInputController(
                 object : VoiceInputListener {
                     override fun onListening() {
                         _state.value = _state.value.copy(isStarting = false, isRecording = true, errorMessage = null)
+                    }
+
+                    override fun onAudioFrame(bytes: ByteArray) {
+                        this@VoiceInputController.onAudioFrame?.invoke(bytes)
                     }
 
                     override fun onPartialTranscript(text: String) {
@@ -110,6 +119,7 @@ class VoiceInputController(
     private fun clearCallbacks() {
         draftComposer = null
         onDraftChanged = null
+        onAudioFrame = null
         onPartialTranscript = null
         onFinalTranscript = null
     }

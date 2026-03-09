@@ -120,7 +120,9 @@ class FunAsrRealtimeVoiceInputEngine(
                     while (!stopped.get()) {
                         val read = record.read(buffer, 0, buffer.size)
                         if (read > 0) {
-                            val audioBuffer = ByteBuffer.wrap(buffer.copyOf(read))
+                            val frame = buffer.copyOf(read)
+                            listener.onAudioFrame(frame)
+                            val audioBuffer = ByteBuffer.wrap(frame)
                             recognition.sendAudioFrame(audioBuffer)
                         } else if (read == AudioRecord.ERROR_BAD_VALUE || read == AudioRecord.ERROR_INVALID_OPERATION) {
                             error("microphone read failed: $read")

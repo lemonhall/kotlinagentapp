@@ -4,7 +4,6 @@ import com.lsl.kotlin_agent_app.agent.AgentsDirEntry
 import com.lsl.kotlin_agent_app.agent.AgentsDirEntryType
 
 object DashboardInstantTranslationRules {
-
     fun isInstantTranslationDirAtWorkspaceRoot(
         cwd: String,
         entry: AgentsDirEntry,
@@ -18,6 +17,7 @@ object DashboardInstantTranslationRules {
     fun instantTranslationDirLongClickActions(): Array<String> {
         return arrayOf(
             "\u8fdb\u5165\u76ee\u5f55",
+            "\u6253\u5f00\u56de\u6eaf\u76ee\u5f55",
             "\u6253\u5f00\u5373\u65f6\u7ffb\u8bd1",
             "\u526a\u5207",
             "\u590d\u5236",

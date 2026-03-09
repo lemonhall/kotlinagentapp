@@ -10,7 +10,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.ViewModelProvider
+import kotlinx.coroutines.launch
 import com.lsl.kotlin_agent_app.ui.dashboard.TranslationLanguagePickerDialog
 import com.lsl.kotlin_agent_app.ui.theme.KotlinAgentAppTheme
 import com.lsl.kotlin_agent_app.voiceinput.FunAsrRealtimeVoiceInputEngine
@@ -20,7 +23,9 @@ import com.lsl.kotlin_agent_app.voiceinput.VoiceInputController
 class InstantTranslationActivity : ComponentActivity() {
     private lateinit var voiceInputController: VoiceInputController
     private lateinit var voiceInputConfigRepo: SharedPreferencesVoiceInputConfigRepository
+    private lateinit var archiveManager: InstantTranslationArchiveManager
     private lateinit var vm: InstantTranslationViewModel
+    private var archiveTurnOffset: Int = 0
 
     private val microphonePermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -37,6 +42,7 @@ class InstantTranslationActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("kotlin-agent-app", MODE_PRIVATE)
         voiceInputConfigRepo = SharedPreferencesVoiceInputConfigRepository(prefs)
+        archiveManager = InstantTranslationArchiveManager(applicationContext)
         voiceInputController =
             VoiceInputController(
                 engineFactory = {
@@ -49,8 +55,19 @@ class InstantTranslationActivity : ComponentActivity() {
         vm =
             ViewModelProvider(
                 this,
-                InstantTranslationViewModel.Factory(applicationContext),
+                InstantTranslationViewModel.Factory(
+                    appContext = applicationContext,
+                    speaker = AndroidInstantTranslationSpeaker(applicationContext, archiveManager = archiveManager),
+                ),
             )[InstantTranslationViewModel::class.java]
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                vm.uiState.collect { state ->
+                    archiveManager.writeTurns(state.turns.drop(archiveTurnOffset))
+                }
+            }
+        }
 
         val composeView =
             ComposeView(this).apply {
@@ -71,6 +88,7 @@ class InstantTranslationActivity : ComponentActivity() {
 
     override fun onDestroy() {
         voiceInputController.stop()
+        archiveManager.finishSession()
         super.onDestroy()
     }
 
@@ -78,6 +96,7 @@ class InstantTranslationActivity : ComponentActivity() {
         val state = voiceInputController.state.value
         if (state.isRecording || state.isStarting) {
             voiceInputController.stop()
+            archiveManager.finishSession()
             return
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -93,9 +112,16 @@ class InstantTranslationActivity : ComponentActivity() {
             vm.setError("\u8bf7\u5148\u5728 Settings \u7684 Voice Input \u4e2d\u586b\u5199 DASHSCOPE_API_KEY")
             return
         }
+        archiveTurnOffset = vm.uiState.value.turns.size
+        archiveManager.startNewSession(
+            targetLanguageCode = vm.uiState.value.targetLanguageCode,
+            targetLanguageLabel = vm.uiState.value.targetLanguageLabel,
+            sampleRateHz = config.sampleRateHz,
+        )
         voiceInputController.start(
             initialDraft = "",
             onDraftChanged = {},
+            onAudioFrame = archiveManager::appendAudioFrame,
             onPartialTranscript = vm::onPartialTranscript,
             onFinalTranscript = vm::onFinalTranscript,
         )

@@ -472,9 +472,8 @@ class DashboardFragment : Fragment() {
                         MaterialAlertDialogBuilder(requireContext())
                             .setTitle(entry.name)
                             .setItems(actions) { _, which ->
-                                val action = actions.getOrNull(which) ?: return@setItems
-                                when (action) {
-                                    "进入目录" -> filesViewModel.goInto(entry)
+                                when (actions.getOrNull(which) ?: return@setItems) {
+                                    "进入目录", "打开回溯目录" -> filesViewModel.goInto(entry)
                                     "打开即时翻译" -> startActivity(InstantTranslationActivity.intentOf(requireContext()))
                                     "剪切" -> filesViewModel.cutEntry(entry)
                                     "复制" -> filesViewModel.copyEntry(entry)
@@ -498,7 +497,7 @@ class DashboardFragment : Fragment() {
                                     "删除" ->
                                         MaterialAlertDialogBuilder(requireContext())
                                             .setTitle("删除确认")
-                                            .setMessage("确定删除 " + entry.name + " 吗？")
+                                            .setMessage("确定删除 ${entry.name} 吗？")
                                             .setNegativeButton("取消", null)
                                             .setPositiveButton("删除") { _, _ ->
                                                 filesViewModel.deleteEntry(entry, recursive = true)
@@ -509,7 +508,6 @@ class DashboardFragment : Fragment() {
                             .show()
                         return@FilesEntryAdapter
                     }
-
                     val actions =
                         if (isRadioInRadios) {
                             if (isRadioInFavorites) {

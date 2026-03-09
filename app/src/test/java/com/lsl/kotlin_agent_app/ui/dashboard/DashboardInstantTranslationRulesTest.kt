@@ -30,9 +30,10 @@ class DashboardInstantTranslationRulesTest {
     }
 
     @Test
-    fun instantTranslationDirLongClickActions_containsOpenAction() {
+    fun instantTranslationDirLongClickActions_containsArchiveAndOpenActions() {
         val actions = DashboardInstantTranslationRules.instantTranslationDirLongClickActions().toList()
-        assertTrue(actions.contains("进入目录"))
-        assertTrue(actions.contains("打开即时翻译"))
+        assertTrue(actions.contains("\u8fdb\u5165\u76ee\u5f55"))
+        assertTrue(actions.contains("\u6253\u5f00\u56de\u6eaf\u76ee\u5f55"))
+        assertTrue(actions.contains("\u6253\u5f00\u5373\u65f6\u7ffb\u8bd1"))
     }
 }

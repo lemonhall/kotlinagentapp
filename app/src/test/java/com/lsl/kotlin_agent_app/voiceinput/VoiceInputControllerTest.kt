@@ -46,6 +46,19 @@ class VoiceInputControllerTest {
         assertTrue(controller.state.value.errorMessage?.contains("missing api key") == true)
     }
 
+    @Test
+    fun start_audioFramesAreForwarded() = runTest {
+        val engine = FakeVoiceInputEngine()
+        val controller = VoiceInputController(engineFactory = { engine })
+        val frames = mutableListOf<ByteArray>()
+
+        controller.start(initialDraft = "", onDraftChanged = { }, onAudioFrame = { frames += it })
+        engine.emitAudioFrame(byteArrayOf(1, 2, 3))
+
+        assertEquals(1, frames.size)
+        assertTrue(frames.single().contentEquals(byteArrayOf(1, 2, 3)))
+    }
+
     private class FakeVoiceInputEngine : VoiceInputEngine {
         private var listener: VoiceInputListener? = null
 
@@ -68,6 +81,10 @@ class VoiceInputControllerTest {
 
         fun emitStopped() {
             listener?.onStopped()
+        }
+
+        fun emitAudioFrame(bytes: ByteArray) {
+            listener?.onAudioFrame(bytes)
         }
     }
 }
