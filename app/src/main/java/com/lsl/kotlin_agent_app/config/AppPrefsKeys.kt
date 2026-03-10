@@ -21,4 +21,7 @@ object AppPrefsKeys {
     const val MUSIC_LAST_NONZERO_VOLUME = "music.last_nonzero_volume"
 
     const val SIMINT_AUDIO_CAPTURE_MODE = "simint.audio_capture_mode"
+
+    const val RADIO_LIVE_SIMINT_TARGET_LANG_CODE = "radio.live_simint.target_lang_code"
+    const val RADIO_LIVE_SIMINT_TARGET_LANG_LABEL = "radio.live_simint.target_lang_label"
 }

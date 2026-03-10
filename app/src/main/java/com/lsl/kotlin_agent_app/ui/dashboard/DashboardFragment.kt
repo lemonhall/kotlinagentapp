@@ -80,6 +80,8 @@ import com.lsl.kotlin_agent_app.ui.qqmail.QqMailActivity
 import com.lsl.kotlin_agent_app.ui.ssh.SshActivity
 import com.lsl.kotlin_agent_app.ui.instant_translation.InstantTranslationActivity
 import com.lsl.kotlin_agent_app.ui.simultaneous_interpretation.SimultaneousInterpretationActivity
+import com.lsl.kotlin_agent_app.radio_live_simint.RadioLiveSimintController
+import com.lsl.kotlin_agent_app.voiceinput.SharedPreferencesVoiceInputConfigRepository
 
 class DashboardFragment : Fragment() {
 
@@ -111,6 +113,11 @@ class DashboardFragment : Fragment() {
 
     private val recordingByAgentsPath = linkedMapOf<String, String>()
 
+    private var radioLiveSimintController: RadioLiveSimintController? = null
+    private var radioLiveResumeOriginal: Boolean = false
+    private var radioLiveAgentsPath: String? = null
+    private var lastRadioLiveErrorToast: String? = null
+
     private val importLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) {
@@ -125,6 +132,13 @@ class DashboardFragment : Fragment() {
     ): View {
         MusicPlayerControllerProvider.installAppContext(requireContext().applicationContext)
         val musicController = MusicPlayerControllerProvider.get()
+        val prefs = requireContext().getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
+        val voiceInputRepo = SharedPreferencesVoiceInputConfigRepository(prefs)
+        radioLiveSimintController =
+            RadioLiveSimintController(
+                context = requireContext().applicationContext,
+                apiKeyProvider = { voiceInputRepo.get().apiKey },
+            )
 
         val filesViewModel =
             ViewModelProvider(this, FilesViewModel.Factory(requireContext()))
@@ -759,19 +773,21 @@ class DashboardFragment : Fragment() {
             showMusicTroubleshootingDialog()
         }
         binding.buttonMusicPlayPause.setOnClickListener {
-            musicController.togglePlayPause()
+            onMusicPlayPauseClicked(musicController)
         }
         binding.buttonMusicPrev.setOnClickListener {
-            musicController.prev()
+            onMusicPrevClicked(musicController)
         }
         binding.buttonMusicNext.setOnClickListener {
-            musicController.next()
+            onMusicNextClicked(musicController)
         }
         binding.buttonMusicStop.setOnClickListener {
-            musicController.stop()
+            onMusicStopClicked(musicController)
         }
         binding.buttonMusicRecord.setOnClickListener {
-            toggleRecordingFromUi()
+            if (!isRadioLiveSimintActive()) {
+                toggleRecordingFromUi()
+            }
         }
         binding.textMusicSubtitle.setOnClickListener {
             val cur = musicController.state.value.playbackMode
@@ -895,29 +911,67 @@ class DashboardFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                musicController.state.collect { st ->
-                    updateMiniBar(st)
-                    updateMusicSheetIfVisible(st)
-                    val cwd = filesViewModel.state.value?.cwd.orEmpty()
-                    val err = st.errorMessage?.trim()?.ifBlank { null }
-                    if (err != null && err != lastPlaybackErrorToast) {
-                        lastPlaybackErrorToast = err
-                        Toast.makeText(requireContext(), "播放失败：$err", Toast.LENGTH_SHORT).show()
-                    }
-                    if (err == null) lastPlaybackErrorToast = null
+                launch {
+                    musicController.state.collect { st ->
+                        updateMiniBar(st)
+                        updateMusicSheetIfVisible(st)
+                        val cwd = filesViewModel.state.value?.cwd.orEmpty()
+                        val err = st.errorMessage?.trim()?.ifBlank { null }
+                        if (err != null && err != lastPlaybackErrorToast) {
+                            lastPlaybackErrorToast = err
+                            Toast.makeText(requireContext(), "播放失败：$err", Toast.LENGTH_SHORT).show()
+                        }
+                        if (err == null) lastPlaybackErrorToast = null
 
-                    val inMusics = isInMusicsTree(cwd)
-                    val inRadios = isInRadiosTree(cwd)
-                    if (inMusics || inRadios) {
-                        val base =
-                            if (inMusics) {
-                                "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
-                            } else {
-                                "仅 radios/ 启用电台目录与 .radio 播放；点“刷新”可强制拉取目录。"
+                        val live = radioLiveSimintController?.state?.value
+                        val inMusics = isInMusicsTree(cwd)
+                        val inRadios = isInRadiosTree(cwd)
+                        if (inMusics || inRadios) {
+                            val base =
+                                if (inMusics) {
+                                    "仅 musics/ 启用 mp3 播放与 metadata；后台不断播可点右上角“排障”。"
+                                } else {
+                                    "仅 radios/ 启用电台目录与 .radio 播放；点“刷新”可强制拉取目录。"
+                                }
+                            val warn = st.warningMessage?.trim()?.ifBlank { null }
+                            val liveLine =
+                                if (live != null && (live.isConnecting || live.isRunning)) {
+                                    "Live 同传中：${live.targetLanguageLabel}"
+                                } else {
+                                    null
+                                }
+                            val lines = listOfNotNull(base, liveLine, warn, err?.let { "错误：$it" })
+                            binding.textMusicHint.text = lines.joinToString("\n").trim()
+                        }
+                    }
+                }
+
+                launch {
+                    val ctrl = radioLiveSimintController ?: return@launch
+                    ctrl.state.collect { live ->
+                        // Re-render UI as Live state changes.
+                        updateMiniBar(musicController.state.value)
+                        updateMusicSheetIfVisible(musicController.state.value)
+                        val err = live.errorMessage?.trim()?.ifBlank { null }
+                        if (err != null && err != lastRadioLiveErrorToast) {
+                            lastRadioLiveErrorToast = err
+                            Toast.makeText(requireContext(), "Live 同传失败：$err", Toast.LENGTH_SHORT).show()
+                        }
+                        if (err == null) lastRadioLiveErrorToast = null
+
+                        val activeNow = live.isConnecting || live.isRunning
+                        if (!activeNow && radioLiveResumeOriginal) {
+                            val agentsPath = radioLiveAgentsPath?.trim()?.ifBlank { null }
+                            val now = musicController.state.value
+                            if (agentsPath != null && now.agentsPath == agentsPath && !now.isPlaying) {
+                                radioLiveResumeOriginal = false
+                                radioLiveAgentsPath = null
+                                musicController.togglePlayPause()
+                            } else if (agentsPath != null && now.agentsPath != agentsPath) {
+                                radioLiveResumeOriginal = false
+                                radioLiveAgentsPath = null
                             }
-                        val warn = st.warningMessage?.trim()?.ifBlank { null }
-                        val lines = listOfNotNull(base, warn, err?.let { "错误：$it" })
-                        binding.textMusicHint.text = lines.joinToString("\n").trim()
+                        }
                     }
                 }
             }
@@ -951,8 +1005,20 @@ class DashboardFragment : Fragment() {
             }
         val artist = st.artist?.trim()?.ifBlank { null }
         val mode = modeLabel(st.playbackMode)
+        val live = radioLiveSimintController?.state?.value
+        val simintActive =
+            live != null &&
+                (live.isConnecting || live.isRunning) &&
+                !live.agentsRadioPath.isNullOrBlank() &&
+                live.agentsRadioPath == st.agentsPath
+        val simintLabel =
+            if (simintActive) {
+                "同传：${live?.targetLanguageLabel.orEmpty().ifBlank { live?.targetLanguageCode.orEmpty() }}"
+            } else {
+                null
+            }
         binding.textMusicSubtitle.text =
-            listOfNotNull(artist, mode, timeLabel).joinToString(" · ").ifBlank { timeLabel }
+            listOfNotNull(artist, mode, timeLabel, simintLabel).joinToString(" · ").ifBlank { timeLabel }
 
         binding.progressMusic.isIndeterminate = st.isLive
         val progress =
@@ -964,14 +1030,18 @@ class DashboardFragment : Fragment() {
         binding.progressMusic.progress = progress
 
         binding.buttonMusicPlayPause.setImageResource(
-            if (st.isPlaying) com.lsl.kotlin_agent_app.R.drawable.ic_pause_24 else com.lsl.kotlin_agent_app.R.drawable.ic_play_arrow_24
+            when {
+                simintActive -> com.lsl.kotlin_agent_app.R.drawable.ic_stop
+                st.isPlaying -> com.lsl.kotlin_agent_app.R.drawable.ic_pause_24
+                else -> com.lsl.kotlin_agent_app.R.drawable.ic_play_arrow_24
+            }
         )
 
         val canSkip = (st.queueSize ?: 0) > 1
-        binding.buttonMusicPrev.isEnabled = canSkip
-        binding.buttonMusicPrev.alpha = if (canSkip) 1.0f else 0.4f
-        binding.buttonMusicNext.isEnabled = canSkip
-        binding.buttonMusicNext.alpha = if (canSkip) 1.0f else 0.4f
+        binding.buttonMusicPrev.isEnabled = canSkip && !simintActive
+        binding.buttonMusicPrev.alpha = if (canSkip && !simintActive) 1.0f else 0.4f
+        binding.buttonMusicNext.isEnabled = canSkip && !simintActive
+        binding.buttonMusicNext.alpha = if (canSkip && !simintActive) 1.0f else 0.4f
 
         val cover = st.coverArtBytes
         if (cover != null && cover.isNotEmpty()) {
@@ -1008,11 +1078,18 @@ class DashboardFragment : Fragment() {
         val dialog = BottomSheetDialog(requireContext())
         val sheet = BottomSheetMusicPlayerBinding.inflate(layoutInflater)
 
-        sheet.sheetPrev.setOnClickListener { musicController.prev() }
-        sheet.sheetPlayPause.setOnClickListener { musicController.togglePlayPause() }
-        sheet.sheetNext.setOnClickListener { musicController.next() }
-        sheet.sheetStop.setOnClickListener { musicController.stop() }
-        sheet.sheetRecord.setOnClickListener { toggleRecordingFromUi() }
+        sheet.sheetPrev.setOnClickListener { onMusicPrevClicked(musicController) }
+        sheet.sheetPlayPause.setOnClickListener { onMusicPlayPauseClicked(musicController) }
+        sheet.sheetNext.setOnClickListener { onMusicNextClicked(musicController) }
+        sheet.sheetStop.setOnClickListener { onMusicStopClicked(musicController) }
+        sheet.sheetRecord.setOnClickListener {
+            if (!isRadioLiveSimintActive()) {
+                toggleRecordingFromUi()
+            }
+        }
+        sheet.sheetLive.setOnClickListener {
+            toggleRadioLiveFromUi(musicController)
+        }
 
         sheet.sheetMode.setOnClickListener {
             val cur = musicController.state.value.playbackMode
@@ -1064,6 +1141,78 @@ class DashboardFragment : Fragment() {
         updateMusicSheetIfVisible(musicController.state.value)
 
         dialog.show()
+    }
+
+    private fun isRadioLiveSimintActive(): Boolean {
+        val live = radioLiveSimintController?.state?.value ?: return false
+        return live.isConnecting || live.isRunning
+    }
+
+    private fun onMusicPlayPauseClicked(musicController: com.lsl.kotlin_agent_app.media.MusicPlayerController) {
+        if (isRadioLiveSimintActive()) {
+            radioLiveSimintController?.stop()
+            return
+        }
+        musicController.togglePlayPause()
+    }
+
+    private fun onMusicPrevClicked(musicController: com.lsl.kotlin_agent_app.media.MusicPlayerController) {
+        if (isRadioLiveSimintActive()) return
+        musicController.prev()
+    }
+
+    private fun onMusicNextClicked(musicController: com.lsl.kotlin_agent_app.media.MusicPlayerController) {
+        if (isRadioLiveSimintActive()) return
+        musicController.next()
+    }
+
+    private fun onMusicStopClicked(musicController: com.lsl.kotlin_agent_app.media.MusicPlayerController) {
+        if (isRadioLiveSimintActive()) {
+            radioLiveSimintController?.stop()
+            return
+        }
+        musicController.stop()
+    }
+
+    private fun toggleRadioLiveFromUi(musicController: com.lsl.kotlin_agent_app.media.MusicPlayerController) {
+        val st = musicController.state.value
+        val agentsPath = st.agentsPath?.trim()?.ifBlank { null }
+        val isRadio = st.isLive && agentsPath != null && agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(agentsPath)
+        if (!isRadio) {
+            Toast.makeText(requireContext(), "仅在播放电台时可启用 Live", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val ctrl = radioLiveSimintController ?: return
+        if (ctrl.isActive()) {
+            ctrl.stop()
+            return
+        }
+
+        TranslationLanguagePickerDialog.show(
+            context = requireContext(),
+            title = "Live 目标语言",
+        ) { picked ->
+            val label = picked.label.substringAfter(' ', missingDelimiterValue = picked.label).trim().ifBlank { picked.code }
+            val prefs = requireContext().getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString(AppPrefsKeys.RADIO_LIVE_SIMINT_TARGET_LANG_CODE, picked.code)
+                .putString(AppPrefsKeys.RADIO_LIVE_SIMINT_TARGET_LANG_LABEL, label)
+                .apply()
+
+            radioLiveResumeOriginal = st.isPlaying
+            radioLiveAgentsPath = agentsPath
+            if (st.isPlaying) {
+                musicController.togglePlayPause()
+            }
+
+            ctrl.start(
+                agentsRadioPath = agentsPath,
+                targetLanguageCode = picked.code,
+                targetLanguageLabel = label,
+            )
+            Toast.makeText(requireContext(), "Live 同传：$label", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun toggleRecordingFromUi() {
@@ -1165,9 +1314,15 @@ class DashboardFragment : Fragment() {
     private fun updateRecordingButtons(st: com.lsl.kotlin_agent_app.media.MusicNowPlayingState) {
         val agentsPath = st.agentsPath?.trim()?.ifBlank { null }
         val isRadio = st.isLive && agentsPath != null && agentsPath.endsWith(".radio", ignoreCase = true) && isInRadiosTree(agentsPath)
+        val live = radioLiveSimintController?.state?.value
+        val simintActive =
+            live != null &&
+                (live.isConnecting || live.isRunning) &&
+                !live.agentsRadioPath.isNullOrBlank() &&
+                live.agentsRadioPath == agentsPath
         val isRecordingCurrent = isRadio && recordingByAgentsPath.containsKey(agentsPath!!)
 
-        binding.buttonMusicRecord.visibility = if (isRadio) View.VISIBLE else View.GONE
+        binding.buttonMusicRecord.visibility = if (isRadio && !simintActive) View.VISIBLE else View.GONE
         binding.buttonMusicRecord.setImageResource(
             if (isRecordingCurrent) com.lsl.kotlin_agent_app.R.drawable.ic_stop else com.lsl.kotlin_agent_app.R.drawable.ic_record_24
         )
@@ -1175,11 +1330,19 @@ class DashboardFragment : Fragment() {
 
         val sheet = musicSheetBinding
         if (sheet != null && musicSheetDialog?.isShowing == true) {
-            sheet.sheetRecord.visibility = if (isRadio) View.VISIBLE else View.GONE
+            sheet.sheetRecord.visibility = if (isRadio && !simintActive) View.VISIBLE else View.GONE
             sheet.sheetRecord.setImageResource(
                 if (isRecordingCurrent) com.lsl.kotlin_agent_app.R.drawable.ic_stop else com.lsl.kotlin_agent_app.R.drawable.ic_record_24
             )
             sheet.sheetRecord.contentDescription = if (isRecordingCurrent) "停止录制" else "开始录制"
+
+            sheet.sheetLive.visibility = if (isRadio) View.VISIBLE else View.GONE
+            sheet.sheetLive.text =
+                when {
+                    simintActive && live?.isConnecting == true -> "连接中…"
+                    simintActive -> "Stop Live"
+                    else -> "Live"
+                }
         }
     }
 
@@ -1653,15 +1816,26 @@ class DashboardFragment : Fragment() {
         sheet.sheetSubtitle.text = listOfNotNull(artist, album).joinToString(" · ")
         sheet.sheetMode.text = modeLabel(st.playbackMode)
 
+        val live = radioLiveSimintController?.state?.value
+        val simintActive =
+            live != null &&
+                (live.isConnecting || live.isRunning) &&
+                !live.agentsRadioPath.isNullOrBlank() &&
+                live.agentsRadioPath == st.agentsPath
+
         sheet.sheetPlayPause.setImageResource(
-            if (st.isPlaying) com.lsl.kotlin_agent_app.R.drawable.ic_pause_24 else com.lsl.kotlin_agent_app.R.drawable.ic_play_arrow_24
+            when {
+                simintActive -> com.lsl.kotlin_agent_app.R.drawable.ic_stop
+                st.isPlaying -> com.lsl.kotlin_agent_app.R.drawable.ic_pause_24
+                else -> com.lsl.kotlin_agent_app.R.drawable.ic_play_arrow_24
+            }
         )
 
         val canSkip = (st.queueSize ?: 0) > 1
-        sheet.sheetPrev.isEnabled = canSkip
-        sheet.sheetPrev.alpha = if (canSkip) 1.0f else 0.4f
-        sheet.sheetNext.isEnabled = canSkip
-        sheet.sheetNext.alpha = if (canSkip) 1.0f else 0.4f
+        sheet.sheetPrev.isEnabled = canSkip && !simintActive
+        sheet.sheetPrev.alpha = if (canSkip && !simintActive) 1.0f else 0.4f
+        sheet.sheetNext.isEnabled = canSkip && !simintActive
+        sheet.sheetNext.alpha = if (canSkip && !simintActive) 1.0f else 0.4f
 
         sheet.sheetMute.setImageResource(
             if (st.isMuted) com.lsl.kotlin_agent_app.R.drawable.ic_volume_off_24 else com.lsl.kotlin_agent_app.R.drawable.ic_volume_up_24
@@ -2739,6 +2913,11 @@ class DashboardFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        radioLiveSimintController?.stop()
+        radioLiveSimintController = null
+        radioLiveResumeOriginal = false
+        radioLiveAgentsPath = null
+        lastRadioLiveErrorToast = null
         editorDialog?.dismiss()
         editorDialog = null
         editorDialogPath = null
