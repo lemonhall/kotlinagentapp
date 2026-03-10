@@ -3,6 +3,7 @@ package com.lsl.kotlin_agent_app.ui.simultaneous_interpretation
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -55,13 +56,10 @@ internal class MicrophoneLiveTranslateAudioInputSource(
         }
 
         val record =
-            AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                sampleRateHz,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize,
-            )
+            createAudioRecord(bufferSize) ?: run {
+                onError(IllegalStateException("无法初始化麦克风"))
+                return
+            }
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
             onError(IllegalStateException("无法初始化麦克风"))
@@ -114,5 +112,33 @@ internal class MicrophoneLiveTranslateAudioInputSource(
         }
         audioRecord = null
         scope.cancel()
+    }
+
+    private fun createAudioRecord(bufferSize: Int): AudioRecord? {
+        val preferredSources =
+            buildList {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    add(MediaRecorder.AudioSource.UNPROCESSED)
+                }
+                add(MediaRecorder.AudioSource.MIC)
+            }
+
+        for (source in preferredSources) {
+            val record =
+                runCatching {
+                    AudioRecord(
+                        source,
+                        sampleRateHz,
+                        AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize,
+                    )
+                }.getOrNull()
+            if (record != null && record.state == AudioRecord.STATE_INITIALIZED) {
+                return record
+            }
+            runCatching { record?.release() }
+        }
+        return null
     }
 }
