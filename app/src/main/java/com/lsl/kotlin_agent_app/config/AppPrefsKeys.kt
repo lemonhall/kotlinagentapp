@@ -19,4 +19,6 @@ object AppPrefsKeys {
     const val MUSIC_VOLUME = "music.volume"
     const val MUSIC_MUTED = "music.muted"
     const val MUSIC_LAST_NONZERO_VOLUME = "music.last_nonzero_volume"
+
+    const val SIMINT_AUDIO_CAPTURE_MODE = "simint.audio_capture_mode"
 }

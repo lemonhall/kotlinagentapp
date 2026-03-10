@@ -48,6 +48,7 @@ class SimultaneousInterpretationActivity : ComponentActivity() {
                             onBack = { finish() },
                             onToggleSession = { toggleSession() },
                             onPickTargetLanguage = { showLanguagePicker() },
+                            onToggleAudioCaptureMode = { vm.toggleAudioCaptureMode() },
                         )
                     }
                 }

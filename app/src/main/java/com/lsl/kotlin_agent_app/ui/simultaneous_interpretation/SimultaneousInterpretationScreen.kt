@@ -3,6 +3,7 @@ package com.lsl.kotlin_agent_app.ui.simultaneous_interpretation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +35,7 @@ internal fun SimultaneousInterpretationScreen(
     onBack: () -> Unit,
     onToggleSession: () -> Unit,
     onPickTargetLanguage: () -> Unit,
+    onToggleAudioCaptureMode: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -55,11 +57,20 @@ internal fun SimultaneousInterpretationScreen(
                     .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedButton(
-                onClick = onPickTargetLanguage,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("目标语言：${state.targetLanguageLabel}")
+                OutlinedButton(
+                    onClick = onPickTargetLanguage,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("目标语言：${state.targetLanguageLabel}")
+                }
+                TextButton(onClick = onToggleAudioCaptureMode) {
+                    Text("音频：${state.audioCaptureMode.toUiLabel()}")
+                }
             }
 
             Card(modifier = Modifier.fillMaxWidth()) {

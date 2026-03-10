@@ -47,7 +47,10 @@ internal class DefaultLiveTranslateSessionController(
     context: Context,
     private val archiveManager: SimultaneousInterpretationArchiveManager,
     private val clientFactory: () -> AliyunLiveTranslateClient = { DashScopeAliyunLiveTranslateClient() },
-    private val audioInputSourceFactory: () -> LiveTranslateAudioInputSource = { MicrophoneLiveTranslateAudioInputSource() },
+    private val audioInputSourceFactory: (LiveTranslateSessionStartConfig) -> LiveTranslateAudioInputSource =
+        { config ->
+            MicrophoneLiveTranslateAudioInputSource(audioCaptureMode = config.audioCaptureMode)
+        },
     private val audioPlayerFactory: () -> LiveTranslateAudioPlayer = { AudioTrackLiveTranslateAudioPlayer() },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : LiveTranslateSessionController {
@@ -83,7 +86,7 @@ internal class DefaultLiveTranslateSessionController(
         archiveManager.appendEvent("session.started", sessionPath)
         val headsetConnected = isHeadsetConnected(appContext)
         val currentClient = clientFactory.invoke()
-        val currentInputSource = audioInputSourceFactory.invoke()
+        val currentInputSource = audioInputSourceFactory.invoke(config)
         val currentAudioPlayer = audioPlayerFactory.invoke()
         client = currentClient
         inputSource = currentInputSource

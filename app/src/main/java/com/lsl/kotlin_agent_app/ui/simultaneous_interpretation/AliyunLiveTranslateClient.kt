@@ -26,6 +26,7 @@ internal data class LiveTranslateSessionStartConfig(
     val apiKey: String,
     val targetLanguageCode: String,
     val targetLanguageLabel: String,
+    val audioCaptureMode: LiveTranslateAudioCaptureMode = LiveTranslateAudioCaptureMode.SENSITIVE,
     val model: String = LiveTranslateDefaults.MODEL,
     val websocketUrl: String = LiveTranslateDefaults.WEBSOCKET_URL,
     val voice: String = LiveTranslateDefaults.VOICE,

@@ -12,8 +12,14 @@ import kotlinx.coroutines.flow.update
 internal class SimultaneousInterpretationViewModel(
     private val sessionController: LiveTranslateSessionController,
     private val apiKeyProvider: () -> String,
+    private val configRepo: SharedPreferencesSimultaneousInterpretationConfigRepository,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(SimultaneousInterpretationUiState())
+    private val _uiState =
+        MutableStateFlow(
+            SimultaneousInterpretationUiState(
+                audioCaptureMode = configRepo.getAudioCaptureMode(),
+            ),
+        )
     internal val uiState: StateFlow<SimultaneousInterpretationUiState> = _uiState.asStateFlow()
 
     private var nextSegmentId: Long = 1L
@@ -114,6 +120,7 @@ internal class SimultaneousInterpretationViewModel(
                 apiKey = apiKey,
                 targetLanguageCode = state.targetLanguageCode,
                 targetLanguageLabel = state.targetLanguageLabel,
+                audioCaptureMode = state.audioCaptureMode,
             ),
         )
     }
@@ -143,6 +150,16 @@ internal class SimultaneousInterpretationViewModel(
         }
     }
 
+    fun toggleAudioCaptureMode() {
+        val next =
+            when (_uiState.value.audioCaptureMode) {
+                LiveTranslateAudioCaptureMode.SENSITIVE -> LiveTranslateAudioCaptureMode.CLEAR
+                LiveTranslateAudioCaptureMode.CLEAR -> LiveTranslateAudioCaptureMode.SENSITIVE
+            }
+        configRepo.saveAudioCaptureMode(next)
+        _uiState.update { it.copy(audioCaptureMode = next) }
+    }
+
     fun setError(message: String) {
         _uiState.update { it.copy(errorMessage = message) }
     }
@@ -159,6 +176,7 @@ internal class SimultaneousInterpretationViewModel(
             if (modelClass.isAssignableFrom(SimultaneousInterpretationViewModel::class.java)) {
                 val prefs = appContext.getSharedPreferences("kotlin-agent-app", Context.MODE_PRIVATE)
                 val configRepo = SharedPreferencesVoiceInputConfigRepository(prefs)
+                val simintConfigRepo = SharedPreferencesSimultaneousInterpretationConfigRepository(prefs)
                 @Suppress("UNCHECKED_CAST")
                 return SimultaneousInterpretationViewModel(
                     sessionController =
@@ -167,6 +185,7 @@ internal class SimultaneousInterpretationViewModel(
                             archiveManager = SimultaneousInterpretationArchiveManager(appContext),
                         ),
                     apiKeyProvider = { configRepo.get().apiKey },
+                    configRepo = simintConfigRepo,
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: $modelClass")

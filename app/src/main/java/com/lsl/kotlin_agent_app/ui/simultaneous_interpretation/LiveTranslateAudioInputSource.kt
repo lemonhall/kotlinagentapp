@@ -24,6 +24,7 @@ internal interface LiveTranslateAudioInputSource {
 }
 
 internal class MicrophoneLiveTranslateAudioInputSource(
+    private val audioCaptureMode: LiveTranslateAudioCaptureMode = LiveTranslateAudioCaptureMode.SENSITIVE,
     private val sampleRateHz: Int = LiveTranslateDefaults.INPUT_SAMPLE_RATE_HZ,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : LiveTranslateAudioInputSource {
@@ -116,11 +117,19 @@ internal class MicrophoneLiveTranslateAudioInputSource(
 
     private fun createAudioRecord(bufferSize: Int): AudioRecord? {
         val preferredSources =
-            buildList {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    add(MediaRecorder.AudioSource.UNPROCESSED)
-                }
-                add(MediaRecorder.AudioSource.MIC)
+            when (audioCaptureMode) {
+                LiveTranslateAudioCaptureMode.SENSITIVE -> listOf(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    MediaRecorder.AudioSource.MIC,
+                )
+
+                LiveTranslateAudioCaptureMode.CLEAR ->
+                    buildList {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            add(MediaRecorder.AudioSource.UNPROCESSED)
+                        }
+                        add(MediaRecorder.AudioSource.MIC)
+                    }
             }
 
         for (source in preferredSources) {
