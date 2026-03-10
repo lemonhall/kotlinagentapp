@@ -80,6 +80,7 @@ internal class DefaultLiveTranslateSessionController(
         }
         listener?.onSessionConnecting()
         val sessionPath = archiveManager.startNewSession(config.targetLanguageCode, config.targetLanguageLabel)
+        archiveManager.appendEvent("session.started", sessionPath)
         val headsetConnected = isHeadsetConnected(appContext)
         val currentClient = clientFactory.invoke()
         val currentInputSource = audioInputSourceFactory.invoke()
@@ -103,6 +104,7 @@ internal class DefaultLiveTranslateSessionController(
                                     synchronized(this@DefaultLiveTranslateSessionController) {
                                         pendingSources.addLast(transcript)
                                     }
+                                    archiveManager.appendEvent("source.transcript.completed", transcript)
                                     listener?.onSourceTranscriptCompleted(transcript)
                                 }
 
@@ -116,6 +118,7 @@ internal class DefaultLiveTranslateSessionController(
                                 }
 
                                 override fun onAudioDelta(bytes: ByteArray) {
+                                    archiveManager.appendOutputAudio(bytes)
                                     currentAudioPlayer.writePcm(bytes)
                                 }
 
@@ -132,6 +135,8 @@ internal class DefaultLiveTranslateSessionController(
                                             }
                                         }
                                     if (segment != null) {
+                                        archiveManager.appendSegment(segment.first, segment.second)
+                                        archiveManager.appendEvent("response.done", "${segment.first} -> ${segment.second}")
                                         listener?.onSegmentFinal(segment.first, segment.second)
                                     }
                                 }
@@ -140,7 +145,7 @@ internal class DefaultLiveTranslateSessionController(
                                     message: String,
                                     throwable: Throwable?,
                                 ) {
-                                    fail(message)
+                                    fail(message, throwable)
                                 }
 
                                 override fun onClosed(
@@ -148,7 +153,7 @@ internal class DefaultLiveTranslateSessionController(
                                     reason: String,
                                 ) {
                                     if (isRunning) {
-                                        stopInternal(notifyStopped = true)
+                                        stopInternal(notifyStopped = true, errorMessage = null)
                                     }
                                 }
                             },
@@ -157,28 +162,38 @@ internal class DefaultLiveTranslateSessionController(
                     currentInputSource.start(
                         onStarted = {},
                         onAudioFrame = { bytes ->
+                            archiveManager.appendInputAudio(bytes)
                             currentClient.appendAudioFrame(bytes)
                         },
                         onError = { t ->
-                            fail(t.message ?: "麦克风采集失败")
+                            fail(t.message ?: "麦克风采集失败", t)
                         },
                     )
                 } catch (t: Throwable) {
-                    fail(t.message ?: "同声传译启动失败")
+                    fail(t.message ?: "同声传译启动失败", t)
                 }
             }
     }
 
     override fun stop() {
-        stopInternal(notifyStopped = true)
+        stopInternal(notifyStopped = true, errorMessage = null)
     }
 
-    private fun fail(message: String) {
+    private fun fail(
+        message: String,
+        throwable: Throwable? = null,
+    ) {
+        val extra = throwable?.message?.trim()?.ifBlank { null }
+        val full = listOfNotNull(message.trim().ifBlank { null }, extra).joinToString(": ").trim().ifBlank { message }
+        archiveManager.appendEvent("session.error", full)
         listener?.onError(message)
-        stopInternal(notifyStopped = true)
+        stopInternal(notifyStopped = true, errorMessage = full)
     }
 
-    private fun stopInternal(notifyStopped: Boolean) {
+    private fun stopInternal(
+        notifyStopped: Boolean,
+        errorMessage: String?,
+    ) {
         if (!isRunning) return
         isRunning = false
         scope.launch {
@@ -197,6 +212,7 @@ internal class DefaultLiveTranslateSessionController(
             if (job != null) {
                 runCatching { job.cancelAndJoin() }
             }
+            archiveManager.finishSession(errorMessage)
             if (notifyStopped) {
                 listener?.onSessionStopped()
             }

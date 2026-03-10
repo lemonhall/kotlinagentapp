@@ -774,9 +774,9 @@ class FilesViewModel(
         return entries.map { e ->
             if (e.type == AgentsDirEntryType.Dir && e.name == "simultaneous_interpretation") {
                 e.copy(
-                    displayName = "simultaneous_interpretation\uff08\u540c\u58f0\u4f20\u8bd1\uff09",
+                    displayName = "simint（同声传译）",
                     subtitle = "\u8033\u673a\u573a\u666f\u4f4e\u5ef6\u8fdf\u8fde\u7eed\u540c\u4f20",
-                    iconEmoji = "\uD83C\uDFA7",
+                    iconEmoji = "🎧",
                 )
             } else {
                 e

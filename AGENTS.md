@@ -34,6 +34,7 @@
 ### Shell 环境
 
 - 默认 Shell 为 **PowerShell 7.x**（非 bash），所有命令片段优先使用 PowerShell 原生语法。
+- **永远使用 `pwsh.exe`** 执行命令（禁止使用 `powershell.exe` / Windows PowerShell 5.1）。
 - 命令连续执行使用 `;`（PS5/PS7 通用语句分隔符）。避免使用 `&&` / `||`，除非明确需要 PS7 的管道链条件控制语义。
 
 ### 常见 bash 写法的 PowerShell 对照
